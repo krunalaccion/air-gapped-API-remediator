@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "configurable-git-agent"
+version = "0.1.0"
+description = "Configurable Git Subagent & MCP Server for multi-agent vulnerability scanning and automated PR/MR creation"
+readme = "README.md"
+authors = [{ name = "GitAgent Developer" }]
+requires-python = ">=3.9"
+dependencies = [
+    # Zero mandatory third-party dependencies required; operates cleanly with Python standard library!
+    # Optional dependencies can be added for YAML/Pydantic/Requests if desired.
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+]
+extras = [
+    "pyyaml>=6.0",
+    "pydantic>=2.0.0",
+    "requests>=2.28.0",
+]
+
+[project.scripts]
+git-agent = "git_agent.cli:main"
+git-agent-mcp = "git_agent.mcp_server:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["git_agent*"]

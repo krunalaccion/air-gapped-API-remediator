@@ -1,0 +1,33 @@
+# Git SubAgent Configuration Example (YAML)
+
+# Target repository URL (GitHub or GitLab)
+repo_url: "https://github.com/octocat/Hello-World.git"
+
+# Personal Access Token (can also be read from GITHUB_TOKEN or GITLAB_TOKEN env vars)
+token: "ghp_xxxxxxxxxxxxxxxxxxxx"
+
+# Provider type: github, gitlab, or generic (auto-detected if omitted)
+provider: "github"
+
+# Branch configuration
+base_branch: "main"  # Set to null or "auto" to detect default branch automatically
+feature_branch_name: null  # Optional: specific feature branch name
+feature_branch_prefix: "security/vuln-scan-"
+
+# Optional: specify persistent directory, or leave null for isolated temp directory
+workspace_dir: null
+
+# Commit Author details
+author_name: "Security Remediation SubAgent"
+author_email: "sec-agent@automation.local"
+
+# Pull Request / Merge Request configuration
+default_pr_title: "[Security] Automated vulnerability audit and remediation fixes"
+default_pr_body: |
+  ## Security Audit Remediation Summary
+  
+  This Pull Request was generated automatically by the security multi-agent pipeline.
+  All patches resolve vulnerabilities identified during the automated audit scan.
+  
+  Please review the proposed changes and run CI tests before merging.
+draft_pr: false

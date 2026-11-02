@@ -1,0 +1,125 @@
+"""
+Example implementation showing how GitSubAgent is injected into a Multi-Agent system
+alongside a Vulnerability Scanner / Remediation Agent.
+
+Architecture:
+  ┌─────────────────────────────────────────────────────────────┐
+  │                 Multi-Agent Orchestrator                    │
+  └──────────────┬───────────────────────────────┬──────────────┘
+                 │ 1. prepare_workspace()        │ 3. finalize_workspace()
+                 ▼                               ▼
+       ┌──────────────────┐            ┌──────────────────┐
+       │   GitSubAgent    │            │   GitSubAgent    │
+       │ (Clones & Branch)│            │ (Commits & Opens)│
+       └────────┬─────────┘            └────────▲─────────┘
+                │ Workspace Path                │ Fixes Applied
+                ▼                               │
+       ┌────────────────────────────────────────┴─────────┐
+       │             VulnerabilityAuditAgent              │
+       │  (Scans code, fixes flaws, creates changelog)    │
+       └──────────────────────────────────────────────────┘
+"""
+
+from __future__ import annotations
+import logging
+from pathlib import Path
+from typing import Dict, Any, List
+
+from git_agent.agent import GitSubAgent, WorkspaceContext, FinalizeResult
+from git_agent.config import GitAgentConfig
+
+logger = logging.getLogger("multi_agent_orchestrator")
+
+
+class MockVulnerabilityScannerAgent:
+    """
+    Example specialist agent representing a Security / Vulnerability Scanner.
+    It inspects code in the workspace prepared by GitSubAgent, detects vulnerabilities,
+    and applies automated security remediations.
+    """
+
+    def __init__(self, agent_name: str = "SecAuditAgent"):
+        self.agent_name = agent_name
+
+    def scan_and_remediate(self, workspace_path: Path) -> Dict[str, Any]:
+        """
+        Scans files in workspace_path, applies fixes, and generates an audit report.
+        """
+        logger.info("[%s] Scanning workspace at %s...", self.agent_name, workspace_path)
+
+        findings: List[Dict[str, str]] = []
+        files_modified: List[str] = []
+
+        # Example: Search for insecure patterns or create a security advisory/patch
+        # In a real scanner, this calls tools like Semgrep, Bandit, Trivy, or an LLM auditor.
+        security_report_file = workspace_path / "SECURITY_AUDIT.md"
+        report_content = (
+            "# Security Vulnerability Audit Report\n\n"
+            f"**Auditor Agent**: {self.agent_name}\n"
+            f"**Scan Date**: Automated Audit\n\n"
+            "## Findings & Remediations\n"
+            "1. **Dependency Audit**: Verified all pinned packages against known CVEs.\n"
+            "2. **Configuration Hardening**: Verified security headers and secret management.\n"
+            "3. **Code Safety**: Analyzed source files for SQL injection and unsafe input handling.\n\n"
+            "## Remediation Actions Applied\n"
+            "- Added security audit manifest and updated dependencies.\n"
+        )
+        security_report_file.write_text(report_content, encoding="utf-8")
+        files_modified.append("SECURITY_AUDIT.md")
+
+        return {
+            "vulnerabilities_found": len(findings),
+            "files_modified": files_modified,
+            "report_summary": report_content,
+        }
+
+
+class MultiAgentOrchestrator:
+    """
+    Coordinates subagents in the multi-agent system.
+    Demonstrates injecting GitSubAgent as the repository lifecycle specialist.
+    """
+
+    def __init__(self, git_config: GitAgentConfig):
+        # Inject the GitSubAgent
+        self.git_agent = GitSubAgent(git_config)
+        # Inject the Vulnerability Agent
+        self.sec_agent = MockVulnerabilityScannerAgent()
+
+    def run_vulnerability_remediation_pipeline(self) -> FinalizeResult:
+        """
+        Executes end-to-end multi-agent workflow:
+        1. GitSubAgent clones repo & creates feature branch.
+        2. SecAuditAgent scans repo & writes remediation fixes.
+        3. GitSubAgent commits fixes & opens Pull/Merge Request.
+        """
+        logger.info("=== STEP 1: GitSubAgent Prepares Workspace ===")
+        ctx: WorkspaceContext = self.git_agent.prepare_workspace()
+        logger.info(
+            "Workspace ready at %s on feature branch '%s' (base: '%s')",
+            ctx.repo_path,
+            ctx.feature_branch,
+            ctx.base_branch,
+        )
+
+        logger.info("=== STEP 2: SecAuditAgent Performs Scan & Remediation ===")
+        audit_results = self.sec_agent.scan_and_remediate(ctx.repo_path)
+        logger.info("Audit completed. Modified files: %s", audit_results["files_modified"])
+
+        logger.info("=== STEP 3: GitSubAgent Finalizes and Opens PR ===")
+        pr_title = f"fix(security): automated vulnerability audit remediations"
+        pr_body = (
+            f"## Security Audit Remediation Summary\n\n"
+            f"{audit_results['report_summary']}\n\n"
+            f"---\n"
+            f"*Generated by Multi-Agent Workflow (GitSubAgent + {self.sec_agent.agent_name})*"
+        )
+
+        finalize_result = self.git_agent.finalize_workspace(
+            commit_message="fix(security): apply automated vulnerability fixes and audit report",
+            pr_title=pr_title,
+            pr_body=pr_body,
+        )
+
+        logger.info("=== Multi-Agent Pipeline Completed Successfully ===")
+        return finalize_result
