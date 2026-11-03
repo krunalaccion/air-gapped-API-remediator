@@ -100,6 +100,34 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json({"diff": diff})
             return
 
+        elif path == "/api/local-pr":
+            if not ACTIVE_GIT_AGENT:
+                self._send_json({"error": "No active repository prepared"}, status=400)
+                return
+            repo_path = ACTIVE_GIT_AGENT.get_workspace_path()
+            prs_dir = repo_path / ".git" / "local_prs"
+            if not prs_dir.exists():
+                prs_dir = repo_path / ".local_prs"
+
+            parsed_query = urllib.parse.parse_qs(parsed.query)
+            pr_num = parsed_query.get("number", [None])[0]
+            if pr_num:
+                md_path = prs_dir / f"PR-{pr_num}.md"
+            else:
+                prs = sorted(prs_dir.glob("PR-*.md"), key=lambda p: p.stat().st_mtime, reverse=True)
+                md_path = prs[0] if prs else None
+
+            if not md_path or not md_path.exists():
+                self._send_json({"error": "No local PR report found"}, status=404)
+                return
+
+            self._send_json({
+                "file_path": str(md_path.resolve()),
+                "filename": md_path.name,
+                "content": md_path.read_text(encoding="utf-8"),
+            })
+            return
+
         elif path == "/" or path == "/index.html":
             html_file = get_web_dir() / "index.html"
             if html_file.exists():
@@ -280,10 +308,21 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                     draft=draft,
                 )
                 pr_label = "Pull Request" if pr.provider != "local" else "Local Pull Request"
+                file_path = ""
+                md_content = ""
+                if pr.provider == "local" and pr.raw_response and "md_file" in pr.raw_response:
+                    file_path = pr.raw_response["md_file"]
+                    try:
+                        md_content = Path(file_path).read_text(encoding="utf-8")
+                    except Exception:
+                        pass
+
                 self._send_json({
                     "message": f"{pr_label} created successfully",
                     "pr_number": pr.number,
                     "pr_url": pr.url,
+                    "pr_file_path": file_path,
+                    "pr_content": md_content,
                     "title": pr.title,
                     "provider": pr.provider,
                 })

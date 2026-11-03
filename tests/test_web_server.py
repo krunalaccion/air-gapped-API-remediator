@@ -163,5 +163,52 @@ class TestAirGappedScannerAndRemediator(unittest.TestCase):
         self.assertIn('validate-path', content)
 
 
+    def _call_get(self, path: str) -> tuple[int, dict]:
+        handler = MultiAgentAPIHandler.__new__(MultiAgentAPIHandler)
+        handler.rfile = io.BytesIO(b"")
+        handler.wfile = io.BytesIO()
+        handler.headers = {}
+        handler.path = path
+        handler.send_response = MagicMock()
+        handler.send_header = MagicMock()
+        handler.end_headers = MagicMock()
+
+        handler.do_GET()
+        status_code = handler.send_response.call_args[0][0] if handler.send_response.call_args else 200
+        response_data = json.loads(handler.wfile.getvalue().decode("utf-8")) if handler.wfile.getvalue() else {}
+        return status_code, response_data
+
+    def test_api_local_pr_endpoint(self):
+        import web_server
+        # Prepare workspace on a local git repo
+        local_repo = self.temp_dir / "my_local_test_repo"
+        local_repo.mkdir()
+        subprocess.run(["git", "init", "-b", "main"], cwd=str(local_repo), check=True, capture_output=True)
+        (local_repo / "README.md").write_text("# Test Repo\n")
+        subprocess.run(["git", "add", "."], cwd=str(local_repo), check=True, capture_output=True)
+        subprocess.run(["git", "-c", "commit.gpgsign=false", "-c", "user.name=Test", "-c", "user.email=test@test.local", "commit", "-m", "init"], cwd=str(local_repo), check=True, capture_output=True)
+
+        # Call /api/prepare
+        status, prep_data = self._call_post("/api/prepare", {"repo_url": str(local_repo)})
+        self.assertEqual(status, 200)
+
+        # Call /api/create-pr
+        status, pr_data = self._call_post("/api/create-pr", {
+            "title": "Local Test PR",
+            "description": "Testing local pull request retrieval",
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(pr_data.get("provider"), "local")
+        self.assertIn("PR-1.md", pr_data.get("pr_file_path", ""))
+        self.assertIn("Local Test PR", pr_data.get("pr_content", ""))
+
+        # Call GET /api/local-pr
+        status, get_data = self._call_get("/api/local-pr")
+        self.assertEqual(status, 200)
+        self.assertIn("content", get_data)
+        self.assertIn("Local Test PR", get_data["content"])
+        self.assertEqual(get_data.get("filename"), "PR-1.md")
+
+
 if __name__ == "__main__":
     unittest.main()
