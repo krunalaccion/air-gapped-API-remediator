@@ -144,6 +144,11 @@ class GitSubAgent(BaseAgent):
         """
         logger.info("Preparing workspace for repo: %s", self.config.sanitized_repo_url)
 
+        # Validate that local repository exists and has git
+        if self.config.is_local or self.config.provider == ProviderType.LOCAL:
+            if self.provider and hasattr(self.provider, "check_is_git_repository"):
+                self.provider.check_is_git_repository()
+
         # 1. Clone repository
         clone_url = self.config.authenticated_clone_url
         self.workspace.clone(clone_url)

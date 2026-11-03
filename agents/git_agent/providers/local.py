@@ -72,6 +72,15 @@ class LocalProvider(GitProvider):
             return True
         return False
 
+    def check_is_git_repository(self) -> None:
+        """Verify repository path exists and has git; raise error if not."""
+        if not self.repo_path.exists():
+            raise FileNotFoundError(f"Selected repository path does not exist: {self.repo_path}")
+        if not self.verify_access():
+            raise ValueError(
+                f"Selected path '{self.repo_path}' is not a Git repository (missing '.git' directory)."
+            )
+
     def get_default_branch(self) -> str:
         """
         Determine default branch (e.g. 'main' or 'master') of the local repository.

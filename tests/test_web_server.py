@@ -2,13 +2,17 @@
 Unit tests for web server API endpoints and Air-Gapped API Remediator logic.
 """
 
+import io
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import MagicMock
 
 from agents.scanner_agent.agent import ScannerAgent
 from agents.remediator_agent.agent import RemediatorAgent
+from web_server import MultiAgentAPIHandler
 
 
 class TestAirGappedScannerAndRemediator(unittest.TestCase):
@@ -50,6 +54,83 @@ class TestAirGappedScannerAndRemediator(unittest.TestCase):
         self.assertIn("AIRGAP_SECURITY_AUDIT.md", result["files_modified"])
         self.assertTrue((self.temp_dir / "config" / "airgap_proxy.json").exists())
         self.assertTrue((self.temp_dir / "AIRGAP_SECURITY_AUDIT.md").exists())
+
+    def _call_post(self, path: str, payload: dict) -> tuple[int, dict]:
+        handler = MultiAgentAPIHandler.__new__(MultiAgentAPIHandler)
+        body = json.dumps(payload).encode("utf-8")
+        handler.rfile = io.BytesIO(body)
+        handler.wfile = io.BytesIO()
+        handler.headers = {"Content-Length": str(len(body))}
+        handler.path = path
+        handler.send_response = MagicMock()
+        handler.send_header = MagicMock()
+        handler.end_headers = MagicMock()
+
+        handler.do_POST()
+        status_code = handler.send_response.call_args[0][0] if handler.send_response.call_args else 200
+        response_data = json.loads(handler.wfile.getvalue().decode("utf-8")) if handler.wfile.getvalue() else {}
+        return status_code, response_data
+
+    def test_validate_path_git_repo(self):
+        # Create a git repo
+        git_dir = self.temp_dir / "valid_git_repo"
+        git_dir.mkdir()
+        subprocess.run(["git", "init"], cwd=str(git_dir), check=True, capture_output=True)
+
+        status, data = self._call_post("/api/validate-path", {"path": str(git_dir)})
+        self.assertEqual(status, 200)
+        self.assertTrue(data.get("valid"))
+        self.assertTrue(data.get("has_git"))
+        self.assertEqual(data.get("path"), str(git_dir.resolve()))
+
+    def test_validate_path_non_git_repo_returns_error(self):
+        # Directory without .git
+        non_git = self.temp_dir / "non_git_folder"
+        non_git.mkdir()
+
+        status, data = self._call_post("/api/validate-path", {"path": str(non_git)})
+        self.assertEqual(status, 400)
+        self.assertFalse(data.get("valid"))
+        self.assertFalse(data.get("has_git"))
+        self.assertIn("is not a Git repository", data.get("error", ""))
+        self.assertIn("missing '.git' directory", data.get("error", ""))
+
+    def test_validate_path_non_existent(self):
+        non_existent = self.temp_dir / "does_not_exist"
+        status, data = self._call_post("/api/validate-path", {"path": str(non_existent)})
+        self.assertEqual(status, 400)
+        self.assertFalse(data.get("valid"))
+        self.assertIn("does not exist", data.get("error", ""))
+
+    def test_api_prepare_non_git_repo_returns_error(self):
+        # Local path without .git must be rejected by /api/prepare
+        non_git = self.temp_dir / "not_a_repo"
+        non_git.mkdir()
+
+        status, data = self._call_post("/api/prepare", {"repo_url": str(non_git)})
+        self.assertEqual(status, 400)
+        self.assertIn("error", data)
+        self.assertIn("is not a Git repository", data["error"])
+        self.assertIn("Missing '.git' directory", data["error"])
+
+    def test_api_fs_list_directories(self):
+        # Create a git subfolder and a non-git subfolder
+        git_sub = self.temp_dir / "repo_a"
+        git_sub.mkdir()
+        subprocess.run(["git", "init"], cwd=str(git_sub), check=True, capture_output=True)
+
+        regular_sub = self.temp_dir / "docs"
+        regular_sub.mkdir()
+
+        status, data = self._call_post("/api/fs/list", {"path": str(self.temp_dir)})
+        self.assertEqual(status, 200)
+        folders = {f["name"]: f for f in data.get("folders", [])}
+
+        self.assertIn("repo_a", folders)
+        self.assertTrue(folders["repo_a"]["has_git"])
+
+        self.assertIn("docs", folders)
+        self.assertFalse(folders["docs"]["has_git"])
 
 
 if __name__ == "__main__":

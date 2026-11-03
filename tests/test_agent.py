@@ -146,6 +146,22 @@ class TestGitSubAgent(unittest.TestCase):
         # Verify PR record file exists in .git/local_prs
         self.assertTrue((local_repo / ".git" / "local_prs" / "PR-1.md").exists())
 
+    def test_local_repo_without_git_throws_error(self):
+        # Create non-git folder
+        non_git_dir = self.temp_dir / "plain_folder_without_git"
+        non_git_dir.mkdir(parents=True, exist_ok=True)
+        (non_git_dir / "notes.txt").write_text("just files, no git")
+
+        config = GitAgentConfig(repo_url=str(non_git_dir))
+        agent = GitSubAgent(config)
+
+        # Calling prepare_workspace must throw error
+        with self.assertRaises(ValueError) as ctx:
+            agent.prepare_workspace()
+
+        self.assertIn("is not a Git repository", str(ctx.exception))
+        self.assertIn("missing '.git' directory", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

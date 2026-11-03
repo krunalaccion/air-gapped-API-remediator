@@ -195,13 +195,23 @@
 
           <div class="space-y-3">
             <div>
-              <label class="block text-xs font-medium text-[var(--muted-foreground)] mb-1">
-                Target Repository URL or Local Path
-                <span class="text-[10px] text-blue-400 font-normal ml-1">Supports GitHub, GitLab, and local repos (/path/to/project)</span>
+              <label class="block text-xs font-medium text-[var(--muted-foreground)] mb-1 flex items-center justify-between">
+                <span>Target Repository URL or Local Path</span>
+                <span class="text-[10px] text-blue-400 font-normal">GitHub, GitLab, or Local Folders</span>
               </label>
-              <input type="text" id="repoUrl" value="https://github.com/krunal0406/airgap-remediator-day1.git"
-                placeholder="https://github.com/owner/repo.git or /path/to/local/project"
-                class="w-full text-xs font-mono px-3 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)] text-white focus:outline-none focus:border-blue-500">
+              <div class="flex gap-2">
+                <input type="text" id="repoUrl" value="https://github.com/krunal0406/airgap-remediator-day1.git"
+                  placeholder="https://github.com/owner/repo.git or /path/to/local/project"
+                  oninput="handlePathInput(this.value)"
+                  class="flex-1 text-xs font-mono px-3 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)] text-white focus:outline-none focus:border-blue-500 transition">
+                <button type="button" onclick="openFolderPickerModal()" id="btnSelectFolder"
+                  class="px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 border border-[var(--border)] text-xs text-white flex items-center gap-1.5 transition shadow-sm font-medium whitespace-nowrap"
+                  title="Choose local directory from system or directory browser">
+                  <span>📁</span>
+                  <span>Select Folder</span>
+                </button>
+              </div>
+              <div id="pathValidationStatus" class="hidden mt-1.5 p-2 rounded-lg text-[11px] font-mono flex items-center gap-1.5"></div>
             </div>
 
             <div>
@@ -721,12 +731,31 @@ This automated remediation replaces external outbound network API calls with com
 
     // Step 1: Repository Preparation
     async function handlePrepare() {
-      const repoUrl = document.getElementById("repoUrl").value;
+      const repoUrl = document.getElementById("repoUrl").value.trim();
       const baseBranch = document.getElementById("baseBranch").value;
       const featureBranch = document.getElementById("featureBranch").value;
       const gitToken = document.getElementById("gitToken").value.trim();
 
-      const isLocal = repoUrl.startsWith("/") || repoUrl.startsWith("~") || repoUrl.startsWith("./") || repoUrl.startsWith("file://") || repoUrl === ".";
+      if (!repoUrl) {
+        alert("Please enter a Target Repository URL or select a local path.");
+        return;
+      }
+
+      const isLocal = repoUrl.startsWith("/") || repoUrl.startsWith("~") || repoUrl.startsWith("./") || repoUrl.startsWith("../") || repoUrl.startsWith("file://") || repoUrl === "." || /^[a-zA-Z]:[\\/]/.test(repoUrl);
+
+      // Validate local repository has .git before attempting prepare
+      if (isLocal) {
+        log(`Checking if selected path '${repoUrl}' is a Git repository...`, "info", "GitSubAgent");
+        const check = await apiPost("/api/validate-path", { path: repoUrl });
+        if (!check.valid || !check.has_git) {
+          const errMsg = check.error || `Selected path '${repoUrl}' is not a Git repository. Missing '.git' directory.`;
+          log(`Error: ${errMsg}`, "error", "GitSubAgent");
+          showPathFeedback(`❌ ${errMsg}`, false);
+          alert(`Error: ${errMsg}`);
+          return;
+        }
+      }
+
       log(isLocal ? `Preparing local repository ${repoUrl}...` : `Cloning ${repoUrl}...`, "info", "GitSubAgent");
       document.getElementById("btnPrepare").disabled = true;
       document.getElementById("btnPrepare").textContent = isLocal ? "Preparing local repository & branch..." : "Cloning repository & branching...";
@@ -743,9 +772,12 @@ This automated remediation replaces external outbound network API calls with com
 
       if (res.error) {
         log(`Prepare failed: ${res.error}`, "error", "GitSubAgent");
+        showPathFeedback(`❌ ${res.error}`, false);
+        alert(`Prepare failed: ${res.error}`);
       } else {
         log(`Workspace ready on branch: ${res.context.feature_branch}`, "success", "GitSubAgent");
         document.getElementById("currentBranchDisplay").textContent = res.context.feature_branch;
+        showPathFeedback(`✓ Active Repository: ${res.context.repo_path} (${res.context.provider})`, true);
         setStage(1, "DONE", true);
         setStage(2, "READY");
         refreshStatus();
@@ -930,9 +962,255 @@ This automated remediation replaces external outbound network API calls with com
       alert("Multi-Agent Architecture:\n\nTo add a new agent, simply create a subfolder in `agents/` (e.g. `agents/compliance_agent/agent.py`) extending `BaseAgent` and register it with `AgentRegistry.register()`. It will automatically appear here in the common UI!");
     }
 
+    // ==========================================
+    // Local Folder Picker & Validation Handling
+    // ==========================================
+    let currentModalPath = "";
+    let currentModalHasGit = false;
+    let modalParentPath = null;
+    let pathValidationTimeout = null;
+
+    function showPathFeedback(msg, isSuccess) {
+      const el = document.getElementById("pathValidationStatus");
+      const input = document.getElementById("repoUrl");
+      if (!msg) {
+        el.classList.add("hidden");
+        input.classList.remove("border-emerald-500", "border-rose-500");
+        return;
+      }
+      el.classList.remove("hidden");
+      el.textContent = msg;
+      if (isSuccess) {
+        el.className = "mt-1.5 p-2 rounded-lg text-[11px] font-mono flex items-center gap-1.5 bg-emerald-950/40 text-emerald-400 border border-emerald-500/30";
+        input.classList.remove("border-rose-500");
+        input.classList.add("border-emerald-500");
+      } else {
+        el.className = "mt-1.5 p-2 rounded-lg text-[11px] font-mono flex items-center gap-1.5 bg-rose-950/40 text-rose-400 border border-rose-500/30";
+        input.classList.remove("border-emerald-500");
+        input.classList.add("border-rose-500");
+      }
+    }
+
+    function handlePathInput(val) {
+      clearTimeout(pathValidationTimeout);
+      const trimmed = val.trim();
+      const isLocal = trimmed.startsWith("/") || trimmed.startsWith("~") || trimmed.startsWith("./") || trimmed.startsWith("../") || trimmed.startsWith("file://") || trimmed === "." || /^[a-zA-Z]:[\\/]/.test(trimmed);
+      if (!isLocal || !trimmed) {
+        showPathFeedback("", false);
+        return;
+      }
+      pathValidationTimeout = setTimeout(async () => {
+        const res = await apiPost("/api/validate-path", { path: trimmed });
+        if (res.valid && res.has_git) {
+          showPathFeedback(`✓ Valid Git repository detected (${res.path})`, true);
+        } else {
+          showPathFeedback(`❌ ${res.error || "Not a Git repository (missing .git directory)"}`, false);
+        }
+      }, 350);
+    }
+
+    function openFolderPickerModal() {
+      document.getElementById("folderModal").classList.remove("hidden");
+      loadFolderList(currentModalPath || "");
+    }
+
+    function closeFolderPickerModal() {
+      document.getElementById("folderModal").classList.add("hidden");
+      document.getElementById("modalStatusAlert").classList.add("hidden");
+    }
+
+    async function loadFolderList(targetPath) {
+      const container = document.getElementById("folderListContainer");
+      container.innerHTML = `<div class="text-xs text-zinc-400 text-center py-8 flex items-center justify-center gap-2"><span>⏳</span> Loading directories...</div>`;
+      document.getElementById("modalStatusAlert").classList.add("hidden");
+
+      try {
+        const res = await apiPost("/api/fs/list", { path: targetPath || "" });
+        currentModalPath = res.current_path;
+        currentModalHasGit = res.current_has_git;
+        modalParentPath = res.parent_path;
+
+        document.getElementById("modalCurrentPath").value = res.current_path;
+        document.getElementById("btnNavParent").disabled = !res.parent_path;
+        document.getElementById("btnNavParent").className = res.parent_path ?
+          "px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300 font-mono flex items-center gap-1 cursor-pointer" :
+          "px-2.5 py-1 rounded bg-zinc-900 text-xs text-zinc-600 font-mono flex items-center gap-1 cursor-not-allowed";
+
+        const btnConfirm = document.getElementById("btnConfirmFolder");
+        if (res.current_has_git) {
+          btnConfirm.className = "px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-sm transition flex items-center gap-1.5 cursor-pointer";
+          btnConfirm.innerHTML = `<span>✓ Select This Git Repo</span>`;
+        } else {
+          btnConfirm.className = "px-4 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold shadow-sm transition flex items-center gap-1.5 cursor-pointer";
+          btnConfirm.innerHTML = `<span>Select Current Folder</span>`;
+        }
+
+        if (!res.folders || res.folders.length === 0) {
+          container.innerHTML = `<div class="text-xs text-zinc-500 text-center py-8">No subdirectories found in this folder.</div>`;
+          return;
+        }
+
+        let html = "";
+        for (const f of res.folders) {
+          const escPath = f.path.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+          html += `
+            <div class="p-2 rounded-lg border ${f.has_git ? 'border-emerald-500/30 bg-emerald-950/20' : 'border-[var(--border)] bg-[var(--card)]'} hover:bg-zinc-800/60 transition flex items-center justify-between gap-3">
+              <div class="flex items-center gap-2.5 min-w-0 cursor-pointer flex-1" onclick="loadFolderList('${escPath}')">
+                <span class="text-base">${f.has_git ? '📦' : '📁'}</span>
+                <div class="truncate">
+                  <div class="text-xs font-mono font-medium ${f.has_git ? 'text-emerald-300' : 'text-zinc-200'} truncate">${f.name}</div>
+                  <div class="text-[10px] text-[var(--muted-foreground)] truncate">${f.path}</div>
+                </div>
+              </div>
+              <div class="flex items-center gap-1.5 flex-shrink-0">
+                ${f.has_git ? '<span class="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">Git Repo</span>' : ''}
+                <button type="button" onclick="selectFolder('${escPath}', ${f.has_git})"
+                  class="px-2.5 py-1 rounded ${f.has_git ? 'bg-emerald-600 hover:bg-emerald-500 text-white font-semibold' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'} text-xs transition">
+                  Select
+                </button>
+                <button type="button" onclick="loadFolderList('${escPath}')"
+                  class="px-2 py-1 rounded hover:bg-zinc-700 text-zinc-400 text-xs transition" title="Open directory">
+                  ➔
+                </button>
+              </div>
+            </div>
+          `;
+        }
+        container.innerHTML = html;
+      } catch (err) {
+        container.innerHTML = `<div class="text-xs text-rose-400 text-center py-6">Failed to load folders: ${err.message}</div>`;
+      }
+    }
+
+    function navigateParentFolder() {
+      if (modalParentPath) {
+        loadFolderList(modalParentPath);
+      }
+    }
+
+    function refreshFolderList() {
+      loadFolderList(currentModalPath);
+    }
+
+    async function triggerNativeFolderPicker() {
+      const btn = document.getElementById("btnNativePicker");
+      btn.disabled = true;
+      btn.textContent = "Selecting...";
+      try {
+        const res = await apiPost("/api/fs/native-pick", {});
+        if (res.path) {
+          // Validate selected path has git
+          const check = await apiPost("/api/validate-path", { path: res.path });
+          if (!check.valid || !check.has_git) {
+            const err = check.error || `Selected folder '${res.path}' is not a Git repository (missing .git directory).`;
+            log(`Error: ${err}`, "error", "GitSubAgent");
+            showModalError(err);
+            alert(`Error: ${err}`);
+            return;
+          }
+          document.getElementById("repoUrl").value = res.path;
+          showPathFeedback(`✓ Valid Git repository: ${res.path}`, true);
+          log(`Selected local Git repository: ${res.path}`, "success", "GitSubAgent");
+          closeFolderPickerModal();
+        }
+      } catch (e) {
+        alert("Native picker error: " + e.message);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = `<span>🖥️</span> <span>Open System Picker</span>`;
+      }
+    }
+
+    async function selectFolder(folderPath, hasGit) {
+      if (!hasGit) {
+        const check = await apiPost("/api/validate-path", { path: folderPath });
+        if (!check.valid || !check.has_git) {
+          const errMsg = check.error || `Selected path '${folderPath}' is not a Git repository (missing .git directory).`;
+          showModalError(errMsg);
+          log(`Error: ${errMsg}`, "error", "GitSubAgent");
+          alert(`Error: ${errMsg}`);
+          return;
+        }
+      }
+
+      document.getElementById("repoUrl").value = folderPath;
+      showPathFeedback(`✓ Valid Git repository: ${folderPath}`, true);
+      log(`Selected local Git repository: ${folderPath}`, "success", "GitSubAgent");
+      closeFolderPickerModal();
+    }
+
+    async function confirmCurrentFolder() {
+      if (!currentModalPath) return;
+      await selectFolder(currentModalPath, currentModalHasGit);
+    }
+
+    function showModalError(msg) {
+      const el = document.getElementById("modalStatusAlert");
+      el.classList.remove("hidden");
+      el.className = "mx-3 mb-2 p-2.5 rounded-lg text-xs font-mono bg-rose-950/60 text-rose-300 border border-rose-500/40 flex items-center gap-2";
+      el.innerHTML = `<span>❌</span> <span>${msg}</span>`;
+    }
+
     // Initialize
     fetchAgents();
     refreshStatus();
   </script>
+
+  <!-- Folder Picker Modal -->
+  <div id="folderModal" class="fixed inset-0 bg-black/75 backdrop-blur-sm hidden z-50 flex items-center justify-center p-4">
+    <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden">
+      <!-- Modal Header -->
+      <div class="p-4 border-b border-[var(--border)] flex items-center justify-between bg-zinc-900/60">
+        <div class="flex items-center gap-2.5">
+          <span class="text-xl">📁</span>
+          <div>
+            <h3 class="text-sm font-bold text-white">Select Local Git Repository Folder</h3>
+            <p class="text-[11px] text-[var(--muted-foreground)]">Browse directories or open system picker dialog</p>
+          </div>
+        </div>
+        <button onclick="closeFolderPickerModal()" class="text-zinc-400 hover:text-white p-1 rounded-lg text-lg">✕</button>
+      </div>
+
+      <!-- Modal Toolbar -->
+      <div class="p-3 border-b border-[var(--border)] bg-[var(--background)] flex flex-wrap items-center justify-between gap-2">
+        <div class="flex items-center gap-1.5 flex-1 min-w-[220px]">
+          <button onclick="navigateParentFolder()" id="btnNavParent" class="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300 font-mono flex items-center gap-1">
+            <span>⬆️</span> <span>Up</span>
+          </button>
+          <input type="text" id="modalCurrentPath" class="flex-1 text-xs font-mono px-2.5 py-1 rounded bg-[var(--card)] border border-[var(--border)] text-white focus:outline-none" readonly>
+          <button onclick="refreshFolderList()" class="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300" title="Refresh">↻</button>
+        </div>
+        <button onclick="triggerNativeFolderPicker()" id="btnNativePicker"
+          class="px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-medium text-white flex items-center gap-1.5 shadow-sm transition">
+          <span>🖥️</span> <span>Open System Picker</span>
+        </button>
+      </div>
+
+      <!-- Directory List -->
+      <div class="p-3 flex-1 overflow-y-auto custom-scroll space-y-1.5 min-h-[220px]" id="folderListContainer">
+        <div class="text-xs text-zinc-500 text-center py-8">Loading folders...</div>
+      </div>
+
+      <!-- Modal Status Feedback -->
+      <div id="modalStatusAlert" class="hidden mx-3 mb-2 p-2 rounded-lg text-xs font-mono"></div>
+
+      <!-- Modal Footer -->
+      <div class="p-3.5 border-t border-[var(--border)] bg-zinc-900/60 flex items-center justify-between">
+        <div class="text-xs text-[var(--muted-foreground)] flex items-center gap-1.5">
+          <span class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+          <span>Folders with <strong class="text-emerald-300">.git</strong> are highlighted</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="closeFolderPickerModal()" class="px-3 py-1.5 rounded-lg border border-[var(--border)] text-xs text-zinc-300 hover:bg-zinc-800">
+            Cancel
+          </button>
+          <button onclick="confirmCurrentFolder()" id="btnConfirmFolder"
+            class="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-sm transition flex items-center gap-1.5">
+            <span>Select Current Folder</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
 </body>
 </html>

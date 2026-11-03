@@ -166,6 +166,26 @@ class TestProviders(unittest.TestCase):
         provider = LocalProvider(cfg)
         self.assertFalse(provider.verify_access())
 
+    def test_local_provider_check_is_git_repository_throws_error(self):
+        # 1. Non-existent path
+        cfg1 = GitAgentConfig(repo_url="/non/existent/path/here")
+        p1 = LocalProvider(cfg1)
+        with self.assertRaises(FileNotFoundError):
+            p1.check_is_git_repository()
+
+        # 2. Existing folder without .git
+        temp_dir = Path(tempfile.mkdtemp(prefix="non_git_folder_"))
+        try:
+            (temp_dir / "somefile.txt").write_text("not a git repo")
+            cfg2 = GitAgentConfig(repo_url=str(temp_dir))
+            p2 = LocalProvider(cfg2)
+            with self.assertRaises(ValueError) as ctx:
+                p2.check_is_git_repository()
+            self.assertIn("is not a Git repository", str(ctx.exception))
+            self.assertIn("missing '.git' directory", str(ctx.exception))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
 
 if __name__ == "__main__":
     unittest.main()

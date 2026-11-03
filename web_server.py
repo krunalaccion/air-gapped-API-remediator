@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import socketserver
+import subprocess
 import sys
 import urllib.parse
 from pathlib import Path
@@ -152,6 +153,26 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                     author_name=payload.get("author_name", "Git SubAgent"),
                     author_email=payload.get("author_email", "git-agent@subagent.local"),
                 )
+
+                # Validation: if target is a local repository, verify it exists and has git
+                if config.is_local or config.provider == ProviderType.LOCAL:
+                    clean_path = Path(config.sanitized_repo_url)
+                    if not clean_path.exists():
+                        self._send_json({"error": f"Selected path does not exist: '{clean_path}'"}, status=400)
+                        return
+                    has_git = (clean_path / ".git").exists() or (clean_path / "HEAD").exists()
+                    if not has_git:
+                        code = subprocess.run(
+                            ["git", "rev-parse", "--is-inside-work-tree"],
+                            cwd=str(clean_path),
+                            capture_output=True,
+                        ).returncode
+                        if code != 0:
+                            self._send_json({
+                                "error": f"Selected path '{clean_path}' is not a Git repository. Missing '.git' directory."
+                            }, status=400)
+                            return
+
                 ACTIVE_GIT_AGENT = GitSubAgent(config)
                 AgentRegistry.register("git", ACTIVE_GIT_AGENT)
                 ctx = ACTIVE_GIT_AGENT.prepare_workspace()
@@ -281,6 +302,118 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                 )
                 res = pipeline.run_remediation_pipeline()
                 self._send_json(res)
+                return
+
+            # 8. Validate Local Repository Path (Check if directory has .git)
+            elif path == "/api/validate-path":
+                raw_path = payload.get("path", "").strip()
+                if not raw_path:
+                    self._send_json({"valid": False, "error": "Path cannot be empty"}, status=400)
+                    return
+
+                clean = raw_path.replace("file://", "")
+                target_path = Path(os.path.expanduser(clean)).resolve()
+
+                if not target_path.exists():
+                    self._send_json({
+                        "valid": False,
+                        "exists": False,
+                        "has_git": False,
+                        "path": str(target_path),
+                        "error": f"Path does not exist: {target_path}",
+                    }, status=400)
+                    return
+
+                if not target_path.is_dir():
+                    self._send_json({
+                        "valid": False,
+                        "exists": True,
+                        "is_dir": False,
+                        "has_git": False,
+                        "path": str(target_path),
+                        "error": f"Path is not a directory: {target_path}",
+                    }, status=400)
+                    return
+
+                has_git = (target_path / ".git").exists() or (target_path / "HEAD").exists()
+                if not has_git:
+                    code = subprocess.run(
+                        ["git", "rev-parse", "--is-inside-work-tree"],
+                        cwd=str(target_path),
+                        capture_output=True,
+                    ).returncode
+                    has_git = (code == 0)
+
+                if not has_git:
+                    self._send_json({
+                        "valid": False,
+                        "exists": True,
+                        "is_dir": True,
+                        "has_git": False,
+                        "path": str(target_path),
+                        "error": f"Selected path '{target_path}' is not a Git repository (missing '.git' directory).",
+                    }, status=400)
+                    return
+
+                self._send_json({
+                    "valid": True,
+                    "exists": True,
+                    "is_dir": True,
+                    "has_git": True,
+                    "path": str(target_path),
+                    "message": f"Valid Git repository detected at {target_path}",
+                })
+                return
+
+            # 9. List Folders for Interactive Directory Browser
+            elif path == "/api/fs/list":
+                raw_path = payload.get("path", "").strip()
+                if raw_path:
+                    clean = raw_path.replace("file://", "")
+                    current_dir = Path(os.path.expanduser(clean)).resolve()
+                else:
+                    current_dir = Path.cwd().resolve()
+
+                if not current_dir.exists() or not current_dir.is_dir():
+                    current_dir = Path.home().resolve()
+
+                folders = []
+                try:
+                    for entry in sorted(current_dir.iterdir(), key=lambda p: p.name.lower()):
+                        if entry.is_dir() and not entry.name.startswith("."):
+                            has_git = (entry / ".git").exists() or (entry / "HEAD").exists()
+                            folders.append({
+                                "name": entry.name,
+                                "path": str(entry.resolve()),
+                                "has_git": has_git,
+                            })
+                except Exception as e:
+                    logger.warning("Could not list directories in %s: %s", current_dir, e)
+
+                parent_dir = str(current_dir.parent.resolve()) if current_dir != current_dir.parent else None
+                current_has_git = (current_dir / ".git").exists() or (current_dir / "HEAD").exists()
+
+                self._send_json({
+                    "current_path": str(current_dir),
+                    "current_has_git": current_has_git,
+                    "parent_path": parent_dir,
+                    "folders": folders,
+                })
+                return
+
+            # 10. Native System Folder Picker (macOS dialog fallback)
+            elif path == "/api/fs/native-pick":
+                picked_path = ""
+                if sys.platform == "darwin":
+                    try:
+                        ascript = 'try\nPOSIX path of (choose folder with prompt "Select Git Repository Directory")\non error\nreturn ""\nend try'
+                        proc = subprocess.run(["osascript", "-e", ascript], capture_output=True, text=True, timeout=25)
+                        if proc.returncode == 0 and proc.stdout.strip():
+                            picked_path = proc.stdout.strip().rstrip("/")
+                    except Exception as e:
+                        logger.warning("Native folder picker failed: %s", e)
+
+                self._send_json({"path": picked_path})
                 return
 
             self._send_json({"error": f"Unknown endpoint: {path}"}, status=404)
