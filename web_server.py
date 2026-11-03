@@ -452,27 +452,6 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                 })
                 return
 
-            # 10. Native System Folder Picker (macOS dialog fallback)
-            elif path == "/api/fs/native-pick":
-                picked_path = ""
-                error_msg = None
-                if sys.platform == "darwin":
-                    try:
-                        ascript = 'try\nPOSIX path of (choose folder with prompt "Select Git Repository Directory")\non error\nreturn ""\nend try'
-                        proc = subprocess.run(["osascript", "-e", ascript], capture_output=True, text=True, timeout=5)
-                        if proc.returncode == 0 and proc.stdout.strip():
-                            picked_path = proc.stdout.strip().rstrip("/")
-                    except subprocess.TimeoutExpired:
-                        error_msg = "macOS folder dialog timed out. You can browse or paste the path directly in the Directory Browser."
-                    except Exception as e:
-                        logger.warning("Native folder picker failed: %s", e)
-                        error_msg = f"System picker error: {e}"
-                else:
-                    error_msg = "Native system picker is only available on macOS."
-
-                self._send_json({"path": picked_path, "error": error_msg})
-                return
-
             self._send_json({"error": f"Unknown endpoint: {path}"}, status=404)
 
         except Exception as e:

@@ -138,12 +138,6 @@ class TestAirGappedScannerAndRemediator(unittest.TestCase):
         labels = [q["label"] for q in quick_access]
         self.assertTrue(any("Home" in l for l in labels))
 
-    def test_api_fs_native_pick_response_structure(self):
-        status, data = self._call_post("/api/fs/native-pick", {})
-        self.assertEqual(status, 200)
-        self.assertIn("path", data)
-        self.assertIn("error", data)
-
     def test_index_html_integrity_and_folder_modal(self):
         from web_server import get_web_dir
         html_path = get_web_dir() / "index.html"
