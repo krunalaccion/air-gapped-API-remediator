@@ -195,15 +195,19 @@
 
           <div class="space-y-3">
             <div>
-              <label class="block text-xs font-medium text-[var(--muted-foreground)] mb-1">Target Repository URL</label>
+              <label class="block text-xs font-medium text-[var(--muted-foreground)] mb-1">
+                Target Repository URL or Local Path
+                <span class="text-[10px] text-blue-400 font-normal ml-1">Supports GitHub, GitLab, and local repos (/path/to/project)</span>
+              </label>
               <input type="text" id="repoUrl" value="https://github.com/krunal0406/airgap-remediator-day1.git"
+                placeholder="https://github.com/owner/repo.git or /path/to/local/project"
                 class="w-full text-xs font-mono px-3 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)] text-white focus:outline-none focus:border-blue-500">
             </div>
 
             <div>
               <label class="block text-xs font-medium text-[var(--muted-foreground)] mb-1">
                 Personal Access Token (GitHub / GitLab PAT)
-                <span class="text-[10px] text-emerald-400 font-normal ml-1">Auto-detected from config if empty</span>
+                <span class="text-[10px] text-emerald-400 font-normal ml-1">Optional for local repos / auto-detected from config</span>
               </label>
               <input type="password" id="gitToken" placeholder="Leave blank to use token from config"
                 class="w-full text-xs font-mono px-3 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)] text-white focus:outline-none focus:border-blue-500">
@@ -722,9 +726,10 @@ This automated remediation replaces external outbound network API calls with com
       const featureBranch = document.getElementById("featureBranch").value;
       const gitToken = document.getElementById("gitToken").value.trim();
 
-      log(`Cloning ${repoUrl}...`, "info", "GitSubAgent");
+      const isLocal = repoUrl.startsWith("/") || repoUrl.startsWith("~") || repoUrl.startsWith("./") || repoUrl.startsWith("file://") || repoUrl === ".";
+      log(isLocal ? `Preparing local repository ${repoUrl}...` : `Cloning ${repoUrl}...`, "info", "GitSubAgent");
       document.getElementById("btnPrepare").disabled = true;
-      document.getElementById("btnPrepare").textContent = "Cloning repository & branching...";
+      document.getElementById("btnPrepare").textContent = isLocal ? "Preparing local repository & branch..." : "Cloning repository & branching...";
 
       const res = await apiPost("/api/prepare", {
         repo_url: repoUrl,
@@ -885,11 +890,18 @@ This automated remediation replaces external outbound network API calls with com
       if (res.error) {
         log(`PR creation failed: ${res.error}`, "error", "GitSubAgent");
       } else {
-        log(`PR #${res.pr_number} successfully opened: ${res.pr_url}`, "success", "GitSubAgent");
+        const prType = res.provider === "local" ? "Local PR" : "PR";
+        log(`${prType} #${res.pr_number} successfully opened: ${res.pr_url}`, "success", "GitSubAgent");
         document.getElementById("prTitleDisplay").textContent = res.title;
         const link = document.getElementById("prUrlLink");
         link.href = res.pr_url;
-        link.textContent = `View PR #${res.pr_number} on GitHub →`;
+        if (res.provider === "local") {
+          link.textContent = `View Local PR #${res.pr_number} (${res.pr_url.split('/').pop()}) →`;
+        } else if (res.provider === "gitlab") {
+          link.textContent = `View MR #${res.pr_number} on GitLab →`;
+        } else {
+          link.textContent = `View PR #${res.pr_number} on GitHub →`;
+        }
         document.getElementById("prCard").classList.remove("hidden");
         setStage(5, "PR OPENED", true);
       }

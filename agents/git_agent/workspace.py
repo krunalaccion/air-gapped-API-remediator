@@ -109,8 +109,11 @@ class GitWorkspace:
     def clone(self, clone_url: str, depth: Optional[int] = None) -> None:
         """Clone repository into the workspace directory without modifying any git configs."""
         if (self.workspace_dir / ".git").exists():
-            logger.info("Workspace %s is already a git repository, fetching instead", self.workspace_dir)
-            self.run_git(["-c", "credential.helper=", "fetch", "origin"])
+            logger.info("Workspace %s is already a git repository", self.workspace_dir)
+            code, remotes_out, _ = self.run_git(["remote"], check=False)
+            if "origin" in [r.strip() for r in remotes_out.splitlines()]:
+                logger.info("Fetching latest changes from origin")
+                self.run_git(["-c", "credential.helper=", "fetch", "origin"], check=False)
             return
 
         # Ensure parent directory exists
@@ -129,7 +132,7 @@ class GitWorkspace:
         pass
 
     def detect_default_branch(self) -> str:
-        """Detect default branch ('main' or 'master') from remote HEAD or branch list."""
+        """Detect default branch ('main' or 'master') from remote HEAD, remote branches, or local branches."""
         # 1. Try reading origin/HEAD
         code, out, _ = self.run_git(["symbolic-ref", "refs/remotes/origin/HEAD"], check=False)
         if code == 0 and out.strip():
@@ -137,17 +140,27 @@ class GitWorkspace:
             # e.g., 'refs/remotes/origin/main' -> 'main'
             return ref.split("/")[-1]
 
-        # 2. Check if 'main' exists in remotes
+        # 2. Check if 'main' or 'master' exists in remotes
         code, out, _ = self.run_git(["branch", "-r"], check=False)
-        remotes = [b.strip() for b in out.splitlines()]
-        if "origin/main" in remotes:
-            return "main"
-        if "origin/master" in remotes:
-            return "master"
+        if code == 0:
+            remotes = [b.strip() for b in out.splitlines()]
+            if "origin/main" in remotes:
+                return "main"
+            if "origin/master" in remotes:
+                return "master"
 
-        # 3. Fallback to current branch or 'main'
+        # 3. Check if 'main' or 'master' exists in local branches
+        code, out, _ = self.run_git(["branch"], check=False)
+        if code == 0:
+            local_branches = [b.strip().lstrip("* ") for b in out.splitlines()]
+            if "main" in local_branches:
+                return "main"
+            if "master" in local_branches:
+                return "master"
+
+        # 4. Fallback to current branch or 'main'
         curr = self.get_current_branch()
-        return curr if curr else "main"
+        return curr if curr and curr != "HEAD" else "main"
 
     def checkout_and_pull_base(self, base_branch: str) -> str:
         """
@@ -178,8 +191,10 @@ class GitWorkspace:
                     base_branch = curr
 
         self.base_branch = base_branch
-        # Pull latest changes if tracking branch exists
-        self.run_git(["pull", "origin", self.base_branch], check=False)
+        # Pull latest changes if remote 'origin' exists
+        code, remotes_out, _ = self.run_git(["remote"], check=False)
+        if "origin" in [r.strip() for r in remotes_out.splitlines()]:
+            self.run_git(["pull", "origin", self.base_branch], check=False)
         return self.base_branch
 
     def create_feature_branch(self, branch_name: str) -> str:
@@ -286,9 +301,40 @@ class GitWorkspace:
         """
         Push current branch or specified branch to remote.
         If push_url is provided, pushes directly to the authenticated URL without modifying git configs.
+        Gracefully handles local repositories where push destination is the workspace itself or no remote exists.
         """
         target_branch = branch or self.current_feature_branch or self.get_current_branch()
+
+        # If push_url is given, check if it points to self (same directory)
+        if push_url:
+            try:
+                if Path(push_url).resolve() == self.workspace_dir.resolve():
+                    logger.info("Push destination is local workspace; branch '%s' is already local", target_branch)
+                    return
+            except Exception:
+                pass
+
         target_destination = push_url if push_url else remote
+        # If target destination is a simple remote name (like 'origin'), check if that remote exists
+        if not push_url or not (push_url.startswith("http://") or push_url.startswith("https://") or push_url.startswith("git@") or "/" in push_url):
+            code, remotes_out, _ = self.run_git(["remote"], check=False)
+            remotes = [r.strip() for r in remotes_out.splitlines()]
+            if target_destination not in remotes:
+                logger.info(
+                    "No remote '%s' configured; changes remain safely committed to local branch '%s'",
+                    target_destination,
+                    target_branch,
+                )
+                return
+
+        # If push_url is a local directory path and equals workspace_dir
+        try:
+            dest_path = Path(target_destination).resolve()
+            if dest_path == self.workspace_dir.resolve():
+                logger.info("Push destination is local workspace; branch '%s' is already local", target_branch)
+                return
+        except Exception:
+            pass
 
         # Pass credential.helper= to ensure only the token in the URL is used
         args = ["-c", "credential.helper=", "push", "-u", target_destination, target_branch]

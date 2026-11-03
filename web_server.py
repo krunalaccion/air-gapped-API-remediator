@@ -134,7 +134,13 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
 
                 token = payload.get("token") or os.getenv("GITHUB_TOKEN") or os.getenv("GITLAB_TOKEN")
                 provider_str = payload.get("provider")
-                provider = ProviderType(provider_str.lower()) if provider_str else ProviderType.GENERIC
+                if provider_str:
+                    try:
+                        provider = ProviderType(provider_str.lower())
+                    except ValueError:
+                        provider = ProviderType.GENERIC
+                else:
+                    provider = ProviderType.GENERIC
 
                 config = GitAgentConfig(
                     repo_url=repo_url,
@@ -212,20 +218,21 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                 commit_msg = payload.get("commit_message", "fix(airgap): remediate external API endpoints")
                 files = payload.get("files")
                 cur_br = ACTIVE_GIT_AGENT.workspace.current_feature_branch or ACTIVE_GIT_AGENT.workspace.get_current_branch()
+                dest_label = "remote branch" if not ACTIVE_GIT_AGENT.config.is_local else "local branch"
 
                 if ACTIVE_GIT_AGENT.workspace.has_changes():
                     ACTIVE_GIT_AGENT.workspace.add(files)
                     commit_hash = ACTIVE_GIT_AGENT.workspace.commit(commit_msg)
                     ACTIVE_GIT_AGENT.workspace.push(push_url=ACTIVE_GIT_AGENT.config.authenticated_clone_url)
                     self._send_json({
-                        "message": f"Committed {commit_hash[:7]} and pushed to remote branch '{cur_br}'",
+                        "message": f"Committed {commit_hash[:7]} and updated {dest_label} '{cur_br}'",
                         "commit_hash": commit_hash,
                         "branch": cur_br,
                     })
                 else:
                     ACTIVE_GIT_AGENT.workspace.push(push_url=ACTIVE_GIT_AGENT.config.authenticated_clone_url)
                     self._send_json({
-                        "message": f"Working tree clean. Pushed branch '{cur_br}' to remote.",
+                        "message": f"Working tree clean. Updated {dest_label} '{cur_br}'.",
                         "branch": cur_br,
                     })
                 return
@@ -241,7 +248,7 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                 draft = bool(payload.get("draft", False))
 
                 if not ACTIVE_GIT_AGENT.provider:
-                    self._send_json({"error": "No git provider configured (GitHub/GitLab)"}, status=400)
+                    self._send_json({"error": "No git provider configured (GitHub/GitLab/Local)"}, status=400)
                     return
 
                 pr = ACTIVE_GIT_AGENT.provider.create_pull_request(
@@ -251,11 +258,13 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                     description=desc,
                     draft=draft,
                 )
+                pr_label = "Pull Request" if pr.provider != "local" else "Local Pull Request"
                 self._send_json({
-                    "message": "Pull Request created successfully",
+                    "message": f"{pr_label} created successfully",
                     "pr_number": pr.number,
                     "pr_url": pr.url,
                     "title": pr.title,
+                    "provider": pr.provider,
                 })
                 return
 

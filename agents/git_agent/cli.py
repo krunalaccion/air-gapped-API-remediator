@@ -69,10 +69,10 @@ def main():
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # Prepare command
-    prep_p = subparsers.add_parser("prepare", help="Clone repo, pull base branch, create feature branch")
-    prep_p.add_argument("--repo-url", "-r", required=True, help="Repository URL (GitHub or GitLab)")
-    prep_p.add_argument("--token", "-t", help="Personal Access Token")
-    prep_p.add_argument("--provider", "-p", choices=["github", "gitlab", "generic"], help="Repository provider")
+    prep_p = subparsers.add_parser("prepare", help="Clone repo or prepare local repo, pull/detect base branch, create feature branch")
+    prep_p.add_argument("--repo-url", "-r", required=True, help="Repository URL (GitHub, GitLab, or local filesystem path)")
+    prep_p.add_argument("--token", "-t", help="Personal Access Token (optional for local repositories)")
+    prep_p.add_argument("--provider", "-p", choices=["github", "gitlab", "local", "generic"], help="Repository provider")
     prep_p.add_argument("--base-branch", "-b", help="Base branch (main/master)")
     prep_p.add_argument("--feature-branch", "-f", help="New feature branch name")
     prep_p.add_argument("--workspace-dir", "-w", help="Workspace directory destination")

@@ -41,7 +41,7 @@ class GitAgentMCPServer:
             {
                 "name": "git_prepare_repo",
                 "description": (
-                    "Clones a GitHub/GitLab repository, pulls the latest main/master branch, "
+                    "Clones a GitHub/GitLab repository or prepares a local git repository, pulls the latest main/master branch, "
                     "and creates a feature branch ready for vulnerability scanning or modifications."
                 ),
                 "inputSchema": {
@@ -49,16 +49,16 @@ class GitAgentMCPServer:
                     "properties": {
                         "repo_url": {
                             "type": "string",
-                            "description": "Repository URL (e.g. 'https://github.com/owner/repo.git' or 'https://gitlab.com/group/project')",
+                            "description": "Repository URL or local filesystem path (e.g. 'https://github.com/owner/repo.git', 'https://gitlab.com/group/project', or '/path/to/local/repo')",
                         },
                         "token": {
                             "type": "string",
-                            "description": "Personal Access Token for GitHub (GITHUB_TOKEN) or GitLab (GITLAB_TOKEN). Can also be set in environment.",
+                            "description": "Personal Access Token for GitHub (GITHUB_TOKEN) or GitLab (GITLAB_TOKEN). Can also be set in environment (optional for local repos).",
                         },
                         "provider": {
                             "type": "string",
-                            "enum": ["github", "gitlab", "generic"],
-                            "description": "Hosting provider. Auto-detected from URL if omitted.",
+                            "enum": ["github", "gitlab", "local", "generic"],
+                            "description": "Hosting provider. Auto-detected from URL/path if omitted.",
                         },
                         "base_branch": {
                             "type": "string",
@@ -308,6 +308,7 @@ class GitAgentMCPServer:
                 msg = args["commit_message"]
                 files = args.get("files")
                 current_br = self.agent.workspace.current_feature_branch or self.agent.workspace.get_current_branch()
+                dest_label = "remote" if not self.agent.config.is_local else "local repository"
                 if self.agent.workspace.has_changes():
                     self.agent.workspace.add(files)
                     commit_hash = self.agent.workspace.commit(msg)
@@ -316,7 +317,7 @@ class GitAgentMCPServer:
                         "content": [
                             {
                                 "type": "text",
-                                "text": f"Committed {commit_hash[:7]} ('{msg}') and pushed branch '{current_br}' to remote.",
+                                "text": f"Committed {commit_hash[:7]} ('{msg}') and updated branch '{current_br}' in {dest_label}.",
                             }
                         ]
                     }
@@ -326,7 +327,7 @@ class GitAgentMCPServer:
                         "content": [
                             {
                                 "type": "text",
-                                "text": f"Working tree clean (no new changes to commit). Pushed branch '{current_br}' to remote.",
+                                "text": f"Working tree clean (no new changes to commit). Branch '{current_br}' is up-to-date in {dest_label}.",
                             }
                         ]
                     }
@@ -336,7 +337,7 @@ class GitAgentMCPServer:
                 description = args["description"]
                 draft = bool(args.get("draft", False))
                 if not self.agent.provider:
-                    raise RuntimeError("No provider configured (e.g. GitHub or GitLab).")
+                    raise RuntimeError("No provider configured (GitHub, GitLab, or Local).")
 
                 pr = self.agent.provider.create_pull_request(
                     head_branch=self.agent.workspace.current_feature_branch,
@@ -345,11 +346,12 @@ class GitAgentMCPServer:
                     description=description,
                     draft=draft,
                 )
+                pr_type = "Pull Request" if pr.provider != "local" else "Local Pull Request"
                 return {
                     "content": [
                         {
                             "type": "text",
-                            "text": f"Pull Request opened successfully: #{pr.number} - {pr.url}",
+                            "text": f"{pr_type} opened successfully: #{pr.number} - {pr.url}",
                         }
                     ]
                 }
