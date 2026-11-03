@@ -139,7 +139,7 @@
             <span>1. GitSubAgent</span>
             <span id="stage-1-tag" class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold">READY</span>
           </div>
-          <p class="text-[11px] text-[var(--muted-foreground)]">Clone repo & checkout remediation branch.</p>
+          <p class="text-[11px] text-[var(--muted-foreground)]" id="stage-1-desc">Clone repo & checkout remediation branch.</p>
         </div>
 
         <!-- Stage 2 -->
@@ -836,7 +836,7 @@ This automated remediation replaces external outbound network API calls with com
       });
 
       document.getElementById("btnPrepare").disabled = false;
-      document.getElementById("btnPrepare").textContent = "Clone & Create Remediation Branch";
+      document.getElementById("btnPrepare").textContent = isLocal ? "Prepare Local Repository & Create Branch" : "Clone & Create Remediation Branch";
 
       if (res.error) {
         log(`Prepare failed: ${res.error}`, "error", "GitSubAgent");
@@ -1063,6 +1063,17 @@ This automated remediation replaces external outbound network API calls with com
       clearTimeout(pathValidationTimeout);
       const trimmed = val.trim();
       const isLocal = trimmed.startsWith("/") || trimmed.startsWith("~") || trimmed.startsWith("./") || trimmed.startsWith("../") || trimmed.startsWith("file://") || trimmed === "." || /^[a-zA-Z]:[\\/]/.test(trimmed);
+
+      const btnPrepare = document.getElementById("btnPrepare");
+      const stage1Desc = document.getElementById("stage-1-desc");
+      if (isLocal) {
+        if (btnPrepare) btnPrepare.innerHTML = `<span>Prepare Local Repository & Create Branch</span>`;
+        if (stage1Desc) stage1Desc.textContent = "Use local repository in-place & checkout remediation branch.";
+      } else {
+        if (btnPrepare) btnPrepare.innerHTML = `<span>Clone & Create Remediation Branch</span>`;
+        if (stage1Desc) stage1Desc.textContent = "Clone repo & checkout remediation branch.";
+      }
+
       if (!isLocal || !trimmed) {
         showPathFeedback("", false);
         return;
@@ -1223,6 +1234,7 @@ This automated remediation replaces external outbound network API calls with com
       }
 
       document.getElementById("repoUrl").value = folderPath;
+      handlePathInput(folderPath);
       showPathFeedback(`✓ Valid Git repository: ${folderPath}`, true);
       log(`Selected local Git repository: ${folderPath}`, "success", "GitSubAgent");
       closeFolderPickerModal();
