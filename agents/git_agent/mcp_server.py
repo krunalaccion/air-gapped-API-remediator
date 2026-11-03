@@ -13,8 +13,12 @@ import traceback
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-from git_agent.config import GitAgentConfig, ProviderType
-from git_agent.agent import GitSubAgent, WorkspaceContext, FinalizeResult
+try:
+    from .config import GitAgentConfig, ProviderType
+    from .agent import GitSubAgent, WorkspaceContext, FinalizeResult
+except (ImportError, ValueError):
+    from agents.git_agent.config import GitAgentConfig, ProviderType
+    from agents.git_agent.agent import GitSubAgent, WorkspaceContext, FinalizeResult
 
 # Setup logging to stderr so stdout remains purely for JSON-RPC messages
 logging.basicConfig(

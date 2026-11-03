@@ -27,8 +27,9 @@ extras = [
 [project.scripts]
 git-agent = "git_agent.cli:main"
 git-agent-mcp = "git_agent.mcp_server:main"
+multi-agent-server = "web_server:run_server"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["git_agent*"]
+include = ["agents*", "orchestrator*", "git_agent*"]
 

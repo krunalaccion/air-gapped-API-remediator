@@ -5,8 +5,8 @@ Provides tool wrappers and state helpers for injecting GitSubAgent into LangGrap
 
 from __future__ import annotations
 from typing import Dict, Any, Optional, List
-from git_agent.agent import GitSubAgent
-from git_agent.config import GitAgentConfig
+from agents.git_agent.agent import GitSubAgent
+from agents.git_agent.config import GitAgentConfig
 
 
 def create_git_subagent_tools(config: GitAgentConfig) -> List[Any]:

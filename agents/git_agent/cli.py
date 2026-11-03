@@ -10,9 +10,14 @@ import logging
 import sys
 from pathlib import Path
 
-from git_agent.config import GitAgentConfig, ProviderType
-from git_agent.agent import GitSubAgent
-from git_agent.mcp_server import GitAgentMCPServer
+try:
+    from .config import GitAgentConfig, ProviderType
+    from .agent import GitSubAgent
+    from .mcp_server import GitAgentMCPServer
+except (ImportError, ValueError):
+    from agents.git_agent.config import GitAgentConfig, ProviderType
+    from agents.git_agent.agent import GitSubAgent
+    from agents.git_agent.mcp_server import GitAgentMCPServer
 
 
 def setup_logging(verbose: bool = False):
@@ -50,8 +55,8 @@ def cmd_mcp(args: argparse.Namespace):
 
 
 def cmd_ui(args: argparse.Namespace):
-    """Start the GitAgent Web Dashboard."""
-    from git_agent.web_server import run_server
+    """Start the Multi-Agent Web Dashboard."""
+    from web_server import run_server
     run_server(port=args.port)
 
 

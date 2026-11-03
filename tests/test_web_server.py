@@ -1,15 +1,14 @@
 """
-Unit tests for GitAgent web server API endpoints and Air-Gapped API Remediator logic.
+Unit tests for web server API endpoints and Air-Gapped API Remediator logic.
 """
 
 import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
-from git_agent.web_server import scan_workspace_airgap, GitAgentAPIHandler
-from git_agent.integrations.multi_agent_pipeline import AirGappedApiRemediatorAgent
+from agents.scanner_agent.agent import ScannerAgent
+from agents.remediator_agent.agent import RemediatorAgent
 
 
 class TestAirGappedScannerAndRemediator(unittest.TestCase):
@@ -28,7 +27,8 @@ class TestAirGappedScannerAndRemediator(unittest.TestCase):
         py_file = src_dir / "client.py"
         py_file.write_text('response = requests.get("https://api.external-cloud.com/v1/telemetry")\n')
 
-        findings = scan_workspace_airgap(self.temp_dir)
+        scanner = ScannerAgent()
+        findings = scanner.scan_workspace(self.temp_dir)
         self.assertTrue(len(findings) >= 1)
         egress_finding = next((f for f in findings if "external-cloud.com" in f["description"]), None)
         self.assertIsNotNone(egress_finding)
@@ -37,13 +37,14 @@ class TestAirGappedScannerAndRemediator(unittest.TestCase):
 
     def test_scan_workspace_defaults_when_clean(self):
         # Clean directory
-        findings = scan_workspace_airgap(self.temp_dir)
+        scanner = ScannerAgent()
+        findings = scanner.scan_workspace(self.temp_dir)
         # Should return placeholder findings for airgap remediator
         self.assertEqual(len(findings), 3)
         self.assertEqual(findings[0]["id"], "AIRGAP-001")
 
     def test_airgap_agent_remediate(self):
-        agent = AirGappedApiRemediatorAgent()
+        agent = RemediatorAgent()
         result = agent.remediate(self.temp_dir)
         self.assertIn("config/airgap_proxy.json", result["files_modified"])
         self.assertIn("AIRGAP_SECURITY_AUDIT.md", result["files_modified"])
@@ -53,4 +54,3 @@ class TestAirGappedScannerAndRemediator(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

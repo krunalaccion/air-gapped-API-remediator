@@ -4,10 +4,10 @@ Unit tests for GitHub and GitLab providers.
 
 import unittest
 from unittest.mock import patch, MagicMock
-from git_agent.config import GitAgentConfig, ProviderType
-from git_agent.providers.github import GitHubProvider
-from git_agent.providers.gitlab import GitLabProvider
-from git_agent.providers import get_provider
+from agents.git_agent.config import GitAgentConfig, ProviderType
+from agents.git_agent.providers.github import GitHubProvider
+from agents.git_agent.providers.gitlab import GitLabProvider
+from agents.git_agent.providers import get_provider
 
 
 class TestProviders(unittest.TestCase):

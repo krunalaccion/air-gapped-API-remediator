@@ -10,11 +10,26 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
-from git_agent.config import GitAgentConfig, ProviderType
-from git_agent.providers import get_provider, GitProvider, PullRequestResult
-from git_agent.workspace import GitWorkspace
+try:
+    from agents.base import BaseAgent
+except ImportError:
+    class BaseAgent:
+        def __init__(self, name: str, role: str, description: str = ""):
+            self.name = name
+            self.role = role
+            self.description = description
+            self.status = "READY"
 
-logger = logging.getLogger("git_agent.subagent")
+try:
+    from .config import GitAgentConfig, ProviderType
+    from .providers import get_provider, GitProvider, PullRequestResult
+    from .workspace import GitWorkspace
+except (ImportError, ValueError):
+    from agents.git_agent.config import GitAgentConfig, ProviderType
+    from agents.git_agent.providers import get_provider, GitProvider, PullRequestResult
+    from agents.git_agent.workspace import GitWorkspace
+
+logger = logging.getLogger("agents.git_agent.subagent")
 
 
 @dataclass
@@ -61,7 +76,7 @@ class FinalizeResult:
         }
 
 
-class GitSubAgent:
+class GitSubAgent(BaseAgent):
     """
     Subagent for multi-agent architectures.
     
@@ -72,6 +87,11 @@ class GitSubAgent:
     """
 
     def __init__(self, config: GitAgentConfig):
+        super().__init__(
+            name="GitSubAgent",
+            role="Repository Lifecycle & PR Specialist",
+            description="Manages git repository provisioning, feature branching, atomic commits, and pull requests."
+        )
         self.config = config
         self.provider: Optional[GitProvider] = None
         self._init_provider()
@@ -268,4 +288,25 @@ class GitSubAgent:
     def cleanup(self) -> None:
         """Clean up temporary workspace if needed."""
         self.workspace.cleanup()
+
+    def run(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        BaseAgent interface implementation.
+        Executes 'prepare' or 'finalize' stage based on context.
+        """
+        stage = context.get("stage", "prepare")
+        if stage == "prepare":
+            ctx = self.prepare_workspace(context.get("feature_branch"))
+            self.last_result = ctx.to_dict()
+            return self.last_result
+        elif stage == "finalize":
+            res = self.finalize_workspace(
+                commit_message=context.get("commit_message", "chore: apply remediations"),
+                pr_title=context.get("pr_title"),
+                pr_body=context.get("pr_body"),
+                draft=context.get("draft", False),
+            )
+            self.last_result = res.to_dict()
+            return self.last_result
+        return {"error": f"Unknown stage: {stage}"}
 

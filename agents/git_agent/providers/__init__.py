@@ -3,10 +3,16 @@ Repository hosting providers for Git SubAgent.
 """
 
 from typing import Union
-from git_agent.config import GitAgentConfig, ProviderType
-from git_agent.providers.base import GitProvider, PullRequestResult
-from git_agent.providers.github import GitHubProvider
-from git_agent.providers.gitlab import GitLabProvider
+try:
+    from ..config import GitAgentConfig, ProviderType
+    from .base import GitProvider, PullRequestResult
+    from .github import GitHubProvider
+    from .gitlab import GitLabProvider
+except (ImportError, ValueError):
+    from agents.git_agent.config import GitAgentConfig, ProviderType
+    from agents.git_agent.providers.base import GitProvider, PullRequestResult
+    from agents.git_agent.providers.github import GitHubProvider
+    from agents.git_agent.providers.gitlab import GitLabProvider
 
 
 def get_provider(config: GitAgentConfig) -> GitProvider:
