@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>GitAgent - Multi-Agent Control Center</title>
+  <title>Air-Gapped API Remediator - Multi-Agent Control Center</title>
   <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
   <style>
     :root {
@@ -32,15 +32,18 @@
     <!-- Header -->
     <header class="flex flex-col md:flex-row md:items-center justify-between pb-4 border-b border-[var(--border)] gap-4">
       <div class="flex items-center space-x-3">
-        <div class="w-10 h-10 rounded-lg bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold text-xl">
-          ⎇
+        <div class="w-10 h-10 rounded-lg bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold text-xl shadow-inner">
+          🛡️
         </div>
         <div>
-          <h1 class="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-            GitAgent Control Center
-            <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">MCP Active</span>
-          </h1>
-          <p class="text-xs text-[var(--muted-foreground)]">Autonomous Git Subagent & Multi-Agent Vulnerability Remediation</p>
+          <div class="flex items-center gap-2">
+            <h1 class="text-xl font-bold tracking-tight text-white flex items-center gap-2">
+              Air-Gapped API Remediator
+            </h1>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">Perimeter Enforced</span>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 font-medium">MCP Active</span>
+          </div>
+          <p class="text-xs text-[var(--muted-foreground)]">Autonomous Git Subagent Pipeline for Air-Gapped API Scanning, Auto-Remediation & Pull Requests</p>
         </div>
       </div>
       <div class="flex items-center gap-2 text-xs">
@@ -53,40 +56,56 @@
       </div>
     </header>
 
-    <!-- Multi-Agent Visualizer Card -->
+    <!-- Multi-Agent Visualizer Stages -->
     <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 shadow-sm">
-      <div class="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-3">Multi-Agent Workflow Stages</div>
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
-        <div id="step-1-card" class="p-3 rounded-lg border border-emerald-500/30 bg-emerald-500/5 relative">
+      <div class="flex items-center justify-between mb-3">
+        <div class="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider">Air-Gapped Remediation Pipeline Stages</div>
+        <span class="text-[11px] text-emerald-400 font-mono" id="pipelineProgressLabel">Step 1 of 5: Setup</span>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-5 gap-3">
+        <!-- Stage 1 -->
+        <div id="stage-1-card" class="p-3 rounded-lg border border-emerald-500/40 bg-emerald-500/10 relative transition">
           <div class="text-xs font-semibold text-emerald-400 mb-1 flex items-center justify-between">
             <span>1. GitSubAgent</span>
-            <span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20">PREPARE</span>
+            <span id="stage-1-tag" class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold">READY</span>
           </div>
-          <p class="text-xs text-[var(--muted-foreground)]">Clones base branch and provisions feature branch.</p>
+          <p class="text-[11px] text-[var(--muted-foreground)]">Clone repo & checkout remediation branch.</p>
         </div>
 
-        <div id="step-2-card" class="p-3 rounded-lg border border-[var(--border)] bg-[var(--background)] relative">
+        <!-- Stage 2 -->
+        <div id="stage-2-card" class="p-3 rounded-lg border border-[var(--border)] bg-[var(--background)] relative transition">
           <div class="text-xs font-semibold text-[var(--foreground)] mb-1 flex items-center justify-between">
-            <span>2. Security Agent</span>
-            <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">AUDIT</span>
+            <span>2. Egress Scanner</span>
+            <span id="stage-2-tag" class="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">PENDING</span>
           </div>
-          <p class="text-xs text-[var(--muted-foreground)]">Scans code, patches flaws, generates audit notes.</p>
+          <p class="text-[11px] text-[var(--muted-foreground)]">Scan code for external APIs & egress violations.</p>
         </div>
 
-        <div id="step-3-card" class="p-3 rounded-lg border border-[var(--border)] bg-[var(--background)] relative">
+        <!-- Stage 3 -->
+        <div id="stage-3-card" class="p-3 rounded-lg border border-[var(--border)] bg-[var(--background)] relative transition">
           <div class="text-xs font-semibold text-[var(--foreground)] mb-1 flex items-center justify-between">
-            <span>3. GitSubAgent</span>
-            <span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300">COMMIT</span>
+            <span>3. Remediation Agent</span>
+            <span id="stage-3-tag" class="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">PENDING</span>
           </div>
-          <p class="text-xs text-[var(--muted-foreground)]">Stages changes, commits, and pushes branch.</p>
+          <p class="text-[11px] text-[var(--muted-foreground)]">Apply offline proxies, mocks & audit log.</p>
         </div>
 
-        <div id="step-4-card" class="p-3 rounded-lg border border-[var(--border)] bg-[var(--background)] relative">
+        <!-- Stage 4 -->
+        <div id="stage-4-card" class="p-3 rounded-lg border border-[var(--border)] bg-[var(--background)] relative transition">
           <div class="text-xs font-semibold text-[var(--foreground)] mb-1 flex items-center justify-between">
-            <span>4. Reviewers</span>
-            <span class="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300">PR / MR</span>
+            <span>4. GitSubAgent</span>
+            <span id="stage-4-tag" class="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">PENDING</span>
           </div>
-          <p class="text-xs text-[var(--muted-foreground)]">Automated Pull Request raised for peer review.</p>
+          <p class="text-[11px] text-[var(--muted-foreground)]">Stage changes, commit, and push branch.</p>
+        </div>
+
+        <!-- Stage 5 -->
+        <div id="stage-5-card" class="p-3 rounded-lg border border-[var(--border)] bg-[var(--background)] relative transition">
+          <div class="text-xs font-semibold text-[var(--foreground)] mb-1 flex items-center justify-between">
+            <span>5. Pull Request</span>
+            <span id="stage-5-tag" class="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">PENDING</span>
+          </div>
+          <p class="text-[11px] text-[var(--muted-foreground)]">Automated PR raised with remediation summary.</p>
         </div>
       </div>
     </div>
@@ -94,29 +113,29 @@
     <!-- Main Grid: Control Panel + Live Status -->
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
-      <!-- Left Column: Operations (7 cols) -->
+      <!-- Left Column: Step-by-Step Operations (7 cols) -->
       <div class="lg:col-span-7 space-y-6">
 
-        <!-- 1. Repository Preparation Form -->
+        <!-- STEP 1: Repository Preparation -->
         <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5 shadow-sm space-y-4">
           <div class="flex items-center justify-between border-b border-[var(--border)] pb-3">
             <h2 class="text-sm font-semibold text-white flex items-center gap-2">
-              <span class="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-xs">1</span>
+              <span class="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-xs font-bold">1</span>
               Repository & Branch Setup
             </h2>
-            <span class="text-xs text-[var(--muted-foreground)]">GitHub / GitLab</span>
+            <span class="text-xs text-blue-400 font-mono">Git SubAgent</span>
           </div>
 
           <div class="space-y-3">
             <div>
-              <label class="block text-xs font-medium text-[var(--muted-foreground)] mb-1">Repository URL</label>
+              <label class="block text-xs font-medium text-[var(--muted-foreground)] mb-1">Target Repository URL</label>
               <input type="text" id="repoUrl" value="https://github.com/krunal0406/airgap-remediator-day1.git"
                 class="w-full text-xs font-mono px-3 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)] text-white focus:outline-none focus:border-blue-500">
             </div>
 
             <div>
               <label class="block text-xs font-medium text-[var(--muted-foreground)] mb-1">
-                Personal Access Token (GitHub PAT)
+                Personal Access Token (GitHub / GitLab PAT)
                 <span class="text-[10px] text-emerald-400 font-normal ml-1">Auto-detected from config if empty</span>
               </label>
               <input type="password" id="gitToken" placeholder="Leave blank to use token from ~/.gemini/config/mcp_config.json"
@@ -130,84 +149,265 @@
                   class="w-full text-xs font-mono px-3 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)] text-white focus:outline-none focus:border-blue-500">
               </div>
               <div>
-                <label class="block text-xs font-medium text-[var(--muted-foreground)] mb-1">Feature Branch Name</label>
-                <input type="text" id="featureBranch" value="security/audit-scan"
+                <label class="block text-xs font-medium text-[var(--muted-foreground)] mb-1">Remediation Feature Branch</label>
+                <input type="text" id="featureBranch" value="remediation/airgap-api-compliance"
                   class="w-full text-xs font-mono px-3 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)] text-white focus:outline-none focus:border-blue-500">
               </div>
             </div>
 
             <button onclick="handlePrepare()" id="btnPrepare"
-              class="w-full py-2 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition flex items-center justify-center gap-2 shadow-sm">
-              <span>Clone & Create Feature Branch</span>
+              class="w-full py-2.5 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition flex items-center justify-center gap-2 shadow-sm">
+              <span>Clone & Create Remediation Branch</span>
             </button>
           </div>
         </div>
 
-        <!-- 2. Audit Workspace & File Editor -->
+        <!-- STEP 2: Scanning the Code Placeholder -->
         <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5 shadow-sm space-y-4">
           <div class="flex items-center justify-between border-b border-[var(--border)] pb-3">
             <h2 class="text-sm font-semibold text-white flex items-center gap-2">
-              <span class="w-5 h-5 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs">2</span>
-              Security Audit & Remediation Patch
+              <span class="w-5 h-5 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs font-bold">2</span>
+              Scan Code for Air-Gapped API Violations
             </h2>
-            <span class="text-xs text-amber-400 font-mono">Workspace Edit</span>
+            <span class="text-xs text-amber-400 font-mono">Egress & Security Scanner</span>
           </div>
 
           <div class="space-y-3">
             <div>
-              <label class="block text-xs font-medium text-[var(--muted-foreground)] mb-1">Relative File Path to Patch</label>
-              <input type="text" id="patchPath" value="SECURITY_AUDIT.md"
-                class="w-full text-xs font-mono px-3 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)] text-white focus:outline-none focus:border-amber-500">
+              <label class="block text-xs font-medium text-[var(--muted-foreground)] mb-1.5">Active Scan Policies & Egress Rules</label>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                <label class="flex items-center gap-2 p-2 rounded bg-[var(--background)] border border-[var(--border)] cursor-pointer">
+                  <input type="checkbox" id="ruleEgress" checked class="rounded border-zinc-700 text-blue-500">
+                  <span>External HTTP/HTTPS Egress</span>
+                </label>
+                <label class="flex items-center gap-2 p-2 rounded bg-[var(--background)] border border-[var(--border)] cursor-pointer">
+                  <input type="checkbox" id="ruleCloud" checked class="rounded border-zinc-700 text-blue-500">
+                  <span>Cloud SDKs & Telemetry Endpoints</span>
+                </label>
+                <label class="flex items-center gap-2 p-2 rounded bg-[var(--background)] border border-[var(--border)] cursor-pointer">
+                  <input type="checkbox" id="ruleCdn" checked class="rounded border-zinc-700 text-blue-500">
+                  <span>Remote CDNs & External Assets</span>
+                </label>
+                <label class="flex items-center gap-2 p-2 rounded bg-[var(--background)] border border-[var(--border)] cursor-pointer">
+                  <input type="checkbox" id="ruleSecrets" checked class="rounded border-zinc-700 text-blue-500">
+                  <span>Hardcoded API Keys & Tokens</span>
+                </label>
+              </div>
             </div>
 
-            <div>
-              <label class="block text-xs font-medium text-[var(--muted-foreground)] mb-1">File Content / Security Patch</label>
-              <textarea id="patchContent" rows="4"
-                class="w-full text-xs font-mono px-3 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)] text-white focus:outline-none focus:border-amber-500 custom-scroll"># Security Vulnerability Audit Report
-- Target: airgap-remediator-day1
-- Audit Scan: PASS
-- Remediations: Verified dependencies and security configurations.</textarea>
+            <div class="flex items-center justify-between pt-1">
+              <div class="text-[11px] text-[var(--muted-foreground)]">
+                Scope: <span class="text-white font-mono">Entire Repository (Workspace)</span>
+              </div>
+              <button onclick="handleScan()" id="btnScan"
+                class="py-2 px-4 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold transition flex items-center gap-2 shadow-sm">
+                <span>⚡ Run Air-Gap Code Scan</span>
+              </button>
             </div>
 
-            <button onclick="handleWriteFile()"
-              class="py-2 px-4 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold transition flex items-center justify-center gap-2">
-              <span>Save File Changes to Workspace</span>
-            </button>
+            <!-- Scan Results Placeholder Container -->
+            <div id="scanResultsContainer" class="mt-3 space-y-2 border-t border-[var(--border)] pt-3">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-medium text-white flex items-center gap-2">
+                  <span>Findings & Violations</span>
+                  <span id="findingsCountBadge" class="px-2 py-0.5 rounded-full text-[10px] bg-amber-500/20 text-amber-300 font-bold">3 Issues Detected</span>
+                </span>
+                <div class="flex items-center gap-1">
+                  <button onclick="filterFindings('ALL')" class="text-[10px] px-2 py-0.5 rounded bg-[var(--border)] text-white">All</button>
+                  <button onclick="filterFindings('HIGH')" class="text-[10px] px-2 py-0.5 rounded bg-red-900/40 text-red-300 border border-red-500/30">High (1)</button>
+                  <button onclick="filterFindings('MEDIUM')" class="text-[10px] px-2 py-0.5 rounded bg-amber-900/40 text-amber-300 border border-amber-500/30">Med (1)</button>
+                  <button onclick="filterFindings('LOW')" class="text-[10px] px-2 py-0.5 rounded bg-blue-900/40 text-blue-300 border border-blue-500/30">Low (1)</button>
+                </div>
+              </div>
+
+              <!-- Findings List -->
+              <div id="findingsList" class="space-y-2 max-h-56 overflow-y-auto custom-scroll pr-1">
+                <!-- Finding 1 -->
+                <div class="finding-item p-2.5 rounded-lg border border-red-500/30 bg-red-950/20 text-xs space-y-1" data-severity="HIGH">
+                  <div class="flex items-center justify-between">
+                    <span class="font-mono text-red-400 font-bold flex items-center gap-1.5">
+                      <span class="w-1.5 h-1.5 rounded-full bg-red-400"></span>
+                      src/api_client.py:42
+                    </span>
+                    <span class="text-[10px] px-1.5 py-0.2 rounded bg-red-500/20 text-red-300 uppercase font-mono">HIGH • EGRESS</span>
+                  </div>
+                  <p class="text-[11px] text-[var(--foreground)]">Unwhitelisted outbound call to <code class="font-mono text-amber-300">https://api.external-cloud.com/v1/telemetry</code> violates air-gap boundary policy.</p>
+                  <p class="text-[10px] text-emerald-400">↳ Recommendation: Route through internal proxy <code class="font-mono">http://proxy.airgap.internal:8080</code> or enable offline mock.</p>
+                </div>
+
+                <!-- Finding 2 -->
+                <div class="finding-item p-2.5 rounded-lg border border-amber-500/30 bg-amber-950/20 text-xs space-y-1" data-severity="MEDIUM">
+                  <div class="flex items-center justify-between">
+                    <span class="font-mono text-amber-400 font-bold flex items-center gap-1.5">
+                      <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                      config/network.yaml:18
+                    </span>
+                    <span class="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 uppercase font-mono">MEDIUM • ROUTE</span>
+                  </div>
+                  <p class="text-[11px] text-[var(--foreground)]">Direct public host resolution configured without fallback gateway in isolated network perimeter.</p>
+                  <p class="text-[10px] text-emerald-400">↳ Recommendation: Specify internal DNS and configure air-gap proxy fallback route.</p>
+                </div>
+
+                <!-- Finding 3 -->
+                <div class="finding-item p-2.5 rounded-lg border border-blue-500/30 bg-blue-950/20 text-xs space-y-1" data-severity="LOW">
+                  <div class="flex items-center justify-between">
+                    <span class="font-mono text-blue-400 font-bold flex items-center gap-1.5">
+                      <span class="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
+                      AIRGAP_COMPLIANCE.md:1
+                    </span>
+                    <span class="text-[10px] px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-300 uppercase font-mono">LOW • AUDIT</span>
+                  </div>
+                  <p class="text-[11px] text-[var(--foreground)]">No air-gap remediation audit manifest detected in repository root.</p>
+                  <p class="text-[10px] text-emerald-400">↳ Recommendation: Generate automated compliance manifest and remediation log.</p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
-        <!-- 3. Commit & Open Pull Request -->
+        <!-- STEP 3: Fix the Code Placeholder -->
         <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5 shadow-sm space-y-4">
           <div class="flex items-center justify-between border-b border-[var(--border)] pb-3">
             <h2 class="text-sm font-semibold text-white flex items-center gap-2">
-              <span class="w-5 h-5 rounded-full bg-purple-500/20 text-purple-400 flex items-center justify-center text-xs">3</span>
-              Commit, Push & Raise Pull Request
+              <span class="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs font-bold">3</span>
+              Fix Code & Apply Air-Gapped Remediations
             </h2>
-            <span class="text-xs text-purple-400 font-mono">GitHub / GitLab API</span>
+            <span class="text-xs text-emerald-400 font-mono">Remediation Agent</span>
+          </div>
+
+          <div class="space-y-3">
+            <div class="p-3 rounded-lg bg-[var(--background)] border border-[var(--border)] text-xs space-y-2">
+              <div class="font-semibold text-white flex items-center gap-1.5">
+                <span>🛠️ Automated Remediation Strategy</span>
+              </div>
+              <ul class="list-disc list-inside text-[11px] text-[var(--muted-foreground)] space-y-1">
+                <li>Route external egress API requests to internal gateway (<code class="text-emerald-300 font-mono">proxy.airgap.internal:8080</code>)</li>
+                <li>Generate airgap proxy routing manifest in <code class="text-blue-300 font-mono">config/airgap_proxy.json</code></li>
+                <li>Generate comprehensive audit compliance report in <code class="text-amber-300 font-mono">AIRGAP_SECURITY_AUDIT.md</code></li>
+              </ul>
+            </div>
+
+            <div class="flex items-center gap-3">
+              <button onclick="handleFix()" id="btnFix"
+                class="flex-1 py-2 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition flex items-center justify-center gap-2 shadow-sm">
+                <span>✨ Generate & Apply Air-Gap Fixes</span>
+              </button>
+            </div>
+
+            <!-- Workspace Patch & File Editor -->
+            <div class="border-t border-[var(--border)] pt-3 space-y-2">
+              <div class="flex items-center justify-between">
+                <label class="text-xs font-medium text-[var(--muted-foreground)]">Workspace Patch & Remediation Editor</label>
+                <div class="flex items-center gap-1 text-[10px]">
+                  <button onclick="switchPatchFile('audit')" class="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-amber-300 font-mono">AIRGAP_SECURITY_AUDIT.md</button>
+                  <button onclick="switchPatchFile('proxy')" class="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-blue-300 font-mono">config/airgap_proxy.json</button>
+                </div>
+              </div>
+
+              <div>
+                <input type="text" id="patchPath" value="AIRGAP_SECURITY_AUDIT.md"
+                  class="w-full text-xs font-mono px-3 py-1.5 rounded-lg bg-[var(--background)] border border-[var(--border)] text-white focus:outline-none focus:border-emerald-500 mb-2">
+                <textarea id="patchContent" rows="5"
+                  class="w-full text-xs font-mono px-3 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)] text-white focus:outline-none focus:border-emerald-500 custom-scroll"># Air-Gapped API Remediation Audit Report
+
+**Remediation Agent**: Air-Gapped API Remediator (GitAgent Pipeline)  
+**Security Level**: High Assurance Air-Gap Isolation  
+**Status**: REMEDIATED & COMPLIANT  
+
+## 1. Executive Summary
+This automated remediation replaces external outbound network API calls with compliant internal air-gapped proxy routes and offline mock fallback services.
+
+## 2. Remediated Endpoints & Rules
+- **Rule AIRGAP-001**: External Egress Call -> Replaced direct outbound connection with `http://proxy.airgap.internal:8080`.
+- **Rule AIRGAP-002**: Direct Internet Route -> Configured `config/airgap_proxy.json` gateway interceptor.
+- **Rule AIRGAP-003**: Compliance Manifest -> Created air-gap audit verification log.
+
+## 3. Compliance Verification Checklist
+- [x] Zero direct outbound network calls to external public internet
+- [x] Internal gateway routing enabled for all required API transactions
+- [x] Offline mock fallbacks enabled for disconnected operational state
+- [x] Full Git Subagent audit trail generated for peer review
+</textarea>
+              </div>
+
+              <button onclick="handleWriteFile()"
+                class="py-1.5 px-3 rounded-lg bg-[var(--card)] hover:bg-zinc-800 border border-[var(--border)] text-white text-xs font-medium transition flex items-center gap-1.5">
+                <span>💾 Save Custom Patch Changes to Workspace</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- STEP 4: Commit Placeholder -->
+        <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5 shadow-sm space-y-4">
+          <div class="flex items-center justify-between border-b border-[var(--border)] pb-3">
+            <h2 class="text-sm font-semibold text-white flex items-center gap-2">
+              <span class="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-xs font-bold">4</span>
+              Commit Remediations to Feature Branch
+            </h2>
+            <span class="text-xs text-blue-400 font-mono">Stage & Commit</span>
           </div>
 
           <div class="space-y-3">
             <div>
               <label class="block text-xs font-medium text-[var(--muted-foreground)] mb-1">Commit Message</label>
-              <input type="text" id="commitMsg" value="fix(security): apply automated vulnerability fixes and audit notes"
-                class="w-full text-xs font-mono px-3 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)] text-white focus:outline-none focus:border-purple-500">
+              <input type="text" id="commitMsg" value="fix(airgap): remediate external API endpoints for air-gapped environment"
+                class="w-full text-xs font-mono px-3 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)] text-white focus:outline-none focus:border-blue-500">
             </div>
 
+            <div class="p-2.5 rounded-lg bg-[var(--background)] border border-[var(--border)] flex items-center justify-between text-xs">
+              <span class="text-[var(--muted-foreground)]">Author: <strong class="text-white font-mono">Git SubAgent &lt;git-agent@subagent.local&gt;</strong></span>
+              <span class="text-[11px] text-emerald-400 font-mono" id="commitStatusPill">Ready to commit</span>
+            </div>
+
+            <button onclick="handleCommitPush()" id="btnCommit"
+              class="w-full py-2.5 px-4 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition flex items-center justify-center gap-2 shadow-sm">
+              <span>Commit & Push Changes to Feature Branch</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- STEP 5: Raise Pull Request Placeholder -->
+        <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5 shadow-sm space-y-4">
+          <div class="flex items-center justify-between border-b border-[var(--border)] pb-3">
+            <h2 class="text-sm font-semibold text-white flex items-center gap-2">
+              <span class="w-5 h-5 rounded-full bg-purple-500/20 text-purple-400 flex items-center justify-center text-xs font-bold">5</span>
+              Raise Pull Request for Peer Review
+            </h2>
+            <span class="text-xs text-purple-400 font-mono">GitHub / GitLab PR</span>
+          </div>
+
+          <div class="space-y-3">
             <div>
-              <label class="block text-xs font-medium text-[var(--muted-foreground)] mb-1">PR Title</label>
-              <input type="text" id="prTitle" value="[Security Audit] Vulnerability Scan & Remediation"
+              <label class="block text-xs font-medium text-[var(--muted-foreground)] mb-1">Pull Request Title</label>
+              <input type="text" id="prTitle" value="[Air-Gapped Remediation] Replace external API egress with offline services"
                 class="w-full text-xs font-medium px-3 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)] text-white focus:outline-none focus:border-purple-500">
             </div>
 
-            <div class="flex gap-3">
-              <button onclick="handleCommitPush()"
-                class="flex-1 py-2 px-4 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition flex items-center justify-center gap-2">
-                <span>Commit & Push Branch</span>
-              </button>
+            <div>
+              <label class="block text-xs font-medium text-[var(--muted-foreground)] mb-1">PR Description & Remediation Audit Summary</label>
+              <textarea id="prDescription" rows="4"
+                class="w-full text-xs font-mono px-3 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)] text-white focus:outline-none focus:border-purple-500 custom-scroll">## Air-Gapped API Remediation Summary
+- Target: airgap-remediator-day1
+- Policy: Isolated Air-Gap Perimeter (Zero Unauthorized Outbound Egress)
+- Action: External API calls rerouted through internal proxy gateway (`proxy.airgap.internal:8080`)
+- Audit Manifest: Verified via `AIRGAP_SECURITY_AUDIT.md`
 
-              <button onclick="handleCreatePR()"
-                class="flex-1 py-2 px-4 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold transition flex items-center justify-center gap-2 shadow-sm">
-                <span>Raise Pull Request</span>
+### Verification Checklist:
+- [x] External telemetry endpoints neutralized
+- [x] Air-gap proxy configuration manifest added
+- [x] Peer review requested</textarea>
+            </div>
+
+            <div class="flex items-center justify-between pt-1">
+              <label class="flex items-center gap-2 text-xs text-[var(--muted-foreground)] cursor-pointer">
+                <input type="checkbox" id="prDraft" class="rounded border-zinc-700 text-purple-500">
+                <span>Create as Draft PR</span>
+              </label>
+
+              <button onclick="handleCreatePR()" id="btnCreatePR"
+                class="py-2.5 px-6 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold transition flex items-center justify-center gap-2 shadow-sm">
+                <span>🚀 Raise Pull Request</span>
               </button>
             </div>
           </div>
@@ -215,28 +415,56 @@
 
       </div>
 
-      <!-- Right Column: Status & Live Terminal (5 cols) -->
+      <!-- Right Column: Live Status & Inspection (5 cols) -->
       <div class="lg:col-span-5 space-y-6">
 
-        <!-- Active PR Card (Hidden until PR created) -->
+        <!-- Active PR Card (Shown on creation) -->
         <div id="prCard" class="bg-gradient-to-br from-purple-900/30 to-blue-900/20 border border-purple-500/40 rounded-xl p-4 shadow-md">
           <div class="flex items-center justify-between mb-2">
             <span class="text-xs font-bold text-purple-300 flex items-center gap-1.5">
               <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              Active Pull Request #1
+              Active Pull Request
             </span>
-            <span class="text-[10px] text-purple-200/60 uppercase font-mono">GitHub</span>
+            <span class="text-[10px] text-purple-200/60 uppercase font-mono" id="prProviderLabel">GitHub</span>
           </div>
-          <h3 class="text-sm font-semibold text-white mb-2" id="prTitleDisplay">[Security Audit] Vulnerability Scan & Audit Tracking</h3>
+          <h3 class="text-sm font-semibold text-white mb-2" id="prTitleDisplay">[Air-Gapped Remediation] Replace external API egress with offline services</h3>
           <a id="prUrlLink" href="https://github.com/krunal0406/airgap-remediator-day1/pull/1" target="_blank"
             class="inline-flex items-center gap-1.5 text-xs font-medium text-blue-400 hover:text-blue-300 underline font-mono">
             View on GitHub →
           </a>
         </div>
 
+        <!-- Air-Gapped Compliance Overview Card -->
+        <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Air-Gap Perimeter Status</h3>
+            <span class="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono font-bold">ISOLATED</span>
+          </div>
+
+          <div class="space-y-2 text-xs">
+            <div class="flex items-center justify-between p-2 rounded bg-[var(--background)] border border-[var(--border)]">
+              <span class="text-[var(--muted-foreground)]">Direct Internet Egress</span>
+              <span class="text-emerald-400 font-semibold flex items-center gap-1">
+                <span>✓</span> BLOCKED
+              </span>
+            </div>
+            <div class="flex items-center justify-between p-2 rounded bg-[var(--background)] border border-[var(--border)]">
+              <span class="text-[var(--muted-foreground)]">Internal Proxy Gateway</span>
+              <span class="text-blue-400 font-mono text-[11px]" id="statusProxyHost">proxy.airgap.internal:8080</span>
+            </div>
+            <div class="flex items-center justify-between p-2 rounded bg-[var(--background)] border border-[var(--border)]">
+              <span class="text-[var(--muted-foreground)]">Remediation Audit Trail</span>
+              <span class="text-amber-400 font-mono text-[11px]" id="statusAuditTrail">AIRGAP_SECURITY_AUDIT.md</span>
+            </div>
+          </div>
+        </div>
+
         <!-- Git Status Summary -->
         <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 space-y-3">
-          <h3 class="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Working Tree Status</h3>
+          <div class="flex items-center justify-between">
+            <h3 class="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Working Tree Status</h3>
+            <span class="text-[10px] text-[var(--muted-foreground)] font-mono">Workspace Directory</span>
+          </div>
           <div class="grid grid-cols-3 gap-2 text-center text-xs">
             <div class="bg-[var(--background)] p-2.5 rounded-lg border border-[var(--border)]">
               <span class="block text-emerald-400 font-bold text-base" id="statStaged">0</span>
@@ -253,8 +481,11 @@
           </div>
 
           <div class="mt-2">
-            <div class="text-[11px] font-medium text-[var(--muted-foreground)] mb-1">Git Diff Output:</div>
-            <pre id="diffOutput" class="w-full bg-[var(--background)] p-3 rounded-lg border border-[var(--border)] font-mono text-[11px] text-emerald-400 h-28 overflow-auto custom-scroll">(clean - no changes)</pre>
+            <div class="flex items-center justify-between text-[11px] font-medium text-[var(--muted-foreground)] mb-1">
+              <span>Live Git Diff:</span>
+              <span class="text-[10px] text-zinc-500 font-mono">git diff</span>
+            </div>
+            <pre id="diffOutput" class="w-full bg-[var(--background)] p-3 rounded-lg border border-[var(--border)] font-mono text-[11px] text-emerald-400 h-36 overflow-auto custom-scroll leading-relaxed">(clean - no changes)</pre>
           </div>
         </div>
 
@@ -268,8 +499,9 @@
             <button onclick="clearLogs()" class="text-[10px] text-[var(--muted-foreground)] hover:text-white">Clear</button>
           </div>
           <div id="logConsole" class="flex-1 bg-[var(--background)] p-3 rounded-lg border border-[var(--border)] font-mono text-[11px] text-[var(--muted-foreground)] overflow-y-auto custom-scroll space-y-1">
-            <div class="text-emerald-400">[READY] GitAgent initialized in workspace.</div>
-            <div class="text-blue-300">[MCP] Connected to GitHub provider.</div>
+            <div class="text-emerald-400">[READY] Air-Gapped API Remediator initialized.</div>
+            <div class="text-blue-300">[MCP] Connected to GitAgent provider.</div>
+            <div class="text-zinc-500">[STANDBY] Awaiting repository preparation or air-gap scan.</div>
           </div>
         </div>
 
@@ -280,6 +512,57 @@
   </div>
 
   <script>
+    // Templates for quick preview switching
+    const FILE_TEMPLATES = {
+      audit: `# Air-Gapped API Remediation Audit Report
+
+**Remediation Agent**: Air-Gapped API Remediator (GitAgent Pipeline)  
+**Security Level**: High Assurance Air-Gap Isolation  
+**Status**: REMEDIATED & COMPLIANT  
+
+## 1. Executive Summary
+This automated remediation replaces external outbound network API calls with compliant internal air-gapped proxy routes and offline mock fallback services.
+
+## 2. Remediated Endpoints & Rules
+- **Rule AIRGAP-001**: External Egress Call -> Replaced direct outbound connection with \`http://proxy.airgap.internal:8080\`.
+- **Rule AIRGAP-002**: Direct Internet Route -> Configured \`config/airgap_proxy.json\` gateway interceptor.
+- **Rule AIRGAP-003**: Compliance Manifest -> Created air-gap audit verification log.
+
+## 3. Compliance Verification Checklist
+- [x] Zero direct outbound network calls to external public internet
+- [x] Internal gateway routing enabled for all required API transactions
+- [x] Offline mock fallbacks enabled for disconnected operational state
+- [x] Full Git Subagent audit trail generated for peer review
+`,
+      proxy: JSON.stringify({
+        "airgap_mode": true,
+        "proxy_host": "proxy.airgap.internal",
+        "proxy_port": 8080,
+        "allowed_internal_domains": [
+          "*.airgap.internal",
+          "localhost",
+          "127.0.0.1"
+        ],
+        "blocked_external_egress": [
+          "api.external-cloud.com",
+          "telemetry.remote.io"
+        ],
+        "mock_responses_enabled": true,
+        "remediation_status": "COMPLIANT"
+      }, null, 2)
+    };
+
+    function switchPatchFile(type) {
+      if (type === 'audit') {
+        document.getElementById("patchPath").value = "AIRGAP_SECURITY_AUDIT.md";
+        document.getElementById("patchContent").value = FILE_TEMPLATES.audit;
+      } else if (type === 'proxy') {
+        document.getElementById("patchPath").value = "config/airgap_proxy.json";
+        document.getElementById("patchContent").value = FILE_TEMPLATES.proxy;
+      }
+      log(`Switched editor to: ${document.getElementById("patchPath").value}`, "info");
+    }
+
     function log(msg, type = "info") {
       const consoleEl = document.getElementById("logConsole");
       const time = new Date().toLocaleTimeString();
@@ -295,6 +578,27 @@
 
     function clearLogs() {
       document.getElementById("logConsole").innerHTML = "";
+    }
+
+    function setStage(stageNum, statusText = "ACTIVE", isCompleted = false) {
+      const stageCard = document.getElementById(`stage-${stageNum}-card`);
+      const stageTag = document.getElementById(`stage-${stageNum}-tag`);
+      const progressLabel = document.getElementById("pipelineProgressLabel");
+
+      if (progressLabel) {
+        const stepNames = ["Setup", "Scan Code", "Fix Code", "Commit", "Pull Request"];
+        progressLabel.textContent = `Step ${stageNum} of 5: ${stepNames[stageNum - 1]}`;
+      }
+
+      if (isCompleted) {
+        stageCard.className = "p-3 rounded-lg border border-emerald-500/40 bg-emerald-500/10 relative transition";
+        stageTag.className = "text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold";
+        stageTag.textContent = statusText || "DONE";
+      } else {
+        stageCard.className = "p-3 rounded-lg border border-blue-500/40 bg-blue-500/10 relative transition shadow";
+        stageTag.className = "text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-bold";
+        stageTag.textContent = statusText || "ACTIVE";
+      }
     }
 
     async function apiPost(endpoint, data) {
@@ -327,18 +631,20 @@
         const diffData = await diffRes.json();
         document.getElementById("diffOutput").textContent = diffData.diff || "(clean - no changes)";
       } catch (e) {
-        // Fallback or demo state
+        // Standby or preview state
       }
     }
 
+    // Step 1: Repository Preparation
     async function handlePrepare() {
       const repoUrl = document.getElementById("repoUrl").value;
       const baseBranch = document.getElementById("baseBranch").value;
       const featureBranch = document.getElementById("featureBranch").value;
       const gitToken = document.getElementById("gitToken").value.trim();
 
-      log(`Cloning ${repoUrl}...`, "info");
+      log(`[STEP 1] Cloning ${repoUrl}...`, "info");
       document.getElementById("btnPrepare").disabled = true;
+      document.getElementById("btnPrepare").textContent = "Cloning repository & branching...";
 
       const res = await apiPost("/api/prepare", {
         repo_url: repoUrl,
@@ -348,12 +654,87 @@
       });
 
       document.getElementById("btnPrepare").disabled = false;
+      document.getElementById("btnPrepare").textContent = "Clone & Create Remediation Branch";
 
       if (res.error) {
         log(`Prepare failed: ${res.error}`, "error");
       } else {
-        log(`Prepared workspace on branch: ${res.context.feature_branch}`, "success");
+        log(`Repository ready on branch: ${res.context.feature_branch}`, "success");
         document.getElementById("currentBranchDisplay").textContent = res.context.feature_branch;
+        setStage(1, "DONE", true);
+        setStage(2, "READY");
+        refreshStatus();
+      }
+    }
+
+    // Step 2: Code Scanning Placeholder
+    async function handleScan() {
+      log(`[STEP 2] Scanning code for external API endpoints & air-gap egress violations...`, "info");
+      const btn = document.getElementById("btnScan");
+      btn.disabled = true;
+      btn.innerHTML = `<span>⏳ Scanning...</span>`;
+
+      const res = await apiPost("/api/scan", {
+        rules: {
+          egress: document.getElementById("ruleEgress").checked,
+          cloud: document.getElementById("ruleCloud").checked,
+          cdn: document.getElementById("ruleCdn").checked,
+          secrets: document.getElementById("ruleSecrets").checked
+        }
+      });
+
+      btn.disabled = false;
+      btn.innerHTML = `<span>⚡ Run Air-Gap Code Scan</span>`;
+
+      if (res.error) {
+        log(`Scan error: ${res.error}`, "error");
+      } else {
+        log(res.summary, "warn");
+        log(`Identified ${res.total_findings} egress/compliance violations in codebase.`, "warn");
+
+        document.getElementById("findingsCountBadge").textContent = `${res.total_findings} Issues Detected`;
+        document.getElementById("findingsCountBadge").className = "px-2 py-0.5 rounded-full text-[10px] bg-red-500/20 text-red-300 font-bold";
+
+        setStage(2, "SCANNED", true);
+        setStage(3, "READY");
+      }
+    }
+
+    function filterFindings(sev) {
+      const items = document.querySelectorAll(".finding-item");
+      items.forEach(el => {
+        if (sev === "ALL" || el.getAttribute("data-severity") === sev) {
+          el.style.display = "block";
+        } else {
+          el.style.display = "none";
+        }
+      });
+      log(`Filtered findings view: ${sev}`, "info");
+    }
+
+    // Step 3: Fix Code Placeholder
+    async function handleFix() {
+      log(`[STEP 3] Remediation Agent generating air-gap proxy and offline patches...`, "info");
+      const btn = document.getElementById("btnFix");
+      btn.disabled = true;
+      btn.textContent = "Applying Remediations...";
+
+      const res = await apiPost("/api/fix", {});
+
+      btn.disabled = false;
+      btn.textContent = "✨ Generate & Apply Air-Gap Fixes";
+
+      if (res.error) {
+        log(`Fix error: ${res.error}`, "error");
+      } else {
+        log(res.message, "success");
+        if (res.files_modified) {
+          log(`Modified files: ${res.files_modified.join(", ")}`, "success");
+        }
+        setStage(3, "FIXED", true);
+        setStage(4, "READY");
+        document.getElementById("commitStatusPill").textContent = `${res.files_modified?.length || 2} files ready to commit`;
+        document.getElementById("commitStatusPill").className = "text-[11px] text-amber-300 font-mono";
         refreshStatus();
       }
     }
@@ -376,41 +757,63 @@
       }
     }
 
+    // Step 4: Commit Placeholder
     async function handleCommitPush() {
       const msg = document.getElementById("commitMsg").value;
-      log(`Committing & pushing...`, "info");
+      log(`[STEP 4] Staging, committing & pushing branch to remote...`, "info");
+      const btn = document.getElementById("btnCommit");
+      btn.disabled = true;
+      btn.textContent = "Committing & Pushing...";
 
       const res = await apiPost("/api/commit-push", {
         commit_message: msg
       });
 
+      btn.disabled = false;
+      btn.textContent = "Commit & Push Changes to Feature Branch";
+
       if (res.error) {
         log(`Commit failed: ${res.error}`, "error");
       } else {
         log(res.message, "success");
+        setStage(4, "COMMITTED", true);
+        setStage(5, "READY");
+        document.getElementById("commitStatusPill").textContent = `Committed (${res.commit_hash ? res.commit_hash.slice(0, 7) : 'HEAD'})`;
+        document.getElementById("commitStatusPill").className = "text-[11px] text-emerald-400 font-mono";
         refreshStatus();
       }
     }
 
+    // Step 5: Raise Pull Request Placeholder
     async function handleCreatePR() {
       const title = document.getElementById("prTitle").value;
-      const desc = document.getElementById("patchContent").value;
-      log(`Calling provider API to open Pull Request...`, "info");
+      const desc = document.getElementById("prDescription").value;
+      const isDraft = document.getElementById("prDraft").checked;
+      log(`[STEP 5] Calling provider API to open Pull Request for air-gap remediation...`, "info");
+
+      const btn = document.getElementById("btnCreatePR");
+      btn.disabled = true;
+      btn.textContent = "Raising PR...";
 
       const res = await apiPost("/api/create-pr", {
         title: title,
-        description: desc
+        description: desc,
+        draft: isDraft
       });
+
+      btn.disabled = false;
+      btn.textContent = "🚀 Raise Pull Request";
 
       if (res.error) {
         log(`PR creation failed: ${res.error}`, "error");
       } else {
-        log(`PR #${res.pr_number} opened: ${res.pr_url}`, "success");
+        log(`PR #${res.pr_number} successfully opened: ${res.pr_url}`, "success");
         document.getElementById("prTitleDisplay").textContent = res.title;
         const link = document.getElementById("prUrlLink");
         link.href = res.pr_url;
         link.textContent = `View PR #${res.pr_number} on GitHub →`;
         document.getElementById("prCard").classList.remove("hidden");
+        setStage(5, "PR OPENED", true);
       }
     }
 
@@ -419,4 +822,3 @@
   </script>
 </body>
 </html>
-
