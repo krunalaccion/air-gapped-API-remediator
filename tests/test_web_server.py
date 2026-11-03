@@ -132,6 +132,36 @@ class TestAirGappedScannerAndRemediator(unittest.TestCase):
         self.assertIn("docs", folders)
         self.assertFalse(folders["docs"]["has_git"])
 
+        # Check quick access shortcuts
+        quick_access = data.get("quick_access", [])
+        self.assertTrue(len(quick_access) >= 2)
+        labels = [q["label"] for q in quick_access]
+        self.assertTrue(any("Home" in l for l in labels))
+
+    def test_api_fs_native_pick_response_structure(self):
+        status, data = self._call_post("/api/fs/native-pick", {})
+        self.assertEqual(status, 200)
+        self.assertIn("path", data)
+        self.assertIn("error", data)
+
+    def test_index_html_integrity_and_folder_modal(self):
+        from web_server import get_web_dir
+        html_path = get_web_dir() / "index.html"
+        self.assertTrue(html_path.exists())
+        content = html_path.read_text(encoding="utf-8")
+
+        # Verify key elements
+        self.assertIn('id="folderModal"', content)
+        self.assertIn('id="modalStatusAlert"', content)
+        self.assertIn('id="quickAccessContainer"', content)
+        self.assertIn('id="modalCurrentPath"', content)
+        self.assertIn('.hidden {', content)
+        self.assertIn('display: none !important;', content)
+        self.assertIn('div.textContent = `[${time}] [${agentName}] ${msg}`;', content)
+        self.assertIn('openFolderPickerModal', content)
+        self.assertIn('selectFolder', content)
+        self.assertIn('validate-path', content)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -24,6 +24,9 @@
       background: var(--border);
       border-radius: 4px;
     }
+    .hidden {
+      display: none !important;
+    }
   </style>
 </head>
 <body class="bg-[var(--background)] text-[var(--foreground)] antialiased min-h-screen p-4 md:p-6 font-sans">
@@ -590,6 +593,71 @@ This automated remediation replaces external outbound network API calls with com
 
   </div>
 
+  <!-- Folder Picker Modal -->
+  <div id="folderModal" style="display: none;" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onclick="if(event.target === this) closeFolderPickerModal()">
+    <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden" onclick="event.stopPropagation()">
+      <!-- Modal Header -->
+      <div class="p-4 border-b border-[var(--border)] flex items-center justify-between bg-zinc-900/60">
+        <div class="flex items-center gap-2.5">
+          <span class="text-xl">📁</span>
+          <div>
+            <h3 class="text-sm font-bold text-white">Select Local Git Repository Folder</h3>
+            <p class="text-[11px] text-[var(--muted-foreground)]">Browse directories, use quick jump, or enter path</p>
+          </div>
+        </div>
+        <button onclick="closeFolderPickerModal()" class="text-zinc-400 hover:text-white p-1 rounded-lg text-lg">✕</button>
+      </div>
+
+      <!-- Quick Access Jump Shortcuts -->
+      <div class="px-3 py-2 border-b border-[var(--border)] bg-zinc-950/50 flex items-center gap-1.5 flex-wrap text-xs" id="quickAccessContainer">
+        <span class="text-[11px] text-zinc-400 mr-1 flex items-center gap-1"><span>⚡</span> Quick Jump:</span>
+      </div>
+
+      <!-- Modal Toolbar & Path Input -->
+      <div class="p-3 border-b border-[var(--border)] bg-[var(--background)] flex items-center gap-2">
+        <button onclick="navigateParentFolder()" id="btnNavParent" class="px-2.5 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300 font-mono flex items-center gap-1 flex-shrink-0" title="Go up one level">
+          <span>⬆️</span> <span>Up</span>
+        </button>
+        <div class="flex-1 flex items-center gap-1.5">
+          <input type="text" id="modalCurrentPath" placeholder="/path/to/folder"
+            onkeydown="if(event.key === 'Enter') navigateToTypedPath()"
+            class="flex-1 text-xs font-mono px-2.5 py-1.5 rounded bg-[var(--card)] border border-[var(--border)] text-white focus:outline-none focus:border-blue-500">
+          <button onclick="navigateToTypedPath()" class="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-xs text-white font-medium flex-shrink-0" title="Navigate to typed path">Go</button>
+        </div>
+        <button onclick="refreshFolderList()" class="px-2.5 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300 flex-shrink-0" title="Refresh">↻</button>
+        <button onclick="triggerNativeFolderPicker()" id="btnNativePicker"
+          class="px-2.5 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300 flex items-center gap-1 flex-shrink-0 transition" title="macOS System Dialog">
+          <span>🖥️</span> <span>System Dialog</span>
+        </button>
+      </div>
+
+      <!-- Directory List -->
+      <div class="p-3 flex-1 overflow-y-auto custom-scroll space-y-1.5 min-h-[220px]" id="folderListContainer">
+        <div class="text-xs text-zinc-500 text-center py-8">Loading folders...</div>
+      </div>
+
+      <!-- Modal Status Feedback Alert -->
+      <div id="modalStatusAlert" style="display: none;" class="mx-3 my-2 p-2.5 rounded-lg text-xs font-mono"></div>
+
+      <!-- Modal Footer -->
+      <div class="p-3.5 border-t border-[var(--border)] bg-zinc-900/60 flex items-center justify-between">
+        <div class="text-xs text-[var(--muted-foreground)] flex items-center gap-1.5">
+          <span class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+          <span>Folders with <strong class="text-emerald-300">.git</strong> are highlighted</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="closeFolderPickerModal()" class="px-3 py-1.5 rounded-lg border border-[var(--border)] text-xs text-zinc-300 hover:bg-zinc-800">
+            Cancel
+          </button>
+          <button onclick="confirmCurrentFolder()" id="btnConfirmFolder"
+            class="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-sm transition flex items-center gap-1.5">
+            <span>Select Current Folder</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     const FILE_TEMPLATES = {
       audit: `# Air-Gapped API Remediation Audit Report
@@ -1010,19 +1078,35 @@ This automated remediation replaces external outbound network API calls with com
     }
 
     function openFolderPickerModal() {
-      document.getElementById("folderModal").classList.remove("hidden");
-      loadFolderList(currentModalPath || "");
+      const modal = document.getElementById("folderModal");
+      modal.style.display = "flex";
+      const currentInput = document.getElementById("repoUrl").value.trim();
+      const isLocal = currentInput.startsWith("/") || currentInput.startsWith("~") || currentInput.startsWith(".");
+      loadFolderList(isLocal ? currentInput : (currentModalPath || ""));
     }
 
     function closeFolderPickerModal() {
-      document.getElementById("folderModal").classList.add("hidden");
-      document.getElementById("modalStatusAlert").classList.add("hidden");
+      const modal = document.getElementById("folderModal");
+      modal.style.display = "none";
+      const alertEl = document.getElementById("modalStatusAlert");
+      if (alertEl) {
+        alertEl.style.display = "none";
+        alertEl.innerHTML = "";
+      }
+    }
+
+    function navigateToTypedPath() {
+      const typed = document.getElementById("modalCurrentPath").value.trim();
+      if (typed) {
+        loadFolderList(typed);
+      }
     }
 
     async function loadFolderList(targetPath) {
       const container = document.getElementById("folderListContainer");
       container.innerHTML = `<div class="text-xs text-zinc-400 text-center py-8 flex items-center justify-center gap-2"><span>⏳</span> Loading directories...</div>`;
-      document.getElementById("modalStatusAlert").classList.add("hidden");
+      const alertEl = document.getElementById("modalStatusAlert");
+      if (alertEl) alertEl.style.display = "none";
 
       try {
         const res = await apiPost("/api/fs/list", { path: targetPath || "" });
@@ -1031,10 +1115,24 @@ This automated remediation replaces external outbound network API calls with com
         modalParentPath = res.parent_path;
 
         document.getElementById("modalCurrentPath").value = res.current_path;
-        document.getElementById("btnNavParent").disabled = !res.parent_path;
-        document.getElementById("btnNavParent").className = res.parent_path ?
-          "px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300 font-mono flex items-center gap-1 cursor-pointer" :
-          "px-2.5 py-1 rounded bg-zinc-900 text-xs text-zinc-600 font-mono flex items-center gap-1 cursor-not-allowed";
+        
+        // Render Quick Access jump buttons
+        const qaContainer = document.getElementById("quickAccessContainer");
+        if (qaContainer && res.quick_access && res.quick_access.length) {
+          qaContainer.innerHTML = `<span class="text-[11px] text-zinc-400 mr-1 flex items-center gap-1 font-medium"><span>⚡</span> Quick Jump:</span>` +
+            res.quick_access.map(qa => `
+              <button type="button" onclick="loadFolderList('${qa.path.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}')"
+                class="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 text-zinc-300 hover:text-white transition font-mono text-[11px] cursor-pointer">
+                ${qa.label}
+              </button>
+            `).join("");
+        }
+
+        const btnNav = document.getElementById("btnNavParent");
+        btnNav.disabled = !res.parent_path;
+        btnNav.className = res.parent_path ?
+          "px-2.5 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300 font-mono flex items-center gap-1 flex-shrink-0 cursor-pointer" :
+          "px-2.5 py-1.5 rounded bg-zinc-900 text-xs text-zinc-600 font-mono flex items-center gap-1 flex-shrink-0 cursor-not-allowed";
 
         const btnConfirm = document.getElementById("btnConfirmFolder");
         if (res.current_has_git) {
@@ -1054,9 +1152,9 @@ This automated remediation replaces external outbound network API calls with com
         for (const f of res.folders) {
           const escPath = f.path.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
           html += `
-            <div class="p-2 rounded-lg border ${f.has_git ? 'border-emerald-500/30 bg-emerald-950/20' : 'border-[var(--border)] bg-[var(--card)]'} hover:bg-zinc-800/60 transition flex items-center justify-between gap-3">
-              <div class="flex items-center gap-2.5 min-w-0 cursor-pointer flex-1" onclick="loadFolderList('${escPath}')">
-                <span class="text-base">${f.has_git ? '📦' : '📁'}</span>
+            <div class="p-2.5 rounded-lg border ${f.has_git ? 'border-emerald-500/40 bg-emerald-950/20' : 'border-[var(--border)] bg-[var(--card)]'} hover:bg-zinc-800/60 transition flex items-center justify-between gap-3">
+              <div class="flex items-center gap-2.5 min-w-0 cursor-pointer flex-1" onclick="loadFolderList('${escPath}')" title="Click to open directory">
+                <span class="text-lg">${f.has_git ? '📦' : '📁'}</span>
                 <div class="truncate">
                   <div class="text-xs font-mono font-medium ${f.has_git ? 'text-emerald-300' : 'text-zinc-200'} truncate">${f.name}</div>
                   <div class="text-[10px] text-[var(--muted-foreground)] truncate">${f.path}</div>
@@ -1065,11 +1163,11 @@ This automated remediation replaces external outbound network API calls with com
               <div class="flex items-center gap-1.5 flex-shrink-0">
                 ${f.has_git ? '<span class="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">Git Repo</span>' : ''}
                 <button type="button" onclick="selectFolder('${escPath}', ${f.has_git})"
-                  class="px-2.5 py-1 rounded ${f.has_git ? 'bg-emerald-600 hover:bg-emerald-500 text-white font-semibold' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'} text-xs transition">
-                  Select
+                  class="px-2.5 py-1 rounded ${f.has_git ? 'bg-emerald-600 hover:bg-emerald-500 text-white font-semibold' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'} text-xs transition cursor-pointer">
+                  ${f.has_git ? 'Select Repo' : 'Select'}
                 </button>
                 <button type="button" onclick="loadFolderList('${escPath}')"
-                  class="px-2 py-1 rounded hover:bg-zinc-700 text-zinc-400 text-xs transition" title="Open directory">
+                  class="px-2 py-1 rounded hover:bg-zinc-700 text-zinc-400 text-xs transition cursor-pointer" title="Open directory">
                   ➔
                 </button>
               </div>
@@ -1099,25 +1197,16 @@ This automated remediation replaces external outbound network API calls with com
       try {
         const res = await apiPost("/api/fs/native-pick", {});
         if (res.path) {
-          // Validate selected path has git
-          const check = await apiPost("/api/validate-path", { path: res.path });
-          if (!check.valid || !check.has_git) {
-            const err = check.error || `Selected folder '${res.path}' is not a Git repository (missing .git directory).`;
-            log(`Error: ${err}`, "error", "GitSubAgent");
-            showModalError(err);
-            alert(`Error: ${err}`);
-            return;
-          }
-          document.getElementById("repoUrl").value = res.path;
-          showPathFeedback(`✓ Valid Git repository: ${res.path}`, true);
-          log(`Selected local Git repository: ${res.path}`, "success", "GitSubAgent");
-          closeFolderPickerModal();
+          await selectFolder(res.path, false);
+        } else if (res.error) {
+          showModalError(res.error);
+          log(res.error, "warn", "GitSubAgent");
         }
       } catch (e) {
-        alert("Native picker error: " + e.message);
+        showModalError("Could not launch system picker: " + e.message);
       } finally {
         btn.disabled = false;
-        btn.innerHTML = `<span>🖥️</span> <span>Open System Picker</span>`;
+        btn.innerHTML = `<span>🖥️</span> <span>System Dialog</span>`;
       }
     }
 
@@ -1146,71 +1235,19 @@ This automated remediation replaces external outbound network API calls with com
 
     function showModalError(msg) {
       const el = document.getElementById("modalStatusAlert");
-      el.classList.remove("hidden");
-      el.className = "mx-3 mb-2 p-2.5 rounded-lg text-xs font-mono bg-rose-950/60 text-rose-300 border border-rose-500/40 flex items-center gap-2";
+      el.style.display = "flex";
+      el.className = "mx-3 my-2 p-2.5 rounded-lg text-xs font-mono bg-rose-950/80 text-rose-300 border border-rose-500/50 flex items-center gap-2";
       el.innerHTML = `<span>❌</span> <span>${msg}</span>`;
     }
+
+    // Keyboard shortcuts: Escape to close modal
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") closeFolderPickerModal();
+    });
 
     // Initialize
     fetchAgents();
     refreshStatus();
   </script>
-
-  <!-- Folder Picker Modal -->
-  <div id="folderModal" class="fixed inset-0 bg-black/75 backdrop-blur-sm hidden z-50 flex items-center justify-center p-4">
-    <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden">
-      <!-- Modal Header -->
-      <div class="p-4 border-b border-[var(--border)] flex items-center justify-between bg-zinc-900/60">
-        <div class="flex items-center gap-2.5">
-          <span class="text-xl">📁</span>
-          <div>
-            <h3 class="text-sm font-bold text-white">Select Local Git Repository Folder</h3>
-            <p class="text-[11px] text-[var(--muted-foreground)]">Browse directories or open system picker dialog</p>
-          </div>
-        </div>
-        <button onclick="closeFolderPickerModal()" class="text-zinc-400 hover:text-white p-1 rounded-lg text-lg">✕</button>
-      </div>
-
-      <!-- Modal Toolbar -->
-      <div class="p-3 border-b border-[var(--border)] bg-[var(--background)] flex flex-wrap items-center justify-between gap-2">
-        <div class="flex items-center gap-1.5 flex-1 min-w-[220px]">
-          <button onclick="navigateParentFolder()" id="btnNavParent" class="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300 font-mono flex items-center gap-1">
-            <span>⬆️</span> <span>Up</span>
-          </button>
-          <input type="text" id="modalCurrentPath" class="flex-1 text-xs font-mono px-2.5 py-1 rounded bg-[var(--card)] border border-[var(--border)] text-white focus:outline-none" readonly>
-          <button onclick="refreshFolderList()" class="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300" title="Refresh">↻</button>
-        </div>
-        <button onclick="triggerNativeFolderPicker()" id="btnNativePicker"
-          class="px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-medium text-white flex items-center gap-1.5 shadow-sm transition">
-          <span>🖥️</span> <span>Open System Picker</span>
-        </button>
-      </div>
-
-      <!-- Directory List -->
-      <div class="p-3 flex-1 overflow-y-auto custom-scroll space-y-1.5 min-h-[220px]" id="folderListContainer">
-        <div class="text-xs text-zinc-500 text-center py-8">Loading folders...</div>
-      </div>
-
-      <!-- Modal Status Feedback -->
-      <div id="modalStatusAlert" class="hidden mx-3 mb-2 p-2 rounded-lg text-xs font-mono"></div>
-
-      <!-- Modal Footer -->
-      <div class="p-3.5 border-t border-[var(--border)] bg-zinc-900/60 flex items-center justify-between">
-        <div class="text-xs text-[var(--muted-foreground)] flex items-center gap-1.5">
-          <span class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
-          <span>Folders with <strong class="text-emerald-300">.git</strong> are highlighted</span>
-        </div>
-        <div class="flex items-center gap-2">
-          <button onclick="closeFolderPickerModal()" class="px-3 py-1.5 rounded-lg border border-[var(--border)] text-xs text-zinc-300 hover:bg-zinc-800">
-            Cancel
-          </button>
-          <button onclick="confirmCurrentFolder()" id="btnConfirmFolder"
-            class="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-sm transition flex items-center gap-1.5">
-            <span>Select Current Folder</span>
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
 </body>
 </html>

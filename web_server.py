@@ -393,27 +393,45 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                 parent_dir = str(current_dir.parent.resolve()) if current_dir != current_dir.parent else None
                 current_has_git = (current_dir / ".git").exists() or (current_dir / "HEAD").exists()
 
+                # Quick access locations for fast navigation (especially on macOS)
+                home = Path.home().resolve()
+                quick_access = [
+                    {"label": "🏠 Home", "path": str(home)},
+                    {"label": "📁 Workspace", "path": str(Path.cwd().resolve())},
+                ]
+                for rel in ["Projects", "Documents", "Desktop", "Downloads"]:
+                    candidate = home / rel
+                    if candidate.exists() and candidate.is_dir():
+                        quick_access.append({"label": rel, "path": str(candidate.resolve())})
+
                 self._send_json({
                     "current_path": str(current_dir),
                     "current_has_git": current_has_git,
                     "parent_path": parent_dir,
                     "folders": folders,
+                    "quick_access": quick_access,
                 })
                 return
 
             # 10. Native System Folder Picker (macOS dialog fallback)
             elif path == "/api/fs/native-pick":
                 picked_path = ""
+                error_msg = None
                 if sys.platform == "darwin":
                     try:
                         ascript = 'try\nPOSIX path of (choose folder with prompt "Select Git Repository Directory")\non error\nreturn ""\nend try'
-                        proc = subprocess.run(["osascript", "-e", ascript], capture_output=True, text=True, timeout=25)
+                        proc = subprocess.run(["osascript", "-e", ascript], capture_output=True, text=True, timeout=5)
                         if proc.returncode == 0 and proc.stdout.strip():
                             picked_path = proc.stdout.strip().rstrip("/")
+                    except subprocess.TimeoutExpired:
+                        error_msg = "macOS folder dialog timed out. You can browse or paste the path directly in the Directory Browser."
                     except Exception as e:
                         logger.warning("Native folder picker failed: %s", e)
+                        error_msg = f"System picker error: {e}"
+                else:
+                    error_msg = "Native system picker is only available on macOS."
 
-                self._send_json({"path": picked_path})
+                self._send_json({"path": picked_path, "error": error_msg})
                 return
 
             self._send_json({"error": f"Unknown endpoint: {path}"}, status=404)
@@ -423,11 +441,17 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json({"error": str(e)}, status=500)
 
 
+class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    """Threaded TCP server so requests (e.g. folder browsing, status polling) never block each other."""
+    daemon_threads = True
+    allow_reuse_address = True
+
+
 def run_server(port: int = 8080):
     """Start the Common Multi-Agent UI Dashboard HTTP Server."""
     web_dir = get_web_dir()
     os.chdir(str(web_dir.parent))
-    with socketserver.TCPServer(("", port), MultiAgentAPIHandler) as httpd:
+    with ThreadedTCPServer(("", port), MultiAgentAPIHandler) as httpd:
         print(f"\n=======================================================")
         print(f"🤖 Multi-Agent Control Center running at:")
         print(f"👉 http://localhost:{port}")
