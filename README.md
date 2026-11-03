@@ -6,11 +6,12 @@ A modular, production-ready Git subagent designed to be injected into multi-agen
 
 ## 🌟 Key Features
 
-- **Multi-Platform Support**: Works seamlessly with **GitHub** and **GitLab** (including GitHub Enterprise and self-hosted GitLab).
+- **Multi-Platform Support**: Works seamlessly with **GitHub**, **GitLab** (including Enterprise/self-hosted), and **Local Git Repositories** (`/path/to/repo`, `./path`, `file://`).
+- **Offline & Local Repository Mode**: Direct in-place or cloned workflows for local git repos without requiring internet or remote API access, generating local PR review manifests (`.git/local_prs/`).
 - **Configurable Credentials & URLs**: HTTPS and SSH URLs, Personal Access Tokens (PAT), OAuth tokens, environment variables (`GITHUB_TOKEN`, `GITLAB_TOKEN`, `GIT_AGENT_TOKEN`).
-- **Automated Branch Lifecycle**: Auto-detects remote base branch (`main` or `master`), pulls latest changes, and provisions dedicated feature branches (e.g., `agent/vuln-audit-20261102-113000`).
+- **Automated Branch Lifecycle**: Auto-detects remote or local base branch (`main` or `master`), pulls latest changes if remotes exist, and provisions dedicated feature branches (e.g., `agent/vuln-audit-20261102-113000`).
 - **Designed for Subagent Injection**: Clean, programmatic lifecycle hooks (`prepare_workspace()`, `finalize_workspace()`) so parent multi-agent orchestrators can easily pass the cloned repository to specialized auditing agents (e.g. Semgrep, Bandit, LLM security reviewers).
-- **Automated Pull & Merge Requests**: Commits remediation work with customizable author attribution and raises GitHub Pull Requests or GitLab Merge Requests via official REST APIs.
+- **Automated Pull & Merge Requests**: Commits remediation work with customizable author attribution and raises GitHub Pull Requests, GitLab Merge Requests, or Local Review PRs via official APIs or local manifests.
 - **Model Context Protocol (MCP) Server**: Full JSON-RPC 2.0 stdio server compliant with the MCP specification (2024-11-05), enabling any MCP-compatible AI agent or host (Claude Desktop, Cursor, Antigravity) to control Git operations as native tools.
 - **Credential Safety & Security**: Tokens are automatically masked in logs, scrubbed from stdout/stderr, and kept out of persistent git remotes.
 
@@ -177,27 +178,32 @@ In your MCP settings (e.g. `claude_desktop_config.json` or Antigravity MCP setti
 
 | Tool Name | Description | Key Arguments |
 | :--- | :--- | :--- |
-| `git_prepare_repo` | Clones repo, pulls `main`/`master`, and creates feature branch | `repo_url`, `token`, `provider`, `base_branch`, `feature_branch` |
+| `git_prepare_repo` | Clones repo or opens local repo, pulls/detects `main`/`master`, and creates feature branch | `repo_url`, `token`, `provider` (`github`, `gitlab`, `local`), `base_branch`, `feature_branch` |
 | `git_status` | Inspects workspace file status (modified, staged, untracked) | _(none)_ |
 | `git_diff` | Returns `git diff` of working tree or staged changes | `staged` (bool) |
 | `git_read_file` | Reads file from checked-out workspace for vulnerability scan | `relative_path` |
 | `git_write_file` | Writes/patches file in workspace with security remediations | `relative_path`, `content` |
-| `git_commit_and_push` | Stages files, commits changes, and pushes branch to remote | `commit_message`, `files` |
-| `git_create_pull_request` | Opens a Pull Request (GitHub) or Merge Request (GitLab) | `title`, `description`, `draft` |
-| `git_finalize_audit` | **One-step workflow**: commit all, push, and open PR/MR | `commit_message`, `pr_title`, `pr_body`, `draft` |
+| `git_commit_and_push` | Stages files, commits changes, and pushes/updates branch | `commit_message`, `files` |
+| `git_create_pull_request` | Opens a Pull Request (GitHub), Merge Request (GitLab), or Local Review PR | `title`, `description`, `draft` |
+| `git_finalize_audit` | **One-step workflow**: commit all, push/update, and open PR/MR/Local PR | `commit_message`, `pr_title`, `pr_body`, `draft` |
 
 ---
 
 ## 🛠️ CLI Usage
 
 ```bash
-# Prepare repository and feature branch
+# 1. Prepare remote repository (GitHub/GitLab)
 python3 -m agents.git_agent.cli prepare \
   --repo-url "https://github.com/my-org/service.git" \
   --token "ghp_xxxx" \
   --feature-branch "audit/cve-2026-001"
 
-# Run MCP server
+# 2. Prepare local git repository directly in-place
+python3 -m agents.git_agent.cli prepare \
+  --repo-url "/path/to/my-local-repo" \
+  --feature-branch "audit/local-scan"
+
+# 3. Run MCP server
 python3 -m agents.git_agent.cli mcp
 ```
 

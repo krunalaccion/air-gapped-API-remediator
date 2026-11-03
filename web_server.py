@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import socketserver
+import subprocess
 import sys
 import urllib.parse
 from pathlib import Path
@@ -99,6 +100,34 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json({"diff": diff})
             return
 
+        elif path == "/api/local-pr":
+            if not ACTIVE_GIT_AGENT:
+                self._send_json({"error": "No active repository prepared"}, status=400)
+                return
+            repo_path = ACTIVE_GIT_AGENT.get_workspace_path()
+            prs_dir = repo_path / ".git" / "local_prs"
+            if not prs_dir.exists():
+                prs_dir = repo_path / ".local_prs"
+
+            parsed_query = urllib.parse.parse_qs(parsed.query)
+            pr_num = parsed_query.get("number", [None])[0]
+            if pr_num:
+                md_path = prs_dir / f"PR-{pr_num}.md"
+            else:
+                prs = sorted(prs_dir.glob("PR-*.md"), key=lambda p: p.stat().st_mtime, reverse=True)
+                md_path = prs[0] if prs else None
+
+            if not md_path or not md_path.exists():
+                self._send_json({"error": "No local PR report found"}, status=404)
+                return
+
+            self._send_json({
+                "file_path": str(md_path.resolve()),
+                "filename": md_path.name,
+                "content": md_path.read_text(encoding="utf-8"),
+            })
+            return
+
         elif path == "/" or path == "/index.html":
             html_file = get_web_dir() / "index.html"
             if html_file.exists():
@@ -134,7 +163,13 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
 
                 token = payload.get("token") or os.getenv("GITHUB_TOKEN") or os.getenv("GITLAB_TOKEN")
                 provider_str = payload.get("provider")
-                provider = ProviderType(provider_str.lower()) if provider_str else ProviderType.GENERIC
+                if provider_str:
+                    try:
+                        provider = ProviderType(provider_str.lower())
+                    except ValueError:
+                        provider = ProviderType.GENERIC
+                else:
+                    provider = ProviderType.GENERIC
 
                 config = GitAgentConfig(
                     repo_url=repo_url,
@@ -146,6 +181,26 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                     author_name=payload.get("author_name", "Git SubAgent"),
                     author_email=payload.get("author_email", "git-agent@subagent.local"),
                 )
+
+                # Validation: if target is a local repository, verify it exists and has git
+                if config.is_local or config.provider == ProviderType.LOCAL:
+                    clean_path = Path(config.sanitized_repo_url)
+                    if not clean_path.exists():
+                        self._send_json({"error": f"Selected path does not exist: '{clean_path}'"}, status=400)
+                        return
+                    has_git = (clean_path / ".git").exists() or (clean_path / "HEAD").exists()
+                    if not has_git:
+                        code = subprocess.run(
+                            ["git", "rev-parse", "--is-inside-work-tree"],
+                            cwd=str(clean_path),
+                            capture_output=True,
+                        ).returncode
+                        if code != 0:
+                            self._send_json({
+                                "error": f"Selected path '{clean_path}' is not a Git repository. Missing '.git' directory."
+                            }, status=400)
+                            return
+
                 ACTIVE_GIT_AGENT = GitSubAgent(config)
                 AgentRegistry.register("git", ACTIVE_GIT_AGENT)
                 ctx = ACTIVE_GIT_AGENT.prepare_workspace()
@@ -212,20 +267,21 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                 commit_msg = payload.get("commit_message", "fix(airgap): remediate external API endpoints")
                 files = payload.get("files")
                 cur_br = ACTIVE_GIT_AGENT.workspace.current_feature_branch or ACTIVE_GIT_AGENT.workspace.get_current_branch()
+                dest_label = "remote branch" if not ACTIVE_GIT_AGENT.config.is_local else "local branch"
 
                 if ACTIVE_GIT_AGENT.workspace.has_changes():
                     ACTIVE_GIT_AGENT.workspace.add(files)
                     commit_hash = ACTIVE_GIT_AGENT.workspace.commit(commit_msg)
                     ACTIVE_GIT_AGENT.workspace.push(push_url=ACTIVE_GIT_AGENT.config.authenticated_clone_url)
                     self._send_json({
-                        "message": f"Committed {commit_hash[:7]} and pushed to remote branch '{cur_br}'",
+                        "message": f"Committed {commit_hash[:7]} and updated {dest_label} '{cur_br}'",
                         "commit_hash": commit_hash,
                         "branch": cur_br,
                     })
                 else:
                     ACTIVE_GIT_AGENT.workspace.push(push_url=ACTIVE_GIT_AGENT.config.authenticated_clone_url)
                     self._send_json({
-                        "message": f"Working tree clean. Pushed branch '{cur_br}' to remote.",
+                        "message": f"Working tree clean. Updated {dest_label} '{cur_br}'.",
                         "branch": cur_br,
                     })
                 return
@@ -241,7 +297,7 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                 draft = bool(payload.get("draft", False))
 
                 if not ACTIVE_GIT_AGENT.provider:
-                    self._send_json({"error": "No git provider configured (GitHub/GitLab)"}, status=400)
+                    self._send_json({"error": "No git provider configured (GitHub/GitLab/Local)"}, status=400)
                     return
 
                 pr = ACTIVE_GIT_AGENT.provider.create_pull_request(
@@ -251,11 +307,24 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                     description=desc,
                     draft=draft,
                 )
+                pr_label = "Pull Request" if pr.provider != "local" else "Local Pull Request"
+                file_path = ""
+                md_content = ""
+                if pr.provider == "local" and pr.raw_response and "md_file" in pr.raw_response:
+                    file_path = pr.raw_response["md_file"]
+                    try:
+                        md_content = Path(file_path).read_text(encoding="utf-8")
+                    except Exception:
+                        pass
+
                 self._send_json({
-                    "message": "Pull Request created successfully",
+                    "message": f"{pr_label} created successfully",
                     "pr_number": pr.number,
                     "pr_url": pr.url,
+                    "pr_file_path": file_path,
+                    "pr_content": md_content,
                     "title": pr.title,
+                    "provider": pr.provider,
                 })
                 return
 
@@ -274,6 +343,115 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                 self._send_json(res)
                 return
 
+            # 8. Validate Local Repository Path (Check if directory has .git)
+            elif path == "/api/validate-path":
+                raw_path = payload.get("path", "").strip()
+                if not raw_path:
+                    self._send_json({"valid": False, "error": "Path cannot be empty"}, status=400)
+                    return
+
+                clean = raw_path.replace("file://", "")
+                target_path = Path(os.path.expanduser(clean)).resolve()
+
+                if not target_path.exists():
+                    self._send_json({
+                        "valid": False,
+                        "exists": False,
+                        "has_git": False,
+                        "path": str(target_path),
+                        "error": f"Path does not exist: {target_path}",
+                    }, status=400)
+                    return
+
+                if not target_path.is_dir():
+                    self._send_json({
+                        "valid": False,
+                        "exists": True,
+                        "is_dir": False,
+                        "has_git": False,
+                        "path": str(target_path),
+                        "error": f"Path is not a directory: {target_path}",
+                    }, status=400)
+                    return
+
+                has_git = (target_path / ".git").exists() or (target_path / "HEAD").exists()
+                if not has_git:
+                    code = subprocess.run(
+                        ["git", "rev-parse", "--is-inside-work-tree"],
+                        cwd=str(target_path),
+                        capture_output=True,
+                    ).returncode
+                    has_git = (code == 0)
+
+                if not has_git:
+                    self._send_json({
+                        "valid": False,
+                        "exists": True,
+                        "is_dir": True,
+                        "has_git": False,
+                        "path": str(target_path),
+                        "error": f"Selected path '{target_path}' is not a Git repository (missing '.git' directory).",
+                    }, status=400)
+                    return
+
+                self._send_json({
+                    "valid": True,
+                    "exists": True,
+                    "is_dir": True,
+                    "has_git": True,
+                    "path": str(target_path),
+                    "message": f"Valid Git repository detected at {target_path}",
+                })
+                return
+
+            # 9. List Folders for Interactive Directory Browser
+            elif path == "/api/fs/list":
+                raw_path = payload.get("path", "").strip()
+                if raw_path:
+                    clean = raw_path.replace("file://", "")
+                    current_dir = Path(os.path.expanduser(clean)).resolve()
+                else:
+                    current_dir = Path.cwd().resolve()
+
+                if not current_dir.exists() or not current_dir.is_dir():
+                    current_dir = Path.home().resolve()
+
+                folders = []
+                try:
+                    for entry in sorted(current_dir.iterdir(), key=lambda p: p.name.lower()):
+                        if entry.is_dir() and not entry.name.startswith("."):
+                            has_git = (entry / ".git").exists() or (entry / "HEAD").exists()
+                            folders.append({
+                                "name": entry.name,
+                                "path": str(entry.resolve()),
+                                "has_git": has_git,
+                            })
+                except Exception as e:
+                    logger.warning("Could not list directories in %s: %s", current_dir, e)
+
+                parent_dir = str(current_dir.parent.resolve()) if current_dir != current_dir.parent else None
+                current_has_git = (current_dir / ".git").exists() or (current_dir / "HEAD").exists()
+
+                # Quick access locations for fast navigation (especially on macOS)
+                home = Path.home().resolve()
+                quick_access = [
+                    {"label": "🏠 Home", "path": str(home)},
+                    {"label": "📁 Workspace", "path": str(Path.cwd().resolve())},
+                ]
+                for rel in ["Projects", "Documents", "Desktop", "Downloads"]:
+                    candidate = home / rel
+                    if candidate.exists() and candidate.is_dir():
+                        quick_access.append({"label": rel, "path": str(candidate.resolve())})
+
+                self._send_json({
+                    "current_path": str(current_dir),
+                    "current_has_git": current_has_git,
+                    "parent_path": parent_dir,
+                    "folders": folders,
+                    "quick_access": quick_access,
+                })
+                return
+
             self._send_json({"error": f"Unknown endpoint: {path}"}, status=404)
 
         except Exception as e:
@@ -281,11 +459,17 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json({"error": str(e)}, status=500)
 
 
+class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    """Threaded TCP server so requests (e.g. folder browsing, status polling) never block each other."""
+    daemon_threads = True
+    allow_reuse_address = True
+
+
 def run_server(port: int = 8080):
     """Start the Common Multi-Agent UI Dashboard HTTP Server."""
     web_dir = get_web_dir()
     os.chdir(str(web_dir.parent))
-    with socketserver.TCPServer(("", port), MultiAgentAPIHandler) as httpd:
+    with ThreadedTCPServer(("", port), MultiAgentAPIHandler) as httpd:
         print(f"\n=======================================================")
         print(f"🤖 Multi-Agent Control Center running at:")
         print(f"👉 http://localhost:{port}")

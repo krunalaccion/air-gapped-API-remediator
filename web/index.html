@@ -24,6 +24,9 @@
       background: var(--border);
       border-radius: 4px;
     }
+    .hidden {
+      display: none !important;
+    }
   </style>
 </head>
 <body class="bg-[var(--background)] text-[var(--foreground)] antialiased min-h-screen p-4 md:p-6 font-sans">
@@ -136,7 +139,7 @@
             <span>1. GitSubAgent</span>
             <span id="stage-1-tag" class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold">READY</span>
           </div>
-          <p class="text-[11px] text-[var(--muted-foreground)]">Clone repo & checkout remediation branch.</p>
+          <p class="text-[11px] text-[var(--muted-foreground)]" id="stage-1-desc">Clone repo & checkout remediation branch.</p>
         </div>
 
         <!-- Stage 2 -->
@@ -195,15 +198,29 @@
 
           <div class="space-y-3">
             <div>
-              <label class="block text-xs font-medium text-[var(--muted-foreground)] mb-1">Target Repository URL</label>
-              <input type="text" id="repoUrl" value="https://github.com/krunal0406/airgap-remediator-day1.git"
-                class="w-full text-xs font-mono px-3 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)] text-white focus:outline-none focus:border-blue-500">
+              <label class="block text-xs font-medium text-[var(--muted-foreground)] mb-1 flex items-center justify-between">
+                <span>Target Repository URL or Local Path</span>
+                <span class="text-[10px] text-blue-400 font-normal">GitHub, GitLab, or Local Folders</span>
+              </label>
+              <div class="flex gap-2">
+                <input type="text" id="repoUrl" value="https://github.com/krunal0406/airgap-remediator-day1.git"
+                  placeholder="https://github.com/owner/repo.git or /path/to/local/project"
+                  oninput="handlePathInput(this.value)"
+                  class="flex-1 text-xs font-mono px-3 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)] text-white focus:outline-none focus:border-blue-500 transition">
+                <button type="button" onclick="openFolderPickerModal()" id="btnSelectFolder"
+                  class="px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 border border-[var(--border)] text-xs text-white flex items-center gap-1.5 transition shadow-sm font-medium whitespace-nowrap"
+                  title="Choose local directory from system or directory browser">
+                  <span>📁</span>
+                  <span>Select Folder</span>
+                </button>
+              </div>
+              <div id="pathValidationStatus" class="hidden mt-1.5 p-2 rounded-lg text-[11px] font-mono flex items-center gap-1.5"></div>
             </div>
 
             <div>
               <label class="block text-xs font-medium text-[var(--muted-foreground)] mb-1">
                 Personal Access Token (GitHub / GitLab PAT)
-                <span class="text-[10px] text-emerald-400 font-normal ml-1">Auto-detected from config if empty</span>
+                <span class="text-[10px] text-emerald-400 font-normal ml-1">Optional for local repos / auto-detected from config</span>
               </label>
               <input type="password" id="gitToken" placeholder="Leave blank to use token from config"
                 class="w-full text-xs font-mono px-3 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)] text-white focus:outline-none focus:border-blue-500">
@@ -483,19 +500,38 @@ This automated remediation replaces external outbound network API calls with com
       <div class="lg:col-span-5 space-y-6">
 
         <!-- Active PR Card -->
-        <div id="prCard" class="bg-gradient-to-br from-purple-900/30 to-blue-900/20 border border-purple-500/40 rounded-xl p-4 shadow-md">
-          <div class="flex items-center justify-between mb-2">
+        <div id="prCard" class="bg-gradient-to-br from-purple-900/30 to-blue-900/20 border border-purple-500/40 rounded-xl p-4 shadow-md space-y-3">
+          <div class="flex items-center justify-between">
             <span class="text-xs font-bold text-purple-300 flex items-center gap-1.5">
               <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
               Active Pull Request
             </span>
-            <span class="text-[10px] text-purple-200/60 uppercase font-mono" id="prProviderLabel">GitHub</span>
+            <span class="text-[10px] text-purple-200/60 uppercase font-mono px-2 py-0.5 rounded bg-purple-500/20" id="prProviderLabel">GitHub</span>
           </div>
-          <h3 class="text-sm font-semibold text-white mb-2" id="prTitleDisplay">[Air-Gapped Remediation] Replace external API egress with offline services</h3>
-          <a id="prUrlLink" href="https://github.com/krunal0406/airgap-remediator-day1/pull/1" target="_blank"
-            class="inline-flex items-center gap-1.5 text-xs font-medium text-blue-400 hover:text-blue-300 underline font-mono">
-            View on GitHub →
-          </a>
+          <h3 class="text-sm font-semibold text-white" id="prTitleDisplay">[Air-Gapped Remediation] Replace external API egress with offline services</h3>
+          
+          <!-- Remote Provider PR Link -->
+          <div id="prRemoteActions">
+            <a id="prUrlLink" href="https://github.com/krunal0406/airgap-remediator-day1/pull/1" target="_blank"
+              class="inline-flex items-center gap-1.5 text-xs font-medium text-blue-400 hover:text-blue-300 underline font-mono">
+              View on GitHub →
+            </a>
+          </div>
+
+          <!-- Local PR Actions -->
+          <div id="prLocalActions" class="hidden space-y-2 pt-1 border-t border-purple-500/20">
+            <div class="text-[11px] font-mono text-zinc-300 bg-zinc-950/60 p-2 rounded border border-purple-500/20 break-all" id="prLocalFilePathDisplay">
+              .git/local_prs/PR-1.md
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <button onclick="viewLocalPrModal()" class="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-medium transition flex items-center gap-1.5 shadow-sm cursor-pointer">
+                <span>📄</span> <span>Read PR Report</span>
+              </button>
+              <button onclick="copyLocalPrPath()" id="btnCopyPrPath" class="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium transition flex items-center gap-1.5 cursor-pointer">
+                <span>📋</span> <span>Copy Path</span>
+              </button>
+            </div>
+          </div>
         </div>
 
         <!-- Air-Gapped Compliance Overview Card -->
@@ -574,6 +610,93 @@ This automated remediation replaces external outbound network API calls with com
 
     </div>
 
+  </div>
+
+  <!-- Folder Picker Modal -->
+  <div id="folderModal" style="display: none;" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onclick="if(event.target === this) closeFolderPickerModal()">
+    <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden" onclick="event.stopPropagation()">
+      <!-- Modal Header -->
+      <div class="p-4 border-b border-[var(--border)] flex items-center justify-between bg-zinc-900/60">
+        <div class="flex items-center gap-2.5">
+          <span class="text-xl">📁</span>
+          <div>
+            <h3 class="text-sm font-bold text-white">Select Local Git Repository Folder</h3>
+            <p class="text-[11px] text-[var(--muted-foreground)]">Browse directories, use quick jump, or enter path</p>
+          </div>
+        </div>
+        <button onclick="closeFolderPickerModal()" class="text-zinc-400 hover:text-white p-1 rounded-lg text-lg">✕</button>
+      </div>
+
+      <!-- Quick Access Jump Shortcuts -->
+      <div class="px-3 py-2 border-b border-[var(--border)] bg-zinc-950/50 flex items-center gap-1.5 flex-wrap text-xs" id="quickAccessContainer">
+        <span class="text-[11px] text-zinc-400 mr-1 flex items-center gap-1"><span>⚡</span> Quick Jump:</span>
+      </div>
+
+      <!-- Modal Toolbar & Path Input -->
+      <div class="p-3 border-b border-[var(--border)] bg-[var(--background)] flex items-center gap-2">
+        <button onclick="navigateParentFolder()" id="btnNavParent" class="px-2.5 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300 font-mono flex items-center gap-1 flex-shrink-0" title="Go up one level">
+          <span>⬆️</span> <span>Up</span>
+        </button>
+        <div class="flex-1 flex items-center gap-1.5">
+          <input type="text" id="modalCurrentPath" placeholder="/path/to/folder"
+            onkeydown="if(event.key === 'Enter') navigateToTypedPath()"
+            class="flex-1 text-xs font-mono px-2.5 py-1.5 rounded bg-[var(--card)] border border-[var(--border)] text-white focus:outline-none focus:border-blue-500">
+          <button onclick="navigateToTypedPath()" class="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-xs text-white font-medium flex-shrink-0" title="Navigate to typed path">Go</button>
+        </div>
+        <button onclick="refreshFolderList()" class="px-2.5 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300 flex-shrink-0" title="Refresh">↻</button>
+      </div>
+
+      <!-- Directory List -->
+      <div class="p-3 flex-1 overflow-y-auto custom-scroll space-y-1.5 min-h-[220px]" id="folderListContainer">
+        <div class="text-xs text-zinc-500 text-center py-8">Loading folders...</div>
+      </div>
+
+      <!-- Modal Status Feedback Alert -->
+      <div id="modalStatusAlert" style="display: none;" class="mx-3 my-2 p-2.5 rounded-lg text-xs font-mono"></div>
+
+      <!-- Modal Footer -->
+      <div class="p-3.5 border-t border-[var(--border)] bg-zinc-900/60 flex items-center justify-between">
+        <div class="text-xs text-[var(--muted-foreground)] flex items-center gap-1.5">
+          <span class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+          <span>Folders with <strong class="text-emerald-300">.git</strong> are highlighted</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="closeFolderPickerModal()" class="px-3 py-1.5 rounded-lg border border-[var(--border)] text-xs text-zinc-300 hover:bg-zinc-800">
+            Cancel
+          </button>
+          <button onclick="confirmCurrentFolder()" id="btnConfirmFolder"
+            class="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-sm transition flex items-center gap-1.5">
+            <span>Select Current Folder</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Local PR Viewer Modal -->
+  <div id="localPrModal" style="display: none;" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onclick="if(event.target === this) closeLocalPrModal()">
+    <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl w-full max-w-3xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden" onclick="event.stopPropagation()">
+      <div class="p-4 border-b border-[var(--border)] flex items-center justify-between bg-zinc-900/60">
+        <div class="flex items-center gap-2.5 min-w-0">
+          <span class="text-xl">📄</span>
+          <div class="min-w-0">
+            <h3 class="text-sm font-bold text-white truncate" id="modalPrTitle">Local Pull Request</h3>
+            <p class="text-[11px] text-[var(--muted-foreground)] font-mono truncate" id="modalPrFilePath"></p>
+          </div>
+        </div>
+        <button onclick="closeLocalPrModal()" class="text-zinc-400 hover:text-white p-1 rounded-lg text-lg flex-shrink-0 cursor-pointer">✕</button>
+      </div>
+      <div class="p-4 flex-1 overflow-y-auto custom-scroll">
+        <pre id="modalPrContent" class="w-full bg-[var(--background)] p-4 rounded-xl border border-[var(--border)] font-mono text-xs text-zinc-200 whitespace-pre-wrap leading-relaxed custom-scroll"></pre>
+      </div>
+      <div class="p-3.5 border-t border-[var(--border)] bg-zinc-900/60 flex items-center justify-between gap-3">
+        <span class="text-xs text-[var(--muted-foreground)] truncate">Local git pull request record stored in repository</span>
+        <div class="flex items-center gap-2">
+          <button onclick="copyLocalPrPath()" class="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300 cursor-pointer">Copy Path</button>
+          <button onclick="closeLocalPrModal()" class="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs text-white font-medium cursor-pointer">Done</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -717,14 +840,34 @@ This automated remediation replaces external outbound network API calls with com
 
     // Step 1: Repository Preparation
     async function handlePrepare() {
-      const repoUrl = document.getElementById("repoUrl").value;
+      const repoUrl = document.getElementById("repoUrl").value.trim();
       const baseBranch = document.getElementById("baseBranch").value;
       const featureBranch = document.getElementById("featureBranch").value;
       const gitToken = document.getElementById("gitToken").value.trim();
 
-      log(`Cloning ${repoUrl}...`, "info", "GitSubAgent");
+      if (!repoUrl) {
+        alert("Please enter a Target Repository URL or select a local path.");
+        return;
+      }
+
+      const isLocal = repoUrl.startsWith("/") || repoUrl.startsWith("~") || repoUrl.startsWith("./") || repoUrl.startsWith("../") || repoUrl.startsWith("file://") || repoUrl === "." || /^[a-zA-Z]:[\\/]/.test(repoUrl);
+
+      // Validate local repository has .git before attempting prepare
+      if (isLocal) {
+        log(`Checking if selected path '${repoUrl}' is a Git repository...`, "info", "GitSubAgent");
+        const check = await apiPost("/api/validate-path", { path: repoUrl });
+        if (!check.valid || !check.has_git) {
+          const errMsg = check.error || `Selected path '${repoUrl}' is not a Git repository. Missing '.git' directory.`;
+          log(`Error: ${errMsg}`, "error", "GitSubAgent");
+          showPathFeedback(`❌ ${errMsg}`, false);
+          alert(`Error: ${errMsg}`);
+          return;
+        }
+      }
+
+      log(isLocal ? `Preparing local repository ${repoUrl}...` : `Cloning ${repoUrl}...`, "info", "GitSubAgent");
       document.getElementById("btnPrepare").disabled = true;
-      document.getElementById("btnPrepare").textContent = "Cloning repository & branching...";
+      document.getElementById("btnPrepare").textContent = isLocal ? "Preparing local repository & branch..." : "Cloning repository & branching...";
 
       const res = await apiPost("/api/prepare", {
         repo_url: repoUrl,
@@ -734,13 +877,16 @@ This automated remediation replaces external outbound network API calls with com
       });
 
       document.getElementById("btnPrepare").disabled = false;
-      document.getElementById("btnPrepare").textContent = "Clone & Create Remediation Branch";
+      document.getElementById("btnPrepare").textContent = isLocal ? "Prepare Local Repository & Create Branch" : "Clone & Create Remediation Branch";
 
       if (res.error) {
         log(`Prepare failed: ${res.error}`, "error", "GitSubAgent");
+        showPathFeedback(`❌ ${res.error}`, false);
+        alert(`Prepare failed: ${res.error}`);
       } else {
         log(`Workspace ready on branch: ${res.context.feature_branch}`, "success", "GitSubAgent");
         document.getElementById("currentBranchDisplay").textContent = res.context.feature_branch;
+        showPathFeedback(`✓ Active Repository: ${res.context.repo_path} (${res.context.provider})`, true);
         setStage(1, "DONE", true);
         setStage(2, "READY");
         refreshStatus();
@@ -885,14 +1031,70 @@ This automated remediation replaces external outbound network API calls with com
       if (res.error) {
         log(`PR creation failed: ${res.error}`, "error", "GitSubAgent");
       } else {
-        log(`PR #${res.pr_number} successfully opened: ${res.pr_url}`, "success", "GitSubAgent");
+        const prType = res.provider === "local" ? "Local PR" : "PR";
+        log(`${prType} #${res.pr_number} successfully opened: ${res.pr_file_path || res.pr_url}`, "success", "GitSubAgent");
         document.getElementById("prTitleDisplay").textContent = res.title;
-        const link = document.getElementById("prUrlLink");
-        link.href = res.pr_url;
-        link.textContent = `View PR #${res.pr_number} on GitHub →`;
+
+        if (res.provider === "local") {
+          currentLocalPr = res;
+          document.getElementById("prProviderLabel").textContent = "Local Git Repo";
+          document.getElementById("prRemoteActions").classList.add("hidden");
+          document.getElementById("prLocalActions").classList.remove("hidden");
+          document.getElementById("prLocalFilePathDisplay").textContent = res.pr_file_path || res.pr_url.replace("file://", "");
+        } else {
+          document.getElementById("prProviderLabel").textContent = res.provider === "gitlab" ? "GitLab" : "GitHub";
+          document.getElementById("prRemoteActions").classList.remove("hidden");
+          document.getElementById("prLocalActions").classList.add("hidden");
+          const link = document.getElementById("prUrlLink");
+          link.href = res.pr_url;
+          if (res.provider === "gitlab") {
+            link.textContent = `View MR #${res.pr_number} on GitLab →`;
+          } else {
+            link.textContent = `View PR #${res.pr_number} on GitHub →`;
+          }
+        }
         document.getElementById("prCard").classList.remove("hidden");
         setStage(5, "PR OPENED", true);
       }
+    }
+
+    let currentLocalPr = null;
+
+    async function viewLocalPrModal() {
+      if (!currentLocalPr || !currentLocalPr.pr_content) {
+        try {
+          const res = await (await fetch("/api/local-pr")).json();
+          if (res && res.content) {
+            currentLocalPr = Object.assign(currentLocalPr || {}, {
+              title: res.filename,
+              pr_file_path: res.file_path,
+              pr_content: res.content
+            });
+          }
+        } catch (e) {}
+      }
+      if (!currentLocalPr) return;
+      document.getElementById("modalPrTitle").textContent = currentLocalPr.title || "Local Pull Request";
+      document.getElementById("modalPrFilePath").textContent = currentLocalPr.pr_file_path || currentLocalPr.pr_url || "";
+      document.getElementById("modalPrContent").textContent = currentLocalPr.pr_content || "(No report content found)";
+      document.getElementById("localPrModal").style.display = "flex";
+    }
+
+    function closeLocalPrModal() {
+      document.getElementById("localPrModal").style.display = "none";
+    }
+
+    function copyLocalPrPath() {
+      const pathText = currentLocalPr?.pr_file_path || document.getElementById("prLocalFilePathDisplay").textContent.trim();
+      if (!pathText) return;
+      navigator.clipboard.writeText(pathText).then(() => {
+        const btn = document.getElementById("btnCopyPrPath");
+        if (btn) {
+          const orig = btn.innerHTML;
+          btn.textContent = "✓ Copied!";
+          setTimeout(() => { btn.innerHTML = orig; }, 2000);
+        }
+      });
     }
 
     // Run Full Multi-Agent Pipeline
@@ -917,6 +1119,216 @@ This automated remediation replaces external outbound network API calls with com
     function showAddAgentModal() {
       alert("Multi-Agent Architecture:\n\nTo add a new agent, simply create a subfolder in `agents/` (e.g. `agents/compliance_agent/agent.py`) extending `BaseAgent` and register it with `AgentRegistry.register()`. It will automatically appear here in the common UI!");
     }
+
+    // ==========================================
+    // Local Folder Picker & Validation Handling
+    // ==========================================
+    let currentModalPath = "";
+    let currentModalHasGit = false;
+    let modalParentPath = null;
+    let pathValidationTimeout = null;
+
+    function showPathFeedback(msg, isSuccess) {
+      const el = document.getElementById("pathValidationStatus");
+      const input = document.getElementById("repoUrl");
+      if (!msg) {
+        el.classList.add("hidden");
+        input.classList.remove("border-emerald-500", "border-rose-500");
+        return;
+      }
+      el.classList.remove("hidden");
+      el.textContent = msg;
+      if (isSuccess) {
+        el.className = "mt-1.5 p-2 rounded-lg text-[11px] font-mono flex items-center gap-1.5 bg-emerald-950/40 text-emerald-400 border border-emerald-500/30";
+        input.classList.remove("border-rose-500");
+        input.classList.add("border-emerald-500");
+      } else {
+        el.className = "mt-1.5 p-2 rounded-lg text-[11px] font-mono flex items-center gap-1.5 bg-rose-950/40 text-rose-400 border border-rose-500/30";
+        input.classList.remove("border-emerald-500");
+        input.classList.add("border-rose-500");
+      }
+    }
+
+    function handlePathInput(val) {
+      clearTimeout(pathValidationTimeout);
+      const trimmed = val.trim();
+      const isLocal = trimmed.startsWith("/") || trimmed.startsWith("~") || trimmed.startsWith("./") || trimmed.startsWith("../") || trimmed.startsWith("file://") || trimmed === "." || /^[a-zA-Z]:[\\/]/.test(trimmed);
+
+      const btnPrepare = document.getElementById("btnPrepare");
+      const stage1Desc = document.getElementById("stage-1-desc");
+      if (isLocal) {
+        if (btnPrepare) btnPrepare.innerHTML = `<span>Prepare Local Repository & Create Branch</span>`;
+        if (stage1Desc) stage1Desc.textContent = "Use local repository in-place & checkout remediation branch.";
+      } else {
+        if (btnPrepare) btnPrepare.innerHTML = `<span>Clone & Create Remediation Branch</span>`;
+        if (stage1Desc) stage1Desc.textContent = "Clone repo & checkout remediation branch.";
+      }
+
+      if (!isLocal || !trimmed) {
+        showPathFeedback("", false);
+        return;
+      }
+      pathValidationTimeout = setTimeout(async () => {
+        const res = await apiPost("/api/validate-path", { path: trimmed });
+        if (res.valid && res.has_git) {
+          showPathFeedback(`✓ Valid Git repository detected (${res.path})`, true);
+        } else {
+          showPathFeedback(`❌ ${res.error || "Not a Git repository (missing .git directory)"}`, false);
+        }
+      }, 350);
+    }
+
+    function openFolderPickerModal() {
+      const modal = document.getElementById("folderModal");
+      modal.style.display = "flex";
+      const currentInput = document.getElementById("repoUrl").value.trim();
+      const isLocal = currentInput.startsWith("/") || currentInput.startsWith("~") || currentInput.startsWith(".");
+      loadFolderList(isLocal ? currentInput : (currentModalPath || ""));
+    }
+
+    function closeFolderPickerModal() {
+      const modal = document.getElementById("folderModal");
+      modal.style.display = "none";
+      const alertEl = document.getElementById("modalStatusAlert");
+      if (alertEl) {
+        alertEl.style.display = "none";
+        alertEl.innerHTML = "";
+      }
+    }
+
+    function navigateToTypedPath() {
+      const typed = document.getElementById("modalCurrentPath").value.trim();
+      if (typed) {
+        loadFolderList(typed);
+      }
+    }
+
+    async function loadFolderList(targetPath) {
+      const container = document.getElementById("folderListContainer");
+      container.innerHTML = `<div class="text-xs text-zinc-400 text-center py-8 flex items-center justify-center gap-2"><span>⏳</span> Loading directories...</div>`;
+      const alertEl = document.getElementById("modalStatusAlert");
+      if (alertEl) alertEl.style.display = "none";
+
+      try {
+        const res = await apiPost("/api/fs/list", { path: targetPath || "" });
+        currentModalPath = res.current_path;
+        currentModalHasGit = res.current_has_git;
+        modalParentPath = res.parent_path;
+
+        document.getElementById("modalCurrentPath").value = res.current_path;
+        
+        // Render Quick Access jump buttons
+        const qaContainer = document.getElementById("quickAccessContainer");
+        if (qaContainer && res.quick_access && res.quick_access.length) {
+          qaContainer.innerHTML = `<span class="text-[11px] text-zinc-400 mr-1 flex items-center gap-1 font-medium"><span>⚡</span> Quick Jump:</span>` +
+            res.quick_access.map(qa => `
+              <button type="button" onclick="loadFolderList('${qa.path.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}')"
+                class="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 text-zinc-300 hover:text-white transition font-mono text-[11px] cursor-pointer">
+                ${qa.label}
+              </button>
+            `).join("");
+        }
+
+        const btnNav = document.getElementById("btnNavParent");
+        btnNav.disabled = !res.parent_path;
+        btnNav.className = res.parent_path ?
+          "px-2.5 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300 font-mono flex items-center gap-1 flex-shrink-0 cursor-pointer" :
+          "px-2.5 py-1.5 rounded bg-zinc-900 text-xs text-zinc-600 font-mono flex items-center gap-1 flex-shrink-0 cursor-not-allowed";
+
+        const btnConfirm = document.getElementById("btnConfirmFolder");
+        if (res.current_has_git) {
+          btnConfirm.className = "px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-sm transition flex items-center gap-1.5 cursor-pointer";
+          btnConfirm.innerHTML = `<span>✓ Select This Git Repo</span>`;
+        } else {
+          btnConfirm.className = "px-4 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold shadow-sm transition flex items-center gap-1.5 cursor-pointer";
+          btnConfirm.innerHTML = `<span>Select Current Folder</span>`;
+        }
+
+        if (!res.folders || res.folders.length === 0) {
+          container.innerHTML = `<div class="text-xs text-zinc-500 text-center py-8">No subdirectories found in this folder.</div>`;
+          return;
+        }
+
+        let html = "";
+        for (const f of res.folders) {
+          const escPath = f.path.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+          html += `
+            <div class="p-2.5 rounded-lg border ${f.has_git ? 'border-emerald-500/40 bg-emerald-950/20' : 'border-[var(--border)] bg-[var(--card)]'} hover:bg-zinc-800/60 transition flex items-center justify-between gap-3">
+              <div class="flex items-center gap-2.5 min-w-0 cursor-pointer flex-1" onclick="loadFolderList('${escPath}')" title="Click to open directory">
+                <span class="text-lg">${f.has_git ? '📦' : '📁'}</span>
+                <div class="truncate">
+                  <div class="text-xs font-mono font-medium ${f.has_git ? 'text-emerald-300' : 'text-zinc-200'} truncate">${f.name}</div>
+                  <div class="text-[10px] text-[var(--muted-foreground)] truncate">${f.path}</div>
+                </div>
+              </div>
+              <div class="flex items-center gap-1.5 flex-shrink-0">
+                ${f.has_git ? '<span class="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">Git Repo</span>' : ''}
+                <button type="button" onclick="selectFolder('${escPath}', ${f.has_git})"
+                  class="px-2.5 py-1 rounded ${f.has_git ? 'bg-emerald-600 hover:bg-emerald-500 text-white font-semibold' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'} text-xs transition cursor-pointer">
+                  ${f.has_git ? 'Select Repo' : 'Select'}
+                </button>
+                <button type="button" onclick="loadFolderList('${escPath}')"
+                  class="px-2 py-1 rounded hover:bg-zinc-700 text-zinc-400 text-xs transition cursor-pointer" title="Open directory">
+                  ➔
+                </button>
+              </div>
+            </div>
+          `;
+        }
+        container.innerHTML = html;
+      } catch (err) {
+        container.innerHTML = `<div class="text-xs text-rose-400 text-center py-6">Failed to load folders: ${err.message}</div>`;
+      }
+    }
+
+    function navigateParentFolder() {
+      if (modalParentPath) {
+        loadFolderList(modalParentPath);
+      }
+    }
+
+    function refreshFolderList() {
+      loadFolderList(currentModalPath);
+    }
+
+    async function selectFolder(folderPath, hasGit) {
+      if (!hasGit) {
+        const check = await apiPost("/api/validate-path", { path: folderPath });
+        if (!check.valid || !check.has_git) {
+          const errMsg = check.error || `Selected path '${folderPath}' is not a Git repository (missing .git directory).`;
+          showModalError(errMsg);
+          log(`Error: ${errMsg}`, "error", "GitSubAgent");
+          alert(`Error: ${errMsg}`);
+          return;
+        }
+      }
+
+      document.getElementById("repoUrl").value = folderPath;
+      handlePathInput(folderPath);
+      showPathFeedback(`✓ Valid Git repository: ${folderPath}`, true);
+      log(`Selected local Git repository: ${folderPath}`, "success", "GitSubAgent");
+      closeFolderPickerModal();
+    }
+
+    async function confirmCurrentFolder() {
+      if (!currentModalPath) return;
+      await selectFolder(currentModalPath, currentModalHasGit);
+    }
+
+    function showModalError(msg) {
+      const el = document.getElementById("modalStatusAlert");
+      el.style.display = "flex";
+      el.className = "mx-3 my-2 p-2.5 rounded-lg text-xs font-mono bg-rose-950/80 text-rose-300 border border-rose-500/50 flex items-center gap-2";
+      el.innerHTML = `<span>❌</span> <span>${msg}</span>`;
+    }
+
+    // Keyboard shortcuts: Escape to close modals
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        closeFolderPickerModal();
+        closeLocalPrModal();
+      }
+    });
 
     // Initialize
     fetchAgents();

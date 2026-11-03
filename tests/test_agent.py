@@ -86,6 +86,82 @@ class TestGitSubAgent(unittest.TestCase):
         self.assertEqual(res.pr.url, "https://github.com/mock/repo/pull/99")
         agent.provider.create_pull_request.assert_called_once()
 
+    def test_local_repo_subagent_lifecycle_in_place(self):
+        # Create a local git repo
+        local_repo = self.temp_dir / "my_local_workdir"
+        local_repo.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["git", "init"], cwd=str(local_repo), check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.name", "LocalDev"], cwd=str(local_repo), check=True)
+        subprocess.run(["git", "config", "user.email", "local@dev.local"], cwd=str(local_repo), check=True)
+        subprocess.run(["git", "config", "commit.gpgsign", "false"], cwd=str(local_repo), check=True)
+        (local_repo / "server.py").write_text("API_KEY = 'hardcoded_secret'\n")
+        subprocess.run(["git", "add", "server.py"], cwd=str(local_repo), check=True)
+        subprocess.run(["git", "-c", "commit.gpgsign=false", "commit", "-m", "Initial local commit"], cwd=str(local_repo), check=True)
+        subprocess.run(["git", "branch", "-M", "main"], cwd=str(local_repo), check=True)
+
+        # Configure GitSubAgent directly on local repo
+        config = GitAgentConfig(
+            repo_url=str(local_repo),
+            feature_branch_name="security/rotate-secret",
+        )
+        self.assertEqual(config.provider, ProviderType.LOCAL)
+        self.assertEqual(config.workspace_dir, str(local_repo.resolve()))
+
+        agent = GitSubAgent(config)
+
+        # 1. Prepare workspace
+        ctx = agent.prepare_workspace()
+        self.assertEqual(ctx.base_branch, "main")
+        self.assertEqual(ctx.feature_branch, "security/rotate-secret")
+        self.assertEqual(str(ctx.repo_path), str(local_repo.resolve()))
+        self.assertEqual(ctx.provider, "local")
+
+        # 2. Modify files (simulate patch)
+        (local_repo / "server.py").write_text("API_KEY = os.getenv('API_KEY')\n")
+        (local_repo / "AUDIT.md").write_text("Rotated hardcoded key.\n")
+
+        # 3. Finalize workspace
+        res = agent.finalize_workspace(
+            commit_message="fix(security): load API_KEY from environment",
+            pr_title="Rotate Hardcoded Secrets",
+            pr_body="Replaced hardcoded key with environment variable.",
+        )
+
+        self.assertEqual(res.status, "success")
+        self.assertIsNotNone(res.commit_hash)
+        self.assertEqual(res.pr.provider, "local")
+        self.assertEqual(res.pr.number, 1)
+        self.assertTrue(res.pr.url.startswith("file://"))
+
+        # Verify git commit in local repository
+        out = subprocess.run(
+            ["git", "log", "-1", "--pretty=%B"],
+            cwd=str(local_repo),
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        self.assertIn("fix(security): load API_KEY from environment", out)
+
+        # Verify PR record file exists in .git/local_prs
+        self.assertTrue((local_repo / ".git" / "local_prs" / "PR-1.md").exists())
+
+    def test_local_repo_without_git_throws_error(self):
+        # Create non-git folder
+        non_git_dir = self.temp_dir / "plain_folder_without_git"
+        non_git_dir.mkdir(parents=True, exist_ok=True)
+        (non_git_dir / "notes.txt").write_text("just files, no git")
+
+        config = GitAgentConfig(repo_url=str(non_git_dir))
+        agent = GitSubAgent(config)
+
+        # Calling prepare_workspace must throw error
+        with self.assertRaises(ValueError) as ctx:
+            agent.prepare_workspace()
+
+        self.assertIn("is not a Git repository", str(ctx.exception))
+        self.assertIn("missing '.git' directory", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

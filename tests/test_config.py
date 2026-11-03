@@ -65,6 +65,60 @@ class TestGitAgentConfig(unittest.TestCase):
         self.assertEqual(cfg.author_name, "AuditBot")
         self.assertTrue(cfg.draft_pr)
 
+    def test_auto_detect_local_paths(self):
+        # Absolute path
+        cfg1 = GitAgentConfig(repo_url="/Users/test/my-project")
+        self.assertEqual(cfg1.provider, ProviderType.LOCAL)
+        self.assertTrue(cfg1.is_local)
+
+        # Relative path
+        cfg2 = GitAgentConfig(repo_url="./my-project")
+        self.assertEqual(cfg2.provider, ProviderType.LOCAL)
+        self.assertTrue(cfg2.is_local)
+
+        # Current directory
+        cfg3 = GitAgentConfig(repo_url=".")
+        self.assertEqual(cfg3.provider, ProviderType.LOCAL)
+        self.assertTrue(cfg3.is_local)
+
+        # File URL
+        cfg4 = GitAgentConfig(repo_url="file:///tmp/repo")
+        self.assertEqual(cfg4.provider, ProviderType.LOCAL)
+        self.assertTrue(cfg4.is_local)
+
+        # Explicit provider=local
+        cfg5 = GitAgentConfig(repo_url="my-custom-repo", provider=ProviderType.LOCAL)
+        self.assertEqual(cfg5.provider, ProviderType.LOCAL)
+        self.assertTrue(cfg5.is_local)
+
+    def test_authenticated_clone_url_local(self):
+        cfg = GitAgentConfig(
+            repo_url="/tmp/my-local-repo",
+            token="ghp_some_token",
+        )
+        # Local paths should never embed tokens or https
+        auth_url = cfg.authenticated_clone_url
+        self.assertNotIn("ghp_some_token", auth_url)
+        self.assertNotIn("https://", auth_url)
+        self.assertTrue(auth_url.endswith("my-local-repo"))
+
+    def test_sanitized_repo_url_local(self):
+        cfg = GitAgentConfig(repo_url="file:///tmp/my-repo")
+        sanitized = cfg.sanitized_repo_url
+        self.assertTrue(sanitized.endswith("my-repo"))
+        self.assertNotIn("file://", sanitized)
+
+    def test_from_dict_local(self):
+        data = {
+            "repo_url": "/Users/local/code",
+            "provider": "local",
+            "base_branch": "main",
+        }
+        cfg = GitAgentConfig.from_dict(data)
+        self.assertEqual(cfg.provider, ProviderType.LOCAL)
+        self.assertEqual(cfg.base_branch, "main")
+        self.assertTrue(cfg.is_local)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,12 +1,16 @@
 # Git SubAgent Configuration Example (YAML)
 
-# Target repository URL (GitHub or GitLab)
+# Target repository URL (GitHub, GitLab, or local filesystem path)
+# Examples:
+#   repo_url: "https://github.com/octocat/Hello-World.git"
+#   repo_url: "/Users/dev/Projects/my-app"
+#   repo_url: "./my-local-repo"
 repo_url: "https://github.com/octocat/Hello-World.git"
 
-# Personal Access Token (can also be read from GITHUB_TOKEN or GITLAB_TOKEN env vars)
+# Personal Access Token (can also be read from GITHUB_TOKEN or GITLAB_TOKEN env vars; optional for local repos)
 token: "ghp_xxxxxxxxxxxxxxxxxxxx"
 
-# Provider type: github, gitlab, or generic (auto-detected if omitted)
+# Provider type: github, gitlab, local, or generic (auto-detected if omitted)
 provider: "github"
 
 # Branch configuration

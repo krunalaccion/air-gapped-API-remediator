@@ -16,6 +16,7 @@ from urllib.parse import urlparse
 class ProviderType(str, Enum):
     GITHUB = "github"
     GITLAB = "gitlab"
+    LOCAL = "local"
     GENERIC = "generic"
 
 
@@ -53,13 +54,52 @@ class GitAgentConfig:
     # Extra metadata
     extra_headers: Dict[str, str] = field(default_factory=dict)
 
+    @property
+    def is_local(self) -> bool:
+        """Indicates whether this repository is on the local filesystem."""
+        return self.provider == ProviderType.LOCAL or self._is_local_path(self.repo_url)
+
+    @staticmethod
+    def _is_local_path(url: str) -> bool:
+        """Check if URL or path string represents a local filesystem location."""
+        if not url:
+            return False
+        clean = url.strip()
+        if clean.startswith("file://"):
+            return True
+        if clean.startswith(("/", "~", "./", "../")) or clean == ".":
+            return True
+        # Windows drive letter (e.g. C:\ or C:/)
+        if re.match(r"^[a-zA-Z]:[\\/]", clean):
+            return True
+        # Check if the path exists on disk
+        try:
+            expanded = os.path.expanduser(clean)
+            if Path(expanded).exists():
+                return True
+        except Exception:
+            pass
+        return False
+
     def __post_init__(self):
         # Auto-detect provider if generic or not explicitly provided
         if self.provider == ProviderType.GENERIC:
             self.provider = self._detect_provider_from_url(self.repo_url)
 
-        # Auto-load token from environment if not explicitly passed
-        if not self.token:
+        # For local repos, default workspace_dir to repo_url if it contains a git working tree
+        if self.provider == ProviderType.LOCAL and not self.workspace_dir:
+            try:
+                clean = self.repo_url.strip()
+                if clean.startswith("file://"):
+                    clean = clean[7:]
+                local_path = Path(os.path.expanduser(clean)).resolve()
+                if local_path.exists() and (local_path / ".git").exists():
+                    self.workspace_dir = str(local_path)
+            except Exception:
+                pass
+
+        # Auto-load token from environment if not explicitly passed (skip for local repos)
+        if not self.token and self.provider != ProviderType.LOCAL:
             self.token = self._resolve_env_token()
 
         # Set default API base URL if not provided
@@ -67,8 +107,14 @@ class GitAgentConfig:
             self.api_base_url = self._default_api_base()
 
     def _detect_provider_from_url(self, url: str) -> ProviderType:
-        """Infer provider from repository URL host."""
-        lower_url = url.lower()
+        """Infer provider from repository URL host or filesystem path."""
+        if not url:
+            return ProviderType.GENERIC
+        lower_url = url.strip().lower()
+        if lower_url == "local":
+            return ProviderType.LOCAL
+        if self._is_local_path(url):
+            return ProviderType.LOCAL
         if "gitlab" in lower_url:
             return ProviderType.GITLAB
         if "github" in lower_url:
@@ -155,14 +201,23 @@ class GitAgentConfig:
                 return f"https://{host}/api/v4"
             return "https://gitlab.com/api/v4"
 
+        elif self.provider == ProviderType.LOCAL:
+            return ""
+
         return ""
 
     @property
     def authenticated_clone_url(self) -> str:
         """
         Builds a safe clone URL with credentials embedded for git commands,
-        or returns the standard URL if no token is available.
+        or returns the standard URL if no token is available or if repository is local.
         """
+        if self.is_local:
+            clean = self.repo_url.strip()
+            if clean.startswith("file://"):
+                clean = clean[7:]
+            return str(Path(os.path.expanduser(clean)).resolve())
+
         if not self.token:
             return self.repo_url
 
@@ -193,6 +248,11 @@ class GitAgentConfig:
     @property
     def sanitized_repo_url(self) -> str:
         """Returns repo URL without tokens or credentials for safe logging."""
+        if self.is_local:
+            clean = self.repo_url.strip()
+            if clean.startswith("file://"):
+                clean = clean[7:]
+            return str(Path(os.path.expanduser(clean)).resolve())
         url = self.repo_url
         # Strip user:password or tokens from http urls
         parsed = urlparse(url)

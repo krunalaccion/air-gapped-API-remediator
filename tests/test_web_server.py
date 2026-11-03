@@ -2,13 +2,17 @@
 Unit tests for web server API endpoints and Air-Gapped API Remediator logic.
 """
 
+import io
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import MagicMock
 
 from agents.scanner_agent.agent import ScannerAgent
 from agents.remediator_agent.agent import RemediatorAgent
+from web_server import MultiAgentAPIHandler
 
 
 class TestAirGappedScannerAndRemediator(unittest.TestCase):
@@ -50,6 +54,154 @@ class TestAirGappedScannerAndRemediator(unittest.TestCase):
         self.assertIn("AIRGAP_SECURITY_AUDIT.md", result["files_modified"])
         self.assertTrue((self.temp_dir / "config" / "airgap_proxy.json").exists())
         self.assertTrue((self.temp_dir / "AIRGAP_SECURITY_AUDIT.md").exists())
+
+    def _call_post(self, path: str, payload: dict) -> tuple[int, dict]:
+        handler = MultiAgentAPIHandler.__new__(MultiAgentAPIHandler)
+        body = json.dumps(payload).encode("utf-8")
+        handler.rfile = io.BytesIO(body)
+        handler.wfile = io.BytesIO()
+        handler.headers = {"Content-Length": str(len(body))}
+        handler.path = path
+        handler.send_response = MagicMock()
+        handler.send_header = MagicMock()
+        handler.end_headers = MagicMock()
+
+        handler.do_POST()
+        status_code = handler.send_response.call_args[0][0] if handler.send_response.call_args else 200
+        response_data = json.loads(handler.wfile.getvalue().decode("utf-8")) if handler.wfile.getvalue() else {}
+        return status_code, response_data
+
+    def test_validate_path_git_repo(self):
+        # Create a git repo
+        git_dir = self.temp_dir / "valid_git_repo"
+        git_dir.mkdir()
+        subprocess.run(["git", "init"], cwd=str(git_dir), check=True, capture_output=True)
+
+        status, data = self._call_post("/api/validate-path", {"path": str(git_dir)})
+        self.assertEqual(status, 200)
+        self.assertTrue(data.get("valid"))
+        self.assertTrue(data.get("has_git"))
+        self.assertEqual(data.get("path"), str(git_dir.resolve()))
+
+    def test_validate_path_non_git_repo_returns_error(self):
+        # Directory without .git
+        non_git = self.temp_dir / "non_git_folder"
+        non_git.mkdir()
+
+        status, data = self._call_post("/api/validate-path", {"path": str(non_git)})
+        self.assertEqual(status, 400)
+        self.assertFalse(data.get("valid"))
+        self.assertFalse(data.get("has_git"))
+        self.assertIn("is not a Git repository", data.get("error", ""))
+        self.assertIn("missing '.git' directory", data.get("error", ""))
+
+    def test_validate_path_non_existent(self):
+        non_existent = self.temp_dir / "does_not_exist"
+        status, data = self._call_post("/api/validate-path", {"path": str(non_existent)})
+        self.assertEqual(status, 400)
+        self.assertFalse(data.get("valid"))
+        self.assertIn("does not exist", data.get("error", ""))
+
+    def test_api_prepare_non_git_repo_returns_error(self):
+        # Local path without .git must be rejected by /api/prepare
+        non_git = self.temp_dir / "not_a_repo"
+        non_git.mkdir()
+
+        status, data = self._call_post("/api/prepare", {"repo_url": str(non_git)})
+        self.assertEqual(status, 400)
+        self.assertIn("error", data)
+        self.assertIn("is not a Git repository", data["error"])
+        self.assertIn("Missing '.git' directory", data["error"])
+
+    def test_api_fs_list_directories(self):
+        # Create a git subfolder and a non-git subfolder
+        git_sub = self.temp_dir / "repo_a"
+        git_sub.mkdir()
+        subprocess.run(["git", "init"], cwd=str(git_sub), check=True, capture_output=True)
+
+        regular_sub = self.temp_dir / "docs"
+        regular_sub.mkdir()
+
+        status, data = self._call_post("/api/fs/list", {"path": str(self.temp_dir)})
+        self.assertEqual(status, 200)
+        folders = {f["name"]: f for f in data.get("folders", [])}
+
+        self.assertIn("repo_a", folders)
+        self.assertTrue(folders["repo_a"]["has_git"])
+
+        self.assertIn("docs", folders)
+        self.assertFalse(folders["docs"]["has_git"])
+
+        # Check quick access shortcuts
+        quick_access = data.get("quick_access", [])
+        self.assertTrue(len(quick_access) >= 2)
+        labels = [q["label"] for q in quick_access]
+        self.assertTrue(any("Home" in l for l in labels))
+
+    def test_index_html_integrity_and_folder_modal(self):
+        from web_server import get_web_dir
+        html_path = get_web_dir() / "index.html"
+        self.assertTrue(html_path.exists())
+        content = html_path.read_text(encoding="utf-8")
+
+        # Verify key elements
+        self.assertIn('id="folderModal"', content)
+        self.assertIn('id="modalStatusAlert"', content)
+        self.assertIn('id="quickAccessContainer"', content)
+        self.assertIn('id="modalCurrentPath"', content)
+        self.assertIn('.hidden {', content)
+        self.assertIn('display: none !important;', content)
+        self.assertIn('div.textContent = `[${time}] [${agentName}] ${msg}`;', content)
+        self.assertIn('openFolderPickerModal', content)
+        self.assertIn('selectFolder', content)
+        self.assertIn('validate-path', content)
+
+
+    def _call_get(self, path: str) -> tuple[int, dict]:
+        handler = MultiAgentAPIHandler.__new__(MultiAgentAPIHandler)
+        handler.rfile = io.BytesIO(b"")
+        handler.wfile = io.BytesIO()
+        handler.headers = {}
+        handler.path = path
+        handler.send_response = MagicMock()
+        handler.send_header = MagicMock()
+        handler.end_headers = MagicMock()
+
+        handler.do_GET()
+        status_code = handler.send_response.call_args[0][0] if handler.send_response.call_args else 200
+        response_data = json.loads(handler.wfile.getvalue().decode("utf-8")) if handler.wfile.getvalue() else {}
+        return status_code, response_data
+
+    def test_api_local_pr_endpoint(self):
+        import web_server
+        # Prepare workspace on a local git repo
+        local_repo = self.temp_dir / "my_local_test_repo"
+        local_repo.mkdir()
+        subprocess.run(["git", "init", "-b", "main"], cwd=str(local_repo), check=True, capture_output=True)
+        (local_repo / "README.md").write_text("# Test Repo\n")
+        subprocess.run(["git", "add", "."], cwd=str(local_repo), check=True, capture_output=True)
+        subprocess.run(["git", "-c", "commit.gpgsign=false", "-c", "user.name=Test", "-c", "user.email=test@test.local", "commit", "-m", "init"], cwd=str(local_repo), check=True, capture_output=True)
+
+        # Call /api/prepare
+        status, prep_data = self._call_post("/api/prepare", {"repo_url": str(local_repo)})
+        self.assertEqual(status, 200)
+
+        # Call /api/create-pr
+        status, pr_data = self._call_post("/api/create-pr", {
+            "title": "Local Test PR",
+            "description": "Testing local pull request retrieval",
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(pr_data.get("provider"), "local")
+        self.assertIn("PR-1.md", pr_data.get("pr_file_path", ""))
+        self.assertIn("Local Test PR", pr_data.get("pr_content", ""))
+
+        # Call GET /api/local-pr
+        status, get_data = self._call_get("/api/local-pr")
+        self.assertEqual(status, 200)
+        self.assertIn("content", get_data)
+        self.assertIn("Local Test PR", get_data["content"])
+        self.assertEqual(get_data.get("filename"), "PR-1.md")
 
 
 if __name__ == "__main__":

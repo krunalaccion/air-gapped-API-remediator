@@ -144,6 +144,11 @@ class GitSubAgent(BaseAgent):
         """
         logger.info("Preparing workspace for repo: %s", self.config.sanitized_repo_url)
 
+        # Validate that local repository exists and has git
+        if self.config.is_local or self.config.provider == ProviderType.LOCAL:
+            if self.provider and hasattr(self.provider, "check_is_git_repository"):
+                self.provider.check_is_git_repository()
+
         # 1. Clone repository
         clone_url = self.config.authenticated_clone_url
         self.workspace.clone(clone_url)
@@ -252,7 +257,7 @@ class GitSubAgent(BaseAgent):
         # 6. Raise Pull Request / Merge Request
         if not self.provider:
             raise RuntimeError(
-                "No provider configured (e.g. GitHub or GitLab). Cannot create Pull Request automatically."
+                "No provider configured (e.g. GitHub, GitLab, or Local). Cannot create Pull Request automatically."
             )
 
         title = pr_title or self.config.default_pr_title
@@ -276,12 +281,13 @@ class GitSubAgent(BaseAgent):
         )
 
         logger.info("PR/MR created successfully: %s", pr_result.url)
+        pr_type = "PR" if self.config.provider != ProviderType.LOCAL else "local review"
 
         return FinalizeResult(
             status="success",
             commit_hash=commit_hash,
             pr=pr_result,
-            message=f"Successfully committed {commit_hash[:7]} and opened PR #{pr_result.number}: {pr_result.url}",
+            message=f"Successfully committed {commit_hash[:7]} and opened {pr_type} #{pr_result.number}: {pr_result.url}",
             diff_summary=diff_summary,
         )
 

@@ -3,6 +3,7 @@ Unit tests for the Multi-Agent architecture, specialized agents, and common serv
 """
 
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -96,6 +97,38 @@ class TestMultiAgentArchitecture(unittest.TestCase):
         proxy_content = json.loads((self.temp_dir / "config" / "airgap_proxy.json").read_text())
         self.assertTrue(proxy_content["airgap_mode"])
         self.assertEqual(proxy_content["proxy_host"], "proxy.airgap.internal")
+
+    def test_multi_agent_pipeline_local_repo(self):
+        # Create a local git repo
+        local_repo = self.temp_dir / "pipeline_local_repo"
+        local_repo.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["git", "init"], cwd=str(local_repo), check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Tester"], cwd=str(local_repo), check=True)
+        subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=str(local_repo), check=True)
+        subprocess.run(["git", "config", "commit.gpgsign", "false"], cwd=str(local_repo), check=True)
+        (local_repo / "main.py").write_text("import requests\nresp = requests.get('https://api.external-cloud.com/v1')\n")
+        subprocess.run(["git", "add", "."], cwd=str(local_repo), check=True)
+        subprocess.run(["git", "-c", "commit.gpgsign=false", "commit", "-m", "init"], cwd=str(local_repo), check=True)
+        subprocess.run(["git", "branch", "-M", "main"], cwd=str(local_repo), check=True)
+
+        config = GitAgentConfig(
+            repo_url=str(local_repo),
+            feature_branch_name="airgap/remediate-apis",
+        )
+        self.assertEqual(config.provider, ProviderType.LOCAL)
+
+        pipeline = MultiAgentPipeline(git_config=config)
+        res = pipeline.run_remediation_pipeline()
+
+        self.assertEqual(res["status"], "success")
+        self.assertEqual(res["git_result"]["status"], "success")
+        self.assertTrue(res["git_result"]["pr_url"].startswith("file://"))
+
+        # Verify commit exists on branch
+        out = subprocess.run(["git", "log", "-1", "--pretty=%s"], cwd=str(local_repo), capture_output=True, text=True, check=True).stdout
+        self.assertIn("fix(airgap)", out)
+        # Verify airgap proxy file generated
+        self.assertTrue((local_repo / "config" / "airgap_proxy.json").exists())
 
 
 if __name__ == "__main__":
