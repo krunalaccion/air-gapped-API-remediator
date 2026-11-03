@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from git_agent.workspace import GitWorkspace
+from agents.git_agent.workspace import GitWorkspace
 
 
 class TestGitWorkspace(unittest.TestCase):

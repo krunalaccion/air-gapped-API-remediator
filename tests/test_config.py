@@ -4,7 +4,7 @@ Unit tests for GitAgentConfig and provider resolution.
 
 import os
 import unittest
-from git_agent.config import GitAgentConfig, ProviderType
+from agents.git_agent.config import GitAgentConfig, ProviderType
 
 
 class TestGitAgentConfig(unittest.TestCase):

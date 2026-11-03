@@ -9,9 +9,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from git_agent.agent import GitSubAgent
-from git_agent.config import GitAgentConfig, ProviderType
-from git_agent.providers.base import PullRequestResult
+from agents.git_agent.agent import GitSubAgent
+from agents.git_agent.config import GitAgentConfig, ProviderType
+from agents.git_agent.providers.base import PullRequestResult
 
 
 class TestGitSubAgent(unittest.TestCase):

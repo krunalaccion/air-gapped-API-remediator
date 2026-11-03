@@ -11,8 +11,12 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
-from git_agent.config import GitAgentConfig
-from git_agent.providers.base import GitProvider, PullRequestResult
+try:
+    from ..config import GitAgentConfig
+    from .base import GitProvider, PullRequestResult
+except (ImportError, ValueError):
+    from agents.git_agent.config import GitAgentConfig
+    from agents.git_agent.providers.base import GitProvider, PullRequestResult
 
 
 class GitLabProvider(GitProvider):

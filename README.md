@@ -84,7 +84,7 @@ draft_pr: false
 Here is how you inject `GitSubAgent` into your parent multi-agent system:
 
 ```python
-from git_agent import GitSubAgent, GitAgentConfig, ProviderType
+from agents.git_agent import GitSubAgent, GitAgentConfig, ProviderType
 
 # 1. Configure the subagent
 config = GitAgentConfig(
@@ -127,7 +127,17 @@ print(f"PR URL:   {result.pr.url}")
 print(f"PR #:     {result.pr.number}")
 ```
 
-See [git_agent/integrations/multi_agent_pipeline.py](file:///Users/krunaldharamshi/Projects/GitAgent/git_agent/integrations/multi_agent_pipeline.py) for a runnable end-to-end example.
+See [orchestrator/pipeline.py](file:///Users/krunaldharamshi/Projects/GitAgent/orchestrator/pipeline.py) for a runnable end-to-end multi-agent pipeline example.
+
+---
+
+## 🌐 Common Multi-Agent Web Dashboard
+
+Start the common Multi-Agent Control Center:
+
+```bash
+python3 web_server.py 8080
+```
 
 ---
 
@@ -138,7 +148,7 @@ The Git SubAgent includes a Model Context Protocol (MCP) server running over JSO
 ### Start the MCP Server
 
 ```bash
-python3 -m git_agent.mcp_server
+python3 -m agents.git_agent.mcp_server
 # or using the CLI command:
 git-agent mcp
 ```
@@ -152,7 +162,7 @@ In your MCP settings (e.g. `claude_desktop_config.json` or Antigravity MCP setti
   "mcpServers": {
     "git-agent": {
       "command": "python3",
-      "args": ["-m", "git_agent.mcp_server"],
+      "args": ["-m", "agents.git_agent.mcp_server"],
       "cwd": "/path/to/GitAgent",
       "env": {
         "GITHUB_TOKEN": "ghp_yourTokenHere",
@@ -182,13 +192,13 @@ In your MCP settings (e.g. `claude_desktop_config.json` or Antigravity MCP setti
 
 ```bash
 # Prepare repository and feature branch
-python3 -m git_agent.cli prepare \
+python3 -m agents.git_agent.cli prepare \
   --repo-url "https://github.com/my-org/service.git" \
   --token "ghp_xxxx" \
   --feature-branch "audit/cve-2026-001"
 
 # Run MCP server
-python3 -m git_agent.cli mcp
+python3 -m agents.git_agent.cli mcp
 ```
 
 ---

@@ -10,9 +10,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from git_agent.mcp_server import GitAgentMCPServer
-from git_agent.agent import GitSubAgent, WorkspaceContext
-from git_agent.providers.base import PullRequestResult
+from agents.git_agent.mcp_server import GitAgentMCPServer
+from agents.git_agent.agent import GitSubAgent, WorkspaceContext
+from agents.git_agent.providers.base import PullRequestResult
 
 
 class TestGitAgentMCPServer(unittest.TestCase):
