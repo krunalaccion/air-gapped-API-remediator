@@ -303,17 +303,29 @@ class GitAgentMCPServer:
             elif name == "git_commit_and_push":
                 msg = args["commit_message"]
                 files = args.get("files")
-                self.agent.workspace.add(files)
-                commit_hash = self.agent.workspace.commit(msg)
-                self.agent.workspace.push(push_url=self.agent.config.authenticated_clone_url)
-                return {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": f"Committed {commit_hash[:7]} and pushed branch '{self.agent.workspace.current_feature_branch}' to remote.",
-                        }
-                    ]
-                }
+                current_br = self.agent.workspace.current_feature_branch or self.agent.workspace.get_current_branch()
+                if self.agent.workspace.has_changes():
+                    self.agent.workspace.add(files)
+                    commit_hash = self.agent.workspace.commit(msg)
+                    self.agent.workspace.push(push_url=self.agent.config.authenticated_clone_url)
+                    return {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": f"Committed {commit_hash[:7]} ('{msg}') and pushed branch '{current_br}' to remote.",
+                            }
+                        ]
+                    }
+                else:
+                    self.agent.workspace.push(push_url=self.agent.config.authenticated_clone_url)
+                    return {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": f"Working tree clean (no new changes to commit). Pushed branch '{current_br}' to remote.",
+                            }
+                        ]
+                    }
 
             elif name == "git_create_pull_request":
                 title = args["title"]

@@ -35,3 +35,4 @@ __all__ = [
     "GitLabProvider",
     "get_provider",
 ]
+

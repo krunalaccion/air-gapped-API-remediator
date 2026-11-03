@@ -134,3 +134,4 @@ class GitLabProvider(GitProvider):
             draft=draft,
             raw_response=resp,
         )
+

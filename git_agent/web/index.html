@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GitAgent - Multi-Agent Control Center</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    :root {
+      --background: #0d1117;
+      --card: #161b22;
+      --foreground: #c9d1d9;
+      --muted-foreground: #8b949e;
+      --border: #30363d;
+      --primary: #238636;
+      --primary-foreground: #ffffff;
+      --accent: #58a6ff;
+    }
+    .custom-scroll::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body class="bg-[var(--background)] text-[var(--foreground)] antialiased min-h-screen p-4 md:p-6 font-sans">
+  <div class="max-w-6xl mx-auto space-y-6">
+
+    <!-- Header -->
+    <header class="flex flex-col md:flex-row md:items-center justify-between pb-4 border-b border-[var(--border)] gap-4">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-lg bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold text-xl">
+          ⎇
+        </div>
+        <div>
+          <h1 class="text-xl font-bold tracking-tight text-white flex items-center gap-2">
+            GitAgent Control Center
+            <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">MCP Active</span>
+          </h1>
+          <p class="text-xs text-[var(--muted-foreground)]">Autonomous Git Subagent & Multi-Agent Vulnerability Remediation</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 text-xs">
+        <span class="px-2.5 py-1 rounded-md bg-[var(--card)] border border-[var(--border)] text-[var(--muted-foreground)]" id="activeBranchTag">
+          Branch: <strong class="text-white font-mono" id="currentBranchDisplay">None</strong>
+        </span>
+        <button onclick="refreshStatus()" class="px-3 py-1 rounded-md bg-blue-600 hover:bg-blue-500 text-white font-medium transition flex items-center gap-1.5 shadow-sm">
+          <span>↻</span> Refresh
+        </button>
+      </div>
+    </header>
+
+    <!-- Multi-Agent Visualizer Card -->
+    <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 shadow-sm">
+      <div class="text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider mb-3">Multi-Agent Workflow Stages</div>
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+        <div id="step-1-card" class="p-3 rounded-lg border border-emerald-500/30 bg-emerald-500/5 relative">
+          <div class="text-xs font-semibold text-emerald-400 mb-1 flex items-center justify-between">
+            <span>1. GitSubAgent</span>
+            <span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20">PREPARE</span>
+          </div>
+          <p class="text-xs text-[var(--muted-foreground)]">Clones base branch and provisions feature branch.</p>
+        </div>
+
+        <div id="step-2-card" class="p-3 rounded-lg border border-[var(--border)] bg-[var(--background)] relative">
+          <div class="text-xs font-semibold text-[var(--foreground)] mb-1 flex items-center justify-between">
+            <span>2. Security Agent</span>
+            <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">AUDIT</span>
+          </div>
+          <p class="text-xs text-[var(--muted-foreground)]">Scans code, patches flaws, generates audit notes.</p>
+        </div>
+
+        <div id="step-3-card" class="p-3 rounded-lg border border-[var(--border)] bg-[var(--background)] relative">
+          <div class="text-xs font-semibold text-[var(--foreground)] mb-1 flex items-center justify-between">
+            <span>3. GitSubAgent</span>
+            <span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300">COMMIT</span>
+          </div>
+          <p class="text-xs text-[var(--muted-foreground)]">Stages changes, commits, and pushes branch.</p>
+        </div>
+
+        <div id="step-4-card" class="p-3 rounded-lg border border-[var(--border)] bg-[var(--background)] relative">
+          <div class="text-xs font-semibold text-[var(--foreground)] mb-1 flex items-center justify-between">
+            <span>4. Reviewers</span>
+            <span class="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300">PR / MR</span>
+          </div>
+          <p class="text-xs text-[var(--muted-foreground)]">Automated Pull Request raised for peer review.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Grid: Control Panel + Live Status -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+      <!-- Left Column: Operations (7 cols) -->
+      <div class="lg:col-span-7 space-y-6">
+
+        <!-- 1. Repository Preparation Form -->
+        <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5 shadow-sm space-y-4">
+          <div class="flex items-center justify-between border-b border-[var(--border)] pb-3">
+            <h2 class="text-sm font-semibold text-white flex items-center gap-2">
+              <span class="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-xs">1</span>
+              Repository & Branch Setup
+            </h2>
+            <span class="text-xs text-[var(--muted-foreground)]">GitHub / GitLab</span>
+          </div>
+
+          <div class="space-y-3">
+            <div>
+              <label class="block text-xs font-medium text-[var(--muted-foreground)] mb-1">Repository URL</label>
+              <input type="text" id="repoUrl" value="https://github.com/krunal0406/airgap-remediator-day1.git"
+                class="w-full text-xs font-mono px-3 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)] text-white focus:outline-none focus:border-blue-500">
+            </div>
+
+            <div>
+              <label class="block text-xs font-medium text-[var(--muted-foreground)] mb-1">
+                Personal Access Token (GitHub PAT)
+                <span class="text-[10px] text-emerald-400 font-normal ml-1">Auto-detected from config if empty</span>
+              </label>
+              <input type="password" id="gitToken" placeholder="Leave blank to use token from ~/.gemini/config/mcp_config.json"
+                class="w-full text-xs font-mono px-3 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)] text-white focus:outline-none focus:border-blue-500">
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs font-medium text-[var(--muted-foreground)] mb-1">Base Branch (e.g. main/master)</label>
+                <input type="text" id="baseBranch" value="master" placeholder="auto"
+                  class="w-full text-xs font-mono px-3 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)] text-white focus:outline-none focus:border-blue-500">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-[var(--muted-foreground)] mb-1">Feature Branch Name</label>
+                <input type="text" id="featureBranch" value="security/audit-scan"
+                  class="w-full text-xs font-mono px-3 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)] text-white focus:outline-none focus:border-blue-500">
+              </div>
+            </div>
+
+            <button onclick="handlePrepare()" id="btnPrepare"
+              class="w-full py-2 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition flex items-center justify-center gap-2 shadow-sm">
+              <span>Clone & Create Feature Branch</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 2. Audit Workspace & File Editor -->
+        <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5 shadow-sm space-y-4">
+          <div class="flex items-center justify-between border-b border-[var(--border)] pb-3">
+            <h2 class="text-sm font-semibold text-white flex items-center gap-2">
+              <span class="w-5 h-5 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs">2</span>
+              Security Audit & Remediation Patch
+            </h2>
+            <span class="text-xs text-amber-400 font-mono">Workspace Edit</span>
+          </div>
+
+          <div class="space-y-3">
+            <div>
+              <label class="block text-xs font-medium text-[var(--muted-foreground)] mb-1">Relative File Path to Patch</label>
+              <input type="text" id="patchPath" value="SECURITY_AUDIT.md"
+                class="w-full text-xs font-mono px-3 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)] text-white focus:outline-none focus:border-amber-500">
+            </div>
+
+            <div>
+              <label class="block text-xs font-medium text-[var(--muted-foreground)] mb-1">File Content / Security Patch</label>
+              <textarea id="patchContent" rows="4"
+                class="w-full text-xs font-mono px-3 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)] text-white focus:outline-none focus:border-amber-500 custom-scroll"># Security Vulnerability Audit Report
+- Target: airgap-remediator-day1
+- Audit Scan: PASS
+- Remediations: Verified dependencies and security configurations.</textarea>
+            </div>
+
+            <button onclick="handleWriteFile()"
+              class="py-2 px-4 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold transition flex items-center justify-center gap-2">
+              <span>Save File Changes to Workspace</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 3. Commit & Open Pull Request -->
+        <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-5 shadow-sm space-y-4">
+          <div class="flex items-center justify-between border-b border-[var(--border)] pb-3">
+            <h2 class="text-sm font-semibold text-white flex items-center gap-2">
+              <span class="w-5 h-5 rounded-full bg-purple-500/20 text-purple-400 flex items-center justify-center text-xs">3</span>
+              Commit, Push & Raise Pull Request
+            </h2>
+            <span class="text-xs text-purple-400 font-mono">GitHub / GitLab API</span>
+          </div>
+
+          <div class="space-y-3">
+            <div>
+              <label class="block text-xs font-medium text-[var(--muted-foreground)] mb-1">Commit Message</label>
+              <input type="text" id="commitMsg" value="fix(security): apply automated vulnerability fixes and audit notes"
+                class="w-full text-xs font-mono px-3 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)] text-white focus:outline-none focus:border-purple-500">
+            </div>
+
+            <div>
+              <label class="block text-xs font-medium text-[var(--muted-foreground)] mb-1">PR Title</label>
+              <input type="text" id="prTitle" value="[Security Audit] Vulnerability Scan & Remediation"
+                class="w-full text-xs font-medium px-3 py-2 rounded-lg bg-[var(--background)] border border-[var(--border)] text-white focus:outline-none focus:border-purple-500">
+            </div>
+
+            <div class="flex gap-3">
+              <button onclick="handleCommitPush()"
+                class="flex-1 py-2 px-4 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition flex items-center justify-center gap-2">
+                <span>Commit & Push Branch</span>
+              </button>
+
+              <button onclick="handleCreatePR()"
+                class="flex-1 py-2 px-4 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold transition flex items-center justify-center gap-2 shadow-sm">
+                <span>Raise Pull Request</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Right Column: Status & Live Terminal (5 cols) -->
+      <div class="lg:col-span-5 space-y-6">
+
+        <!-- Active PR Card (Hidden until PR created) -->
+        <div id="prCard" class="bg-gradient-to-br from-purple-900/30 to-blue-900/20 border border-purple-500/40 rounded-xl p-4 shadow-md">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-bold text-purple-300 flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              Active Pull Request #1
+            </span>
+            <span class="text-[10px] text-purple-200/60 uppercase font-mono">GitHub</span>
+          </div>
+          <h3 class="text-sm font-semibold text-white mb-2" id="prTitleDisplay">[Security Audit] Vulnerability Scan & Audit Tracking</h3>
+          <a id="prUrlLink" href="https://github.com/krunal0406/airgap-remediator-day1/pull/1" target="_blank"
+            class="inline-flex items-center gap-1.5 text-xs font-medium text-blue-400 hover:text-blue-300 underline font-mono">
+            View on GitHub →
+          </a>
+        </div>
+
+        <!-- Git Status Summary -->
+        <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 space-y-3">
+          <h3 class="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Working Tree Status</h3>
+          <div class="grid grid-cols-3 gap-2 text-center text-xs">
+            <div class="bg-[var(--background)] p-2.5 rounded-lg border border-[var(--border)]">
+              <span class="block text-emerald-400 font-bold text-base" id="statStaged">0</span>
+              <span class="text-[var(--muted-foreground)] text-[11px]">Staged</span>
+            </div>
+            <div class="bg-[var(--background)] p-2.5 rounded-lg border border-[var(--border)]">
+              <span class="block text-amber-400 font-bold text-base" id="statModified">0</span>
+              <span class="text-[var(--muted-foreground)] text-[11px]">Modified</span>
+            </div>
+            <div class="bg-[var(--background)] p-2.5 rounded-lg border border-[var(--border)]">
+              <span class="block text-blue-400 font-bold text-base" id="statUntracked">0</span>
+              <span class="text-[var(--muted-foreground)] text-[11px]">Untracked</span>
+            </div>
+          </div>
+
+          <div class="mt-2">
+            <div class="text-[11px] font-medium text-[var(--muted-foreground)] mb-1">Git Diff Output:</div>
+            <pre id="diffOutput" class="w-full bg-[var(--background)] p-3 rounded-lg border border-[var(--border)] font-mono text-[11px] text-emerald-400 h-28 overflow-auto custom-scroll">(clean - no changes)</pre>
+          </div>
+        </div>
+
+        <!-- Realtime Activity Log Console -->
+        <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 flex flex-col h-72">
+          <div class="flex items-center justify-between pb-2 border-b border-[var(--border)] mb-2">
+            <h3 class="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)] flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+              Agent Activity Log
+            </h3>
+            <button onclick="clearLogs()" class="text-[10px] text-[var(--muted-foreground)] hover:text-white">Clear</button>
+          </div>
+          <div id="logConsole" class="flex-1 bg-[var(--background)] p-3 rounded-lg border border-[var(--border)] font-mono text-[11px] text-[var(--muted-foreground)] overflow-y-auto custom-scroll space-y-1">
+            <div class="text-emerald-400">[READY] GitAgent initialized in workspace.</div>
+            <div class="text-blue-300">[MCP] Connected to GitHub provider.</div>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+  <script>
+    function log(msg, type = "info") {
+      const consoleEl = document.getElementById("logConsole");
+      const time = new Date().toLocaleTimeString();
+      const div = document.createElement("div");
+      if (type === "success") div.className = "text-emerald-400";
+      else if (type === "warn") div.className = "text-amber-400";
+      else if (type === "error") div.className = "text-red-400";
+      else div.className = "text-blue-300";
+      div.textContent = `[${time}] ${msg}`;
+      consoleEl.appendChild(div);
+      consoleEl.scrollTop = consoleEl.scrollHeight;
+    }
+
+    function clearLogs() {
+      document.getElementById("logConsole").innerHTML = "";
+    }
+
+    async function apiPost(endpoint, data) {
+      try {
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data)
+        });
+        return await res.json();
+      } catch (err) {
+        log(`Network/API error: ${err.message}`, "error");
+        return { error: err.message };
+      }
+    }
+
+    async function refreshStatus() {
+      try {
+        const res = await fetch("/api/status");
+        const data = await res.json();
+        if (data.status) {
+          document.getElementById("statStaged").textContent = data.status.staged?.length || 0;
+          document.getElementById("statModified").textContent = data.status.modified?.length || 0;
+          document.getElementById("statUntracked").textContent = data.status.untracked?.length || 0;
+          if (data.status.branch && data.status.branch[0]) {
+            document.getElementById("currentBranchDisplay").textContent = data.status.branch[0];
+          }
+        }
+        const diffRes = await fetch("/api/diff");
+        const diffData = await diffRes.json();
+        document.getElementById("diffOutput").textContent = diffData.diff || "(clean - no changes)";
+      } catch (e) {
+        // Fallback or demo state
+      }
+    }
+
+    async function handlePrepare() {
+      const repoUrl = document.getElementById("repoUrl").value;
+      const baseBranch = document.getElementById("baseBranch").value;
+      const featureBranch = document.getElementById("featureBranch").value;
+      const gitToken = document.getElementById("gitToken").value.trim();
+
+      log(`Cloning ${repoUrl}...`, "info");
+      document.getElementById("btnPrepare").disabled = true;
+
+      const res = await apiPost("/api/prepare", {
+        repo_url: repoUrl,
+        token: gitToken || undefined,
+        base_branch: baseBranch,
+        feature_branch: featureBranch
+      });
+
+      document.getElementById("btnPrepare").disabled = false;
+
+      if (res.error) {
+        log(`Prepare failed: ${res.error}`, "error");
+      } else {
+        log(`Prepared workspace on branch: ${res.context.feature_branch}`, "success");
+        document.getElementById("currentBranchDisplay").textContent = res.context.feature_branch;
+        refreshStatus();
+      }
+    }
+
+    async function handleWriteFile() {
+      const relPath = document.getElementById("patchPath").value;
+      const content = document.getElementById("patchContent").value;
+      log(`Writing file: ${relPath}...`, "info");
+
+      const res = await apiPost("/api/write-file", {
+        relative_path: relPath,
+        content: content
+      });
+
+      if (res.error) {
+        log(`Write file error: ${res.error}`, "error");
+      } else {
+        log(`File updated: ${relPath}`, "success");
+        refreshStatus();
+      }
+    }
+
+    async function handleCommitPush() {
+      const msg = document.getElementById("commitMsg").value;
+      log(`Committing & pushing...`, "info");
+
+      const res = await apiPost("/api/commit-push", {
+        commit_message: msg
+      });
+
+      if (res.error) {
+        log(`Commit failed: ${res.error}`, "error");
+      } else {
+        log(res.message, "success");
+        refreshStatus();
+      }
+    }
+
+    async function handleCreatePR() {
+      const title = document.getElementById("prTitle").value;
+      const desc = document.getElementById("patchContent").value;
+      log(`Calling provider API to open Pull Request...`, "info");
+
+      const res = await apiPost("/api/create-pr", {
+        title: title,
+        description: desc
+      });
+
+      if (res.error) {
+        log(`PR creation failed: ${res.error}`, "error");
+      } else {
+        log(`PR #${res.pr_number} opened: ${res.pr_url}`, "success");
+        document.getElementById("prTitleDisplay").textContent = res.title;
+        const link = document.getElementById("prUrlLink");
+        link.href = res.pr_url;
+        link.textContent = `View PR #${res.pr_number} on GitHub →`;
+        document.getElementById("prCard").classList.remove("hidden");
+      }
+    }
+
+    // Initialize
+    refreshStatus();
+  </script>
+</body>
+</html>
+

@@ -31,3 +31,4 @@ git-agent-mcp = "git_agent.mcp_server:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["git_agent*"]
+

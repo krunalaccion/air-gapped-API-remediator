@@ -50,3 +50,4 @@ def create_git_subagent_tools(config: GitAgentConfig) -> List[Any]:
         git_check_status,
         git_finalize_and_open_pr,
     ]
+

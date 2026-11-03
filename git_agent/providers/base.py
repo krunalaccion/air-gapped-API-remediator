@@ -55,3 +55,4 @@ class GitProvider(ABC):
         Verify that repository is accessible with current credentials.
         """
         pass
+

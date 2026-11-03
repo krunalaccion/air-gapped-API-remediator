@@ -71,6 +71,14 @@ class GitWorkspace:
 
         git_env = os.environ.copy()
         git_env["GIT_TERMINAL_PROMPT"] = "0"  # Prevent git from hanging waiting for interactive auth
+        # Inject author and committer purely via environment variables to avoid modifying any git config
+        if self.author_name:
+            git_env["GIT_AUTHOR_NAME"] = self.author_name
+            git_env["GIT_COMMITTER_NAME"] = self.author_name
+        if self.author_email:
+            git_env["GIT_AUTHOR_EMAIL"] = self.author_email
+            git_env["GIT_COMMITTER_EMAIL"] = self.author_email
+
         if env:
             git_env.update(env)
 
@@ -99,16 +107,16 @@ class GitWorkspace:
         return proc.returncode, stdout, stderr
 
     def clone(self, clone_url: str, depth: Optional[int] = None) -> None:
-        """Clone repository into the workspace directory."""
+        """Clone repository into the workspace directory without modifying any git configs."""
         if (self.workspace_dir / ".git").exists():
             logger.info("Workspace %s is already a git repository, fetching instead", self.workspace_dir)
-            self.run_git(["fetch", "origin"])
+            self.run_git(["-c", "credential.helper=", "fetch", "origin"])
             return
 
         # Ensure parent directory exists
         self.workspace_dir.parent.mkdir(parents=True, exist_ok=True)
 
-        args = ["clone"]
+        args = ["-c", "credential.helper=", "clone"]
         if depth:
             args.extend(["--depth", str(depth)])
         args.extend([clone_url, str(self.workspace_dir)])
@@ -116,14 +124,9 @@ class GitWorkspace:
         # Run clone in parent directory
         self.run_git(args, cwd=self.workspace_dir.parent)
 
-        # Configure local git user info
-        self.configure_author()
-
     def configure_author(self) -> None:
-        """Configure local repo author name and email, and disable gpgsign for automated agent commits."""
-        self.run_git(["config", "user.name", self.author_name])
-        self.run_git(["config", "user.email", self.author_email])
-        self.run_git(["config", "commit.gpgsign", "false"], check=False)
+        """No-op: author and credentials are configured ephemerally per command/env to avoid modifying git configs."""
+        pass
 
     def detect_default_branch(self) -> str:
         """Detect default branch ('main' or 'master') from remote HEAD or branch list."""
@@ -146,15 +149,38 @@ class GitWorkspace:
         curr = self.get_current_branch()
         return curr if curr else "main"
 
-    def checkout_and_pull_base(self, base_branch: str) -> None:
-        """Checkout base branch and pull latest changes from remote."""
+    def checkout_and_pull_base(self, base_branch: str) -> str:
+        """
+        Checkout base branch and pull latest changes from remote.
+        Gracefully resolves remote tracking branch or falls back to detected default branch (e.g. master/main).
+        Returns the resolved base branch name.
+        """
+        # 1. Try direct checkout
+        code, _, _ = self.run_git(["checkout", base_branch], check=False)
+        if code != 0:
+            # 2. Try checking out tracking branch from remote
+            code, _, _ = self.run_git(["checkout", "-b", base_branch, f"origin/{base_branch}"], check=False)
+
+        if code != 0:
+            # 3. Fallback: requested 'main' but repo default might be 'master' (or vice-versa)
+            fallback = self.detect_default_branch()
+            logger.warning(
+                "Requested base branch '%s' not found. Falling back to default branch '%s'",
+                base_branch,
+                fallback,
+            )
+            code, _, _ = self.run_git(["checkout", fallback], check=False)
+            if code == 0:
+                base_branch = fallback
+            else:
+                curr = self.get_current_branch()
+                if curr and curr != "HEAD":
+                    base_branch = curr
+
         self.base_branch = base_branch
-        # Fetch remote branches
-        self.run_git(["fetch", "origin", base_branch], check=False)
-        # Checkout base
-        self.run_git(["checkout", base_branch])
-        # Pull latest
-        self.run_git(["pull", "origin", base_branch], check=False)
+        # Pull latest changes if tracking branch exists
+        self.run_git(["pull", "origin", self.base_branch], check=False)
+        return self.base_branch
 
     def create_feature_branch(self, branch_name: str) -> str:
         """Create and checkout a new feature branch."""
@@ -259,15 +285,13 @@ class GitWorkspace:
     ) -> None:
         """
         Push current branch or specified branch to remote.
-        Optionally override push URL with authenticated URL.
+        If push_url is provided, pushes directly to the authenticated URL without modifying git configs.
         """
         target_branch = branch or self.current_feature_branch or self.get_current_branch()
+        target_destination = push_url if push_url else remote
 
-        if push_url:
-            # Set remote URL to authenticated URL
-            self.run_git(["remote", "set-url", remote, push_url])
-
-        args = ["push", "-u", remote, target_branch]
+        # Pass credential.helper= to ensure only the token in the URL is used
+        args = ["-c", "credential.helper=", "push", "-u", target_destination, target_branch]
         if force:
             args.append("--force")
 

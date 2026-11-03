@@ -146,7 +146,7 @@ class GitSubAgent:
 
         # 3. Checkout and pull base branch
         logger.info("Checking out and pulling base branch: %s", target_base)
-        self.workspace.checkout_and_pull_base(target_base)
+        resolved_base = self.workspace.checkout_and_pull_base(target_base)
 
         # 4. Generate and checkout feature branch
         target_feature = feature_branch or self.config.feature_branch_name
@@ -160,7 +160,7 @@ class GitSubAgent:
         # 5. Build WorkspaceContext
         self.context = WorkspaceContext(
             repo_path=self.workspace.workspace_dir,
-            base_branch=target_base,
+            base_branch=resolved_base,
             feature_branch=target_feature,
             provider=self.config.provider.value,
             repo_url=self.config.sanitized_repo_url,
@@ -268,3 +268,4 @@ class GitSubAgent:
     def cleanup(self) -> None:
         """Clean up temporary workspace if needed."""
         self.workspace.cleanup()
+

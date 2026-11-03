@@ -49,6 +49,12 @@ def cmd_mcp(args: argparse.Namespace):
     server.run_stdio()
 
 
+def cmd_ui(args: argparse.Namespace):
+    """Start the GitAgent Web Dashboard."""
+    from git_agent.web_server import run_server
+    run_server(port=args.port)
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="git-agent",
@@ -71,6 +77,11 @@ def main():
     mcp_p = subparsers.add_parser("mcp", help="Start the MCP Server on stdio")
     mcp_p.set_defaults(func=cmd_mcp)
 
+    # Web UI command
+    ui_p = subparsers.add_parser("ui", help="Start the GitAgent Graphical Web Dashboard")
+    ui_p.add_argument("--port", type=int, default=8080, help="Port to run web server on (default: 8080)")
+    ui_p.set_defaults(func=cmd_ui)
+
     args = parser.parse_args()
     setup_logging(args.verbose)
     args.func(args)
@@ -78,3 +89,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

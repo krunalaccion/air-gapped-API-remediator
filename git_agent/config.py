@@ -76,20 +76,67 @@ class GitAgentConfig:
         return ProviderType.GENERIC
 
     def _resolve_env_token(self) -> Optional[str]:
-        """Attempt to read token from environment variables matching provider."""
+        """
+        Attempt to read token from:
+        1. Environment variables
+        2. Local .env file
+        3. ~/.gemini/config/mcp_config.json
+        """
+        # 1. Environment variables
         if self.provider == ProviderType.GITHUB:
-            return (
-                os.getenv("GITHUB_TOKEN")
-                or os.getenv("GH_TOKEN")
-                or os.getenv("GIT_AGENT_TOKEN")
-            )
+            tok = os.getenv("GITHUB_TOKEN") or os.getenv("GH_TOKEN")
+            if tok:
+                return tok
         elif self.provider == ProviderType.GITLAB:
-            return (
-                os.getenv("GITLAB_TOKEN")
-                or os.getenv("GL_TOKEN")
-                or os.getenv("GIT_AGENT_TOKEN")
-            )
-        return os.getenv("GIT_AGENT_TOKEN") or os.getenv("GIT_TOKEN")
+            tok = os.getenv("GITLAB_TOKEN") or os.getenv("GL_TOKEN")
+            if tok:
+                return tok
+
+        tok = os.getenv("GIT_AGENT_TOKEN") or os.getenv("GIT_TOKEN")
+        if tok:
+            return tok
+
+        # 2. Check local .env file
+        for env_path in (Path(".env"), Path(__file__).parent.parent / ".env"):
+            if env_path.exists():
+                try:
+                    for line in env_path.read_text(encoding="utf-8").splitlines():
+                        line = line.strip()
+                        if not line or line.startswith("#"):
+                            continue
+                        if "=" in line:
+                            key, val = line.split("=", 1)
+                            key = key.strip()
+                            val = val.strip().strip('"\'')
+                            if self.provider == ProviderType.GITHUB and key in ("GITHUB_TOKEN", "GH_TOKEN"):
+                                return val
+                            if self.provider == ProviderType.GITLAB and key in ("GITLAB_TOKEN", "GL_TOKEN"):
+                                return val
+                            if key in ("GIT_AGENT_TOKEN", "GIT_TOKEN"):
+                                return val
+                except Exception:
+                    pass
+
+        # 3. Check ~/.gemini/config/mcp_config.json
+        mcp_cfg_path = Path.home() / ".gemini" / "config" / "mcp_config.json"
+        if mcp_cfg_path.exists():
+            try:
+                import json
+                data = json.loads(mcp_cfg_path.read_text(encoding="utf-8"))
+                for srv in data.get("mcpServers", {}).values():
+                    env_dict = srv.get("env", {})
+                    if self.provider == ProviderType.GITHUB:
+                        t = env_dict.get("GITHUB_TOKEN") or env_dict.get("GH_TOKEN")
+                        if t and not t.startswith("ghp_your"):
+                            return t
+                    elif self.provider == ProviderType.GITLAB:
+                        t = env_dict.get("GITLAB_TOKEN") or env_dict.get("GL_TOKEN")
+                        if t and not t.startswith("glpat-your"):
+                            return t
+            except Exception:
+                pass
+
+        return None
 
     def _default_api_base(self) -> str:
         """Return the default API endpoint for the detected provider."""
@@ -191,3 +238,4 @@ class GitAgentConfig:
         if len(self.token) <= 8:
             return "***"
         return f"{self.token[:4]}...{self.token[-4:]}"
+
