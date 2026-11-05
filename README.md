@@ -3,7 +3,8 @@
 
 A production-ready, autonomous multi-agent remediation system designed to audit, isolate, and remediate unauthorized outbound API egress within **air-gapped** or **zero-trust isolated network perimeters**. Coordinates **GitSubAgent**, **ScannerAgent**, and **RemediatorAgent** across a 5-stage automated pipeline, and provides both a unified Web Control Center and an official **Model Context Protocol (MCP)** server.
 
-> 📖 **Full System Documentation**: For the complete architectural specification, multi-agent fleet contracts, and exhaustive REST API reference, see [AIR_GAPPED_API_SECURITY_REMEDIATOR.md](file:///Users/krunaldharamshi/Projects/GitAgent/AIR_GAPPED_API_SECURITY_REMEDIATOR.md).
+> 📖 **Full System Documentation**: For the complete architectural specification, multi-agent fleet contracts, and exhaustive REST API reference, see [AIR_GAPPED_API_SECURITY_REMEDIATOR.md](file:///Users/krunaldharamshi/Projects/GitAgent/AIR_GAPPED_API_SECURITY_REMEDIATOR.md).  
+> 🧪 **QA Test Specification & Verification Guide**: For the complete QA test matrix, step-by-step test procedures, test data generation, and acceptance sign-off criteria, see [QA_DOCUMENTATION.md](file:///Users/krunaldharamshi/Projects/GitAgent/QA_DOCUMENTATION.md) (or open [QA_DOCUMENTATION.html](file:///Users/krunaldharamshi/Projects/GitAgent/QA_DOCUMENTATION.html) to print/export as PDF).
 
 ---
 
