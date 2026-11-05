@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QA Test Plan & Verification Manual - Air-Gapped API Remediator</title>
+  <style>
+    :root {
+      --primary: #0969da;
+      --primary-dark: #0550ae;
+      --bg: #ffffff;
+      --surface: #f6f8fa;
+      --border: #d0d7de;
+      --text: #1f2328;
+      --text-muted: #656d76;
+      --success: #1a7f37;
+      --warning: #9a6700;
+      --danger: #cf222e;
+      --purple: #8250df;
+      --code-bg: #f6f8fa;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --primary: #2f81f7;
+        --primary-dark: #1f6feb;
+        --bg: #0d1117;
+        --surface: #161b22;
+        --border: #30363d;
+        --text: #e6edf3;
+        --text-muted: #8b949e;
+        --success: #3fb950;
+        --warning: #d29922;
+        --danger: #f85149;
+        --purple: #bc8cff;
+        --code-bg: #161b22;
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+      line-height: 1.6;
+      color: var(--text);
+      background-color: var(--bg);
+      padding: 2rem 1rem;
+    }
+
+    .container {
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+
+    header {
+      border-bottom: 2px solid var(--border);
+      padding-bottom: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .badge-bar {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 0.2rem 0.6rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      border-radius: 9999px;
+      border: 1px solid currentColor;
+    }
+
+    .badge-blue { color: var(--primary); background: rgba(9, 105, 218, 0.1); }
+    .badge-green { color: var(--success); background: rgba(26, 127, 55, 0.1); }
+    .badge-purple { color: var(--purple); background: rgba(130, 80, 223, 0.1); }
+    .badge-amber { color: var(--warning); background: rgba(154, 103, 0, 0.1); }
+    .badge-red { color: var(--danger); background: rgba(207, 34, 46, 0.1); }
+
+    h1 { font-size: 2rem; font-weight: 800; color: var(--text); margin-bottom: 0.25rem; }
+    h2 { font-size: 1.4rem; font-weight: 700; border-bottom: 1px solid var(--border); padding-bottom: 0.4rem; margin-top: 2rem; margin-bottom: 1rem; }
+    h3 { font-size: 1.15rem; font-weight: 600; margin-top: 1.5rem; margin-bottom: 0.5rem; }
+
+    p, ul, ol { margin-bottom: 1rem; }
+    ul, ol { padding-left: 1.5rem; }
+    li { margin-bottom: 0.25rem; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 1.5rem;
+      font-size: 0.9rem;
+    }
+
+    th, td {
+      border: 1px solid var(--border);
+      padding: 0.6rem 0.75rem;
+      text-align: left;
+    }
+
+    th {
+      background-color: var(--surface);
+      font-weight: 600;
+    }
+
+    tr:nth-child(even) {
+      background-color: rgba(128, 128, 128, 0.03);
+    }
+
+    pre, code {
+      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: 0.85rem;
+    }
+
+    code {
+      background: var(--code-bg);
+      padding: 0.15rem 0.35rem;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+    }
+
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      overflow-x: auto;
+      margin-bottom: 1rem;
+    }
+
+    pre code {
+      background: transparent;
+      padding: 0;
+      border: none;
+    }
+
+    .test-card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 1.5rem;
+      background: var(--surface);
+      overflow: hidden;
+      page-break-inside: avoid;
+    }
+
+    .test-header {
+      padding: 0.75rem 1rem;
+      background: rgba(128, 128, 128, 0.08);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+
+    .test-title {
+      font-weight: 700;
+      font-size: 0.95rem;
+    }
+
+    .test-body {
+      padding: 1rem;
+    }
+
+    .test-meta-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+      font-size: 0.85rem;
+    }
+
+    .test-meta-item strong {
+      color: var(--text-muted);
+    }
+
+    .print-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .btn {
+      padding: 0.45rem 0.9rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: #ffffff;
+      border-color: var(--primary);
+    }
+
+    .sign-off-box {
+      border: 2px dashed var(--border);
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-top: 2rem;
+      background: var(--surface);
+      page-break-inside: avoid;
+    }
+
+    @media print {
+      body {
+        padding: 0;
+        background: #ffffff !important;
+        color: #000000 !important;
+      }
+      .print-actions {
+        display: none !important;
+      }
+      .test-card {
+        border-color: #999;
+        background: #fff !important;
+      }
+      .test-header {
+        background: #eee !important;
+      }
+      a {
+        text-decoration: none;
+        color: #000;
+      }
+      table, th, td {
+        border-color: #333 !important;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+
+  <div class="print-actions">
+    <button onclick="window.print()" class="btn btn-primary">
+      🖨️ Print / Save as PDF
+    </button>
+  </div>
+
+  <header>
+    <h1>QA Test Specification & Verification Manual</h1>
+    <p style="color: var(--text-muted); font-size: 1.1rem; margin-top: 0.25rem;">
+      Air-Gapped API Security Vulnerability Remediator & Multi-Agent Control Center
+    </p>
+
+    <div class="badge-bar">
+      <span class="badge badge-blue">Doc ID: QA-SPEC-AIRGAP-2026-V1</span>
+      <span class="badge badge-green">Version 1.0.0</span>
+      <span class="badge badge-purple">Standard Library (Pure Python 3.9+)</span>
+      <span class="badge badge-amber">Target: Air-Gap Certified</span>
+    </div>
+  </header>
+
+  <!-- Section 1 -->
+  <h2>1. Document Control & Scope Overview</h2>
+  <table>
+    <tr><th>Document Attribute</th><th>Details</th></tr>
+    <tr><td><strong>System Under Test</strong></td><td>Multi-Agent Control Center (<code>GitSubAgent</code>, <code>ScannerAgent</code>, <code>RemediatorAgent</code>, <code>MultiAgentPipeline</code>)</td></tr>
+    <tr><td><strong>Architecture</strong></td><td>Autonomous Multi-Agent System with Local & Remote Git Lifecycle hooks</td></tr>
+    <tr><td><strong>Runtime Dependencies</strong></td><td>Zero mandatory pip dependencies (Python 3.9+ Standard Library)</td></tr>
+    <tr><td><strong>Test Scope</strong></td><td>REST API (14 routes), Egress Scanner, Auto-Patcher, Local Git Provider, MCP Server, Web Dashboard</td></tr>
+    <tr><td><strong>QA Status</strong></td><td><strong style="color: var(--primary);">Official Test Specification</strong></td></tr>
+  </table>
+
+  <!-- Section 2 -->
+  <h2>2. Test Environment Setup & Test Data Generation</h2>
+  <p>To run the verification suite in an isolated test environment without touching production repositories:</p>
+
+  <h3>2.1 Server Startup</h3>
+  <pre><code># Launch test server on port 8080 (or custom port like 8085)
+python3 web_server.py 8080</code></pre>
+
+  <h3>2.2 Test Bed A: Sample Air-Gap Repository with Outbound Egress</h3>
+  <pre><code># Create mock vulnerable repository
+mkdir -p /tmp/qa_airgap_vulnerable_repo
+cd /tmp/qa_airgap_vulnerable_repo
+git init
+git config user.name "QA Tester"
+git config user.email "qa@airgap.test"
+git config commit.gpgsign false
+
+# 1. Egress file triggering AIRGAP-001 (HIGH)
+mkdir -p src
+cat &lt;&lt; 'EOF' &gt; src/telemetry_client.py
+import requests
+def send_telemetry():
+    # HIGH severity egress targeting external cloud
+    url = "https://api.external-cloud.com/v1/telemetry"
+    return requests.post(url, json={"status": "online"})
+EOF
+
+# 2. Config file triggering AIRGAP-002 (MEDIUM) & whitelisted internal targets
+mkdir -p config
+cat &lt;&lt; 'EOF' &gt; config/network.yaml
+remote_api: "https://payments.thirdparty-vendor.com/v2/checkout"
+allowed_internal: "http://service.airgap.internal:8080/health"
+allowed_localhost: "http://127.0.0.1:5000/metrics"
+EOF
+
+# 3. Initial commit
+git add .
+git commit -m "feat: initial service implementation with external endpoints"
+git branch -M main</code></pre>
+
+  <!-- Section 3 -->
+  <h2>3. Test Execution Matrix (24 Comprehensive Test Cases)</h2>
+
+  <!-- TC-001 -->
+  <div class="test-card">
+    <div class="test-header">
+      <span class="test-title">TC-001: Dynamic Agent Registry Discovery</span>
+      <span class="badge badge-blue">Functional / High</span>
+    </div>
+    <div class="test-body">
+      <div class="test-meta-grid">
+        <div class="test-meta-item"><strong>Endpoint:</strong> <code>GET /api/agents</code></div>
+        <div class="test-meta-item"><strong>Target Agent:</strong> <code>AgentRegistry</code></div>
+        <div class="test-meta-item"><strong>Expected Code:</strong> <code>HTTP 200</code></div>
+      </div>
+      <p><strong>Procedure:</strong> Send GET request to <code>http://localhost:8080/api/agents</code>.</p>
+      <p><strong>Expected Result:</strong> JSON response contains <code>total: 3</code> with agents <code>git</code> (GitSubAgent), <code>scanner</code> (ScannerAgent), and <code>remediator</code> (RemediatorAgent) with status <code>READY</code>.</p>
+      <p><strong>Curl Verification:</strong></p>
+      <pre><code>curl -s http://localhost:8080/api/agents | grep -E "GitSubAgent|ScannerAgent|RemediatorAgent"</code></pre>
+    </div>
+  </div>
+
+  <!-- TC-002 -->
+  <div class="test-card">
+    <div class="test-header">
+      <span class="test-title">TC-002: Real-Time Git Repository Path Validation (Valid Repo)</span>
+      <span class="badge badge-green">Functional / High</span>
+    </div>
+    <div class="test-body">
+      <div class="test-meta-grid">
+        <div class="test-meta-item"><strong>Endpoint:</strong> <code>POST /api/validate-path</code></div>
+        <div class="test-meta-item"><strong>Payload:</strong> <code>{"path": "/tmp/qa_airgap_vulnerable_repo"}</code></div>
+        <div class="test-meta-item"><strong>Expected Code:</strong> <code>HTTP 200</code></div>
+      </div>
+      <p><strong>Expected Result:</strong> Returns <code>{"valid": true, "exists": true, "is_dir": true, "has_git": true}</code>.</p>
+    </div>
+  </div>
+
+  <!-- TC-003 -->
+  <div class="test-card">
+    <div class="test-header">
+      <span class="test-title">TC-003: Real-Time Git Repository Path Validation (Non-Git Folder)</span>
+      <span class="badge badge-red">Negative / High</span>
+    </div>
+    <div class="test-body">
+      <div class="test-meta-grid">
+        <div class="test-meta-item"><strong>Endpoint:</strong> <code>POST /api/validate-path</code></div>
+        <div class="test-meta-item"><strong>Payload:</strong> <code>{"path": "/tmp"}</code></div>
+        <div class="test-meta-item"><strong>Expected Code:</strong> <code>HTTP 400</code></div>
+      </div>
+      <p><strong>Expected Result:</strong> Returns <code>valid: false, has_git: false</code> and error message: <code>"Selected path '/tmp' is not a Git repository (missing '.git' directory)."</code></p>
+    </div>
+  </div>
+
+  <!-- TC-004 -->
+  <div class="test-card">
+    <div class="test-header">
+      <span class="test-title">TC-004: Real-Time Git Path Validation (Non-Existent Path)</span>
+      <span class="badge badge-red">Negative / Medium</span>
+    </div>
+    <div class="test-body">
+      <div class="test-meta-grid">
+        <div class="test-meta-item"><strong>Endpoint:</strong> <code>POST /api/validate-path</code></div>
+        <div class="test-meta-item"><strong>Payload:</strong> <code>{"path": "/tmp/path_not_exists_99"}</code></div>
+        <div class="test-meta-item"><strong>Expected Code:</strong> <code>HTTP 400</code></div>
+      </div>
+      <p><strong>Expected Result:</strong> Returns <code>valid: false, exists: false</code> and path does not exist error.</p>
+    </div>
+  </div>
+
+  <!-- TC-005 -->
+  <div class="test-card">
+    <div class="test-header">
+      <span class="test-title">TC-005: Filesystem Folder Listing & Bookmarks</span>
+      <span class="badge badge-blue">Functional / Medium</span>
+    </div>
+    <div class="test-body">
+      <div class="test-meta-grid">
+        <div class="test-meta-item"><strong>Endpoint:</strong> <code>POST /api/fs/list</code></div>
+        <div class="test-meta-item"><strong>Payload:</strong> <code>{"path": "/tmp"}</code></div>
+        <div class="test-meta-item"><strong>Expected Code:</strong> <code>HTTP 200</code></div>
+      </div>
+      <p><strong>Expected Result:</strong> Returns <code>current_path</code>, <code>folders</code> list with <code>has_git</code> flags, and quick access navigation bookmarks.</p>
+    </div>
+  </div>
+
+  <!-- TC-006 -->
+  <div class="test-card">
+    <div class="test-header">
+      <span class="test-title">TC-006: Local Repository Preparation & Feature Branch Creation</span>
+      <span class="badge badge-green">Functional / Critical</span>
+    </div>
+    <div class="test-body">
+      <div class="test-meta-grid">
+        <div class="test-meta-item"><strong>Endpoint:</strong> <code>POST /api/prepare</code></div>
+        <div class="test-meta-item"><strong>Target:</strong> <code>/tmp/qa_airgap_vulnerable_repo</code></div>
+        <div class="test-meta-item"><strong>Branch:</strong> <code>airgap/qa-test-branch</code></div>
+      </div>
+      <p><strong>Expected Result:</strong> HTTP 200. Git repository switches to <code>airgap/qa-test-branch</code> on disk.</p>
+    </div>
+  </div>
+
+  <!-- TC-007 -->
+  <div class="test-card">
+    <div class="test-header">
+      <span class="test-title">TC-007: Remote Repository Token Masking</span>
+      <span class="badge badge-purple">Security / Critical</span>
+    </div>
+    <div class="test-body">
+      <p><strong>Procedure:</strong> Submit remote clone request with token <code>ghp_SECRET_TOKEN_XYZ</code>. Inspect stdout/stderr logs.</p>
+      <p><strong>Expected Result:</strong> Token is scrubbed from all console logs and error traces.</p>
+    </div>
+  </div>
+
+  <!-- TC-008 -->
+  <div class="test-card">
+    <div class="test-header">
+      <span class="test-title">TC-008: Egress Vulnerability Detection (Rule AIRGAP-001 - HIGH)</span>
+      <span class="badge badge-red">Security / Critical</span>
+    </div>
+    <div class="test-body">
+      <div class="test-meta-grid">
+        <div class="test-meta-item"><strong>Endpoint:</strong> <code>POST /api/scan</code></div>
+        <div class="test-meta-item"><strong>Target:</strong> <code>src/telemetry_client.py</code></div>
+        <div class="test-meta-item"><strong>Severity:</strong> <code>HIGH</code></div>
+      </div>
+      <p><strong>Expected Result:</strong> Flags <code>https://api.external-cloud.com/v1/telemetry</code> with rule <code>External Egress API Call</code> and directs traffic to <code>http://proxy.airgap.internal:8080</code>.</p>
+    </div>
+  </div>
+
+  <!-- TC-009 -->
+  <div class="test-card">
+    <div class="test-header">
+      <span class="test-title">TC-009: Outbound Route Detection (Rule AIRGAP-002 - MEDIUM)</span>
+      <span class="badge badge-amber">Security / High</span>
+    </div>
+    <div class="test-body">
+      <p><strong>Expected Result:</strong> Flags external URL in <code>config/network.yaml</code> with severity <code>MEDIUM</code>.</p>
+    </div>
+  </div>
+
+  <!-- TC-010 -->
+  <div class="test-card">
+    <div class="test-header">
+      <span class="test-title">TC-010: Internal Air-Gap Whitelist Verification</span>
+      <span class="badge badge-green">Security / Critical</span>
+    </div>
+    <div class="test-body">
+      <p><strong>Expected Result:</strong> Endpoints with <code>*.airgap.internal</code>, <code>localhost</code>, and <code>127.0.0.1</code> are never flagged in findings.</p>
+    </div>
+  </div>
+
+  <!-- TC-011 -->
+  <div class="test-card">
+    <div class="test-header">
+      <span class="test-title">TC-011: Clean Repository Fallback / Preview Mode</span>
+      <span class="badge badge-blue">Functional / Medium</span>
+    </div>
+    <div class="test-body">
+      <p><strong>Expected Result:</strong> When scanning without active repo or on clean files, returns standard preview findings with <code>mode: "preview"</code>.</p>
+    </div>
+  </div>
+
+  <!-- TC-012 -->
+  <div class="test-card">
+    <div class="test-header">
+      <span class="test-title">TC-012: Gateway Proxy Interceptor Generation (config/airgap_proxy.json)</span>
+      <span class="badge badge-green">Functional / Critical</span>
+    </div>
+    <div class="test-body">
+      <div class="test-meta-grid">
+        <div class="test-meta-item"><strong>Endpoint:</strong> <code>POST /api/fix</code></div>
+        <div class="test-meta-item"><strong>File Generated:</strong> <code>config/airgap_proxy.json</code></div>
+      </div>
+      <p><strong>Expected Result:</strong> File contains <code>"airgap_mode": true</code>, <code>"proxy_host": "proxy.airgap.internal"</code>, <code>"proxy_port": 8080</code>, and <code>"remediation_status": "COMPLIANT"</code>.</p>
+    </div>
+  </div>
+
+  <!-- TC-013 -->
+  <div class="test-card">
+    <div class="test-header">
+      <span class="test-title">TC-013: Security Audit Manifest Generation (AIRGAP_SECURITY_AUDIT.md)</span>
+      <span class="badge badge-green">Functional / High</span>
+    </div>
+    <div class="test-body">
+      <p><strong>Expected Result:</strong> <code>AIRGAP_SECURITY_AUDIT.md</code> created with 4-point verification checklist.</p>
+    </div>
+  </div>
+
+  <!-- TC-014 -->
+  <div class="test-card">
+    <div class="test-header">
+      <span class="test-title">TC-014: Custom In-Browser File Modification (/api/write-file)</span>
+      <span class="badge badge-blue">Functional / High</span>
+    </div>
+    <div class="test-body">
+      <p><strong>Expected Result:</strong> Modifies target file in workspace and returns live git diff.</p>
+    </div>
+  </div>
+
+  <!-- TC-015 -->
+  <div class="test-card">
+    <div class="test-header">
+      <span class="test-title">TC-015: Sandbox Path Traversal Defense (../)</span>
+      <span class="badge badge-red">Security / Critical</span>
+    </div>
+    <div class="test-body">
+      <p><strong>Procedure:</strong> POST <code>{"relative_path": "../../etc/escaped.txt"}</code> to <code>/api/write-file</code>.</p>
+      <p><strong>Expected Result:</strong> Rejected with <code>HTTP 403 Forbidden</code> (<code>Forbidden path outside workspace</code>).</p>
+    </div>
+  </div>
+
+  <!-- TC-016 -->
+  <div class="test-card">
+    <div class="test-header">
+      <span class="test-title">TC-016: File Staging & Atomic Commits (/api/commit-push)</span>
+      <span class="badge badge-green">Functional / High</span>
+    </div>
+    <div class="test-body">
+      <p><strong>Expected Result:</strong> Stages all changes and authors a git commit with SHA hash returned.</p>
+    </div>
+  </div>
+
+  <!-- TC-017 -->
+  <div class="test-card">
+    <div class="test-header">
+      <span class="test-title">TC-017: Commit on Clean Working Tree</span>
+      <span class="badge badge-blue">Boundary / Low</span>
+    </div>
+    <div class="test-body">
+      <p><strong>Expected Result:</strong> Handled gracefully with message <code>Working tree clean</code>.</p>
+    </div>
+  </div>
+
+  <!-- TC-018 -->
+  <div class="test-card">
+    <div class="test-header">
+      <span class="test-title">TC-018: Offline Local PR Review Manifest Creation (PR-1.md)</span>
+      <span class="badge badge-green">Functional / Critical</span>
+    </div>
+    <div class="test-body">
+      <p><strong>Expected Result:</strong> Creates <code>.git/local_prs/PR-1.md</code> with file URL <code>file://...</code> without network requests.</p>
+    </div>
+  </div>
+
+  <!-- TC-019 -->
+  <div class="test-card">
+    <div class="test-header">
+      <span class="test-title">TC-019: Local PR Markdown Content Retrieval (/api/local-pr)</span>
+      <span class="badge badge-blue">Functional / High</span>
+    </div>
+    <div class="test-body">
+      <p><strong>Expected Result:</strong> Returns full markdown content of the generated PR report for UI display.</p>
+    </div>
+  </div>
+
+  <!-- TC-020 -->
+  <div class="test-card">
+    <div class="test-header">
+      <span class="test-title">TC-020: 1-Click End-to-End Pipeline Execution</span>
+      <span class="badge badge-purple">Integration / Critical</span>
+    </div>
+    <div class="test-body">
+      <p><strong>Endpoint:</strong> <code>POST /api/pipeline/run</code></p>
+      <p><strong>Expected Result:</strong> Runs all 5 stages in order and returns <code>status: "success"</code> with full audit trail.</p>
+    </div>
+  </div>
+
+  <!-- TC-021 -->
+  <div class="test-card">
+    <div class="test-header">
+      <span class="test-title">TC-021: Web UI Dashboard Functional Validation</span>
+      <span class="badge badge-blue">UI / High</span>
+    </div>
+    <div class="test-body">
+      <p><strong>Expected Result:</strong> Visual elements, folder picker modal, real-time validation pills, and PR viewer operate cleanly in browser.</p>
+    </div>
+  </div>
+
+  <!-- TC-022 -->
+  <div class="test-card">
+    <div class="test-header">
+      <span class="test-title">TC-022: Model Context Protocol (MCP) Server stdio Interface</span>
+      <span class="badge badge-purple">Integration / High</span>
+    </div>
+    <div class="test-body">
+      <pre><code>echo '{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}' | python3 -m agents.git_agent.mcp_server</code></pre>
+      <p><strong>Expected Result:</strong> Conforms to MCP specification 2024-11-05 and enumerates 8 tools.</p>
+    </div>
+  </div>
+
+  <!-- TC-023 -->
+  <div class="test-card">
+    <div class="test-header">
+      <span class="test-title">TC-023: Credential Masking in Terminal Output</span>
+      <span class="badge badge-purple">Security / Critical</span>
+    </div>
+    <div class="test-body">
+      <p><strong>Expected Result:</strong> No raw secret tokens ever logged to terminal or files.</p>
+    </div>
+  </div>
+
+  <!-- TC-024 -->
+  <div class="test-card">
+    <div class="test-header">
+      <span class="test-title">TC-024: Full Automated Regression Test Suite</span>
+      <span class="badge badge-green">Automated / Critical</span>
+    </div>
+    <div class="test-body">
+      <pre><code>python3 -m unittest discover -s tests</code></pre>
+      <p><strong>Expected Result:</strong> 45/45 tests pass with 0 failures and 0 errors.</p>
+    </div>
+  </div>
+
+  <!-- Section 4 -->
+  <h2>4. QA Sign-Off & Verification Form</h2>
+
+  <div class="sign-off-box">
+    <h3 style="margin-top: 0;">Official QA Test Pass Certification</h3>
+    <p>By signing below, the QA Engineering team verifies that the Air-Gapped API Security Vulnerability Remediator has satisfied all verification checkpoints and complies with isolated perimeter security requirements.</p>
+
+    <table style="margin-top: 1rem; margin-bottom: 1.5rem;">
+      <tr><th>Checkpoint</th><th>Result</th><th>Notes</th></tr>
+      <tr><td>Zero External Pip Dependencies</td><td>[ ] PASS / [ ] FAIL</td><td>Standard Library 3.9+ only</td></tr>
+      <tr><td>45 Automated Unit Tests</td><td>[ ] PASS / [ ] FAIL</td><td>100% Passing</td></tr>
+      <tr><td>Egress Rule Detection (AIRGAP-001/002/003)</td><td>[ ] PASS / [ ] FAIL</td><td>Verified</td></tr>
+      <tr><td>Internal Domain Whitelisting</td><td>[ ] PASS / [ ] FAIL</td><td>*.airgap.internal, localhost</td></tr>
+      <tr><td>Local Offline Git PR Manifests</td><td>[ ] PASS / [ ] FAIL</td><td>.git/local_prs/PR-1.md</td></tr>
+      <tr><td>Path Traversal Security Defense</td><td>[ ] PASS / [ ] FAIL</td><td>HTTP 403 Forbidden</td></tr>
+    </table>
+
+    <div style="display: flex; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-top: 2rem;">
+      <div>
+        <p><strong>QA Lead Engineer:</strong> _____________________________</p>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem;">Signature / Date</p>
+      </div>
+      <div>
+        <p><strong>Security Auditor:</strong> _____________________________</p>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem;">Signature / Date</p>
+      </div>
+      <div>
+        <p><strong>Engineering Lead:</strong> _____________________________</p>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem;">Signature / Date</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>
