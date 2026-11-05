@@ -1,18 +1,22 @@
-# Configurable Git SubAgent & MCP Server
+# Air-Gapped API Security Vulnerability Remediator
+### Autonomous Multi-Agent Control Center & Git SubAgent System
 
-A modular, production-ready Git subagent designed to be injected into multi-agent systems (e.g. for vulnerability scanning, automated remediation, code reviews, and dependency updates) or run as a standalone **Model Context Protocol (MCP)** server.
+A production-ready, autonomous multi-agent remediation system designed to audit, isolate, and remediate unauthorized outbound API egress within **air-gapped** or **zero-trust isolated network perimeters**. Coordinates **GitSubAgent**, **ScannerAgent**, and **RemediatorAgent** across a 5-stage automated pipeline, and provides both a unified Web Control Center and an official **Model Context Protocol (MCP)** server.
+
+> 📖 **Full System Documentation**: For the complete architectural specification, multi-agent fleet contracts, and exhaustive REST API reference, see [AIR_GAPPED_API_SECURITY_REMEDIATOR.md](file:///Users/krunaldharamshi/Projects/GitAgent/AIR_GAPPED_API_SECURITY_REMEDIATOR.md).
 
 ---
 
-## 🌟 Key Features
+## 🌟 Key Capabilities & Features
 
-- **Multi-Platform Support**: Works seamlessly with **GitHub**, **GitLab** (including Enterprise/self-hosted), and **Local Git Repositories** (`/path/to/repo`, `./path`, `file://`).
-- **Offline & Local Repository Mode**: Direct in-place or cloned workflows for local git repos without requiring internet or remote API access, generating local PR review manifests (`.git/local_prs/`).
-- **Configurable Credentials & URLs**: HTTPS and SSH URLs, Personal Access Tokens (PAT), OAuth tokens, environment variables (`GITHUB_TOKEN`, `GITLAB_TOKEN`, `GIT_AGENT_TOKEN`).
-- **Automated Branch Lifecycle**: Auto-detects remote or local base branch (`main` or `master`), pulls latest changes if remotes exist, and provisions dedicated feature branches (e.g., `agent/vuln-audit-20261102-113000`).
-- **Designed for Subagent Injection**: Clean, programmatic lifecycle hooks (`prepare_workspace()`, `finalize_workspace()`) so parent multi-agent orchestrators can easily pass the cloned repository to specialized auditing agents (e.g. Semgrep, Bandit, LLM security reviewers).
-- **Automated Pull & Merge Requests**: Commits remediation work with customizable author attribution and raises GitHub Pull Requests, GitLab Merge Requests, or Local Review PRs via official APIs or local manifests.
-- **Model Context Protocol (MCP) Server**: Full JSON-RPC 2.0 stdio server compliant with the MCP specification (2024-11-05), enabling any MCP-compatible AI agent or host (Claude Desktop, Cursor, Antigravity) to control Git operations as native tools.
+- **Automated Air-Gap Egress Auditing**: Recursively scans codebases (`.py`, `.js`, `.ts`, `.json`, `.yaml`, `.yml`, `.env`, etc.) for hardcoded outbound HTTP/HTTPS calls, cloud SDK endpoints, and external telemetry (`ScannerAgent`).
+- **Automated Proxy Routing & Offline Mocking**: Injects compliant internal gateway proxy configurations (`config/airgap_proxy.json`) redirecting egress to `proxy.airgap.internal:8080` and enables offline mock fallback interceptors (`RemediatorAgent`).
+- **Automated Compliance Verification**: Produces formal isolation audit logs (`AIRGAP_SECURITY_AUDIT.md`) tracking remediated rules (`AIRGAP-001`, `AIRGAP-002`, `AIRGAP-003`) and compliance verification checklists.
+- **Offline & Local Git Repository Mode**: Full in-place or cloned workflows for local git repos without requiring internet or remote API access, generating local PR review manifests (`.git/local_prs/PR-*.md`).
+- **Multi-Platform Support**: Works seamlessly with **Local Folders**, **GitHub**, and **GitLab** (including self-hosted enterprise instances).
+- **Interactive Web Control Center**: Real-time browser dashboard (`http://localhost:8080`) featuring dynamic agent discovery, 5-stage pipeline visualizer, folder picker modal, git validation, finding tables, patch editor, diff viewer, and inline PR review viewer.
+- **Model Context Protocol (MCP) Server**: Full JSON-RPC 2.0 stdio server compliant with the MCP specification (2024-11-05), allowing Cursor, Claude Desktop, or Antigravity to operate the Git subagent directly.
+- **Zero Mandatory External Dependencies**: Operates purely on the standard Python library (3.9+) — ideal for air-gapped enclaves without public internet access.
 - **Credential Safety & Security**: Tokens are automatically masked in logs, scrubbed from stdout/stderr, and kept out of persistent git remotes.
 
 ---
@@ -20,23 +24,31 @@ A modular, production-ready Git subagent designed to be injected into multi-agen
 ## 📐 Architecture & Multi-Agent Flow
 
 ```
-                     ┌─────────────────────────────────────────┐
-                     │        Multi-Agent Orchestrator         │
-                     └────────────┬─────────────────────────────┘
-                                  │
-          1. prepare_workspace()  │  3. finalize_workspace()
-          (Clone base & branch)   │  (Commit & Open PR/MR)
-                                  ▼
-                     ┌─────────────────────────┐
-                     │       GitSubAgent       │
-                     └────────────┬────────────┘
-                                  │
-                                  │ Cloned Repo Path
-                                  ▼
-                     ┌─────────────────────────┐
-                     │   Vulnerability Agent   │
-                     │  (Audit, Patch & Fix)   │
-                     └─────────────────────────┘
+                      ┌─────────────────────────────────────────┐
+                      │    Multi-Agent Control Center / API     │
+                      │       http://localhost:8080             │
+                      └────────────────────┬────────────────────┘
+                                           │
+                                           ▼
+                      ┌─────────────────────────────────────────┐
+                      │   MultiAgentPipeline (Orchestrator)     │
+                      └─────┬───────────────────┬───────────┬───┘
+                            │                   │           │
+     1. prepare_workspace() │   2. run() scan   │           │ 3. run() fix
+     4. finalize_workspace()│                   │           │
+                            ▼                   ▼           ▼
+                      ┌───────────┐       ┌───────────┐┌───────────┐
+                      │GitSubAgent│       │ScannerAgnt││Remediator │
+                      └─────┬─────┘       └───────────┘└───────────┘
+                            │
+              ┌─────────────┴─────────────┐
+              ▼                           ▼
+  ┌───────────────────────┐   ┌───────────────────────┐
+  │  Remote Git Provider  │   │  Local Git Provider   │
+  │  (GitHub / GitLab)    │   │ (Offline Filesystem)  │
+  │  - Remote Pull/Merge  │   │ - Local PR Manifest   │
+  │    Request API        │   │   (.git/local_prs/)   │
+  └───────────────────────┘   └───────────────────────┘
 ```
 
 ---
