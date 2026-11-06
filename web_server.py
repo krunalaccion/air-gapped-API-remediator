@@ -17,7 +17,7 @@ import subprocess
 import sys
 import urllib.parse
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from agents.base import AgentRegistry
 from agents.git_agent.config import GitAgentConfig, ProviderType
@@ -35,7 +35,33 @@ SCANNER_AGENT: ScannerAgent = ScannerAgent()
 REMEDIATOR_AGENT: RemediatorAgent = RemediatorAgent()
 LATEST_PR: Optional[Dict[str, Any]] = None
 
-DEFAULT_LOCAL_REPO = (Path(__file__).resolve().parent / "repos" / "CustomerApi").resolve()
+APP_ROOT_DIR = Path(__file__).resolve().parent
+DEFAULT_LOCAL_REPO = (APP_ROOT_DIR / "repos" / "CustomerApi").resolve()
+
+
+def _ensure_default_local_repo_ready(reset_files: bool = False) -> None:
+    """Ensures repos/CustomerApi is a valid Git repository with both master and main branches."""
+    try:
+        DEFAULT_LOCAL_REPO.mkdir(parents=True, exist_ok=True)
+        if reset_files or not (DEFAULT_LOCAL_REPO / "Controllers" / "UsersController.cs").exists():
+            REMEDIATOR_AGENT.reset_demo(workspace_path=DEFAULT_LOCAL_REPO)
+        if not (DEFAULT_LOCAL_REPO / ".git").exists():
+            subprocess.run(["git", "init", "-b", "master"], cwd=str(DEFAULT_LOCAL_REPO), capture_output=True)
+            subprocess.run(["git", "config", "user.name", "Git SubAgent"], cwd=str(DEFAULT_LOCAL_REPO), capture_output=True)
+            subprocess.run(["git", "config", "user.email", "git-agent@subagent.local"], cwd=str(DEFAULT_LOCAL_REPO), capture_output=True)
+            subprocess.run(["git", "add", "-A"], cwd=str(DEFAULT_LOCAL_REPO), capture_output=True)
+            subprocess.run(["git", "commit", "-m", "chore: initial vulnerable CustomerApi repository"], cwd=str(DEFAULT_LOCAL_REPO), capture_output=True)
+        elif reset_files:
+            subprocess.run(["git", "add", "-A"], cwd=str(DEFAULT_LOCAL_REPO), capture_output=True)
+            subprocess.run(["git", "commit", "-m", "chore: reset CustomerApi to pre-remediation baseline"], cwd=str(DEFAULT_LOCAL_REPO), capture_output=True)
+        # Ensure both master and main refs point to the baseline commit so either base_branch works seamlessly
+        subprocess.run(["git", "branch", "-f", "master", "HEAD"], cwd=str(DEFAULT_LOCAL_REPO), capture_output=True)
+        subprocess.run(["git", "branch", "-f", "main", "HEAD"], cwd=str(DEFAULT_LOCAL_REPO), capture_output=True)
+    except Exception as exc:
+        logger.debug("Could not initialize default local repo: %s", exc)
+
+
+_ensure_default_local_repo_ready(reset_files=False)
 
 # Register core agents
 AgentRegistry.register(
@@ -51,7 +77,7 @@ def _resolve_active_workspace() -> Path:
     if ACTIVE_GIT_AGENT and ACTIVE_GIT_AGENT.context:
         try:
             ws = ACTIVE_GIT_AGENT.get_workspace_path()
-            if ws and ws.exists():
+            if ws and ws.exists() and ws.resolve() != APP_ROOT_DIR:
                 return ws
         except Exception:
             pass
@@ -300,9 +326,24 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                     author_email=payload.get("author_email", "git-agent@subagent.local"),
                 )
 
-                # Validation: if target is a local repository, verify it exists and has git
+                # Validation & Self-Protection: if target is local, verify it exists and never mutate APP_ROOT_DIR itself
                 if config.is_local or config.provider == ProviderType.LOCAL:
-                    clean_path = Path(config.sanitized_repo_url)
+                    clean_path = Path(config.sanitized_repo_url).resolve()
+                    if clean_path == APP_ROOT_DIR:
+                        logger.info("Redirecting target repo from portal root (%s) to sample repo (%s)", APP_ROOT_DIR, DEFAULT_LOCAL_REPO)
+                        _ensure_default_local_repo_ready(reset_files=False)
+                        clean_path = DEFAULT_LOCAL_REPO
+                        config = GitAgentConfig(
+                            repo_url=str(DEFAULT_LOCAL_REPO),
+                            provider=ProviderType.LOCAL,
+                            base_branch=payload.get("base_branch") or "master",
+                            feature_branch_name=payload.get("feature_branch"),
+                            author_name=payload.get("author_name", "Git SubAgent"),
+                            author_email=payload.get("author_email", "git-agent@subagent.local"),
+                        )
+                    elif clean_path == DEFAULT_LOCAL_REPO:
+                        _ensure_default_local_repo_ready(reset_files=False)
+
                     if not clean_path.exists():
                         self._send_json({"error": f"Selected path does not exist: '{clean_path}'"}, status=400)
                         return
@@ -325,13 +366,13 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                     ctx = ACTIVE_GIT_AGENT.prepare_workspace()
                 except Exception as clone_exc:
                     # Offline / air-gapped fallback to local CustomerApi Git repository when remote clone is unreachable
-                    local_fallback = Path(__file__).resolve().parent / "repos" / "CustomerApi"
-                    if not config.is_local and local_fallback.exists() and (local_fallback / ".git").exists():
-                        logger.info("Remote clone unreachable in air-gap mode (%s); initializing local repository %s", clone_exc, local_fallback)
+                    _ensure_default_local_repo_ready(reset_files=False)
+                    if DEFAULT_LOCAL_REPO.exists() and (DEFAULT_LOCAL_REPO / ".git").exists():
+                        logger.info("Fallback to local CustomerApi repository (%s): %s", DEFAULT_LOCAL_REPO, clone_exc)
                         fallback_cfg = GitAgentConfig(
-                            repo_url=str(local_fallback),
+                            repo_url=str(DEFAULT_LOCAL_REPO),
                             provider=ProviderType.LOCAL,
-                            base_branch=payload.get("base_branch") or "master",
+                            base_branch="master",
                             feature_branch_name=payload.get("feature_branch"),
                             author_name=payload.get("author_name", "Git SubAgent"),
                             author_email=payload.get("author_email", "git-agent@subagent.local"),
@@ -351,7 +392,7 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
 
             # 2. Scan Code (ScannerAgent)
             elif path == "/api/scan":
-                ws_path = ACTIVE_GIT_AGENT.get_workspace_path() if ACTIVE_GIT_AGENT else None
+                ws_path = _resolve_active_workspace()
                 result = SCANNER_AGENT.run({"workspace_path": str(ws_path) if ws_path else None})
                 result["mode"] = "live" if ACTIVE_GIT_AGENT else "preview"
                 self._send_json(result)
@@ -359,7 +400,7 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
 
             # 3. Fix Code (RemediatorAgent + BugFixerAgent on scanner_agent/findings/*.json)
             elif path == "/api/fix":
-                ws_path = ACTIVE_GIT_AGENT.get_workspace_path() if ACTIVE_GIT_AGENT else None
+                ws_path = _resolve_active_workspace()
                 result = REMEDIATOR_AGENT.run({
                     "workspace_path": str(ws_path) if ws_path else None,
                     "provider": payload.get("provider"),
@@ -379,7 +420,7 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
 
             # 3B. RemediatorAgent (BugFixerAgent) - Fix SAST/Bug Finding
             elif path == "/api/bug-fixer/fix":
-                ws_path = ACTIVE_GIT_AGENT.get_workspace_path() if ACTIVE_GIT_AGENT else None
+                ws_path = _resolve_active_workspace()
                 finding_data = payload.get("finding") or dict(DEFAULT_SQLI_FINDING)
                 preview = bool(payload.get("preview", False))
                 provider = payload.get("provider") or None
@@ -399,15 +440,23 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                 self._send_json(result)
                 return
 
-            # 3C. RemediatorAgent (BugFixerAgent) - Reset Demo Vulnerable Controller
-            elif path == "/api/bug-fixer/reset":
-                ws_path = ACTIVE_GIT_AGENT.get_workspace_path() if ACTIVE_GIT_AGENT else None
+            # 3C. Reset Demo Vulnerable Repository & All Steps State
+            elif path in ("/api/bug-fixer/reset", "/api/reset-all"):
+                ws_path = _resolve_active_workspace()
                 result = REMEDIATOR_AGENT.reset_demo(workspace_path=ws_path)
-                post_scan = SCANNER_AGENT.run({"workspace_path": str(ws_path) if ws_path else None})
-                result["post_scan"] = post_scan
-                if ACTIVE_GIT_AGENT:
+                if ws_path.resolve() == DEFAULT_LOCAL_REPO:
+                    _ensure_default_local_repo_ready(reset_files=True)
+                SCANNER_AGENT.last_result = None
+                SCANNER_AGENT.status = "IDLE"
+                REMEDIATOR_AGENT.last_result = None
+                REMEDIATOR_AGENT.status = "IDLE"
+                LATEST_PR = None
+                if path == "/api/reset-all":
+                    ACTIVE_GIT_AGENT = None
+                elif ACTIVE_GIT_AGENT:
                     result["status_summary"] = ACTIVE_GIT_AGENT.get_status()
                     result["git_diff"] = ACTIVE_GIT_AGENT.get_diff()
+                result["telemetry"] = _build_telemetry_payload()
                 self._send_json(result)
                 return
 
@@ -446,17 +495,13 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
 
             # 4. Save custom patch / write file
             elif path == "/api/write-file":
-                if not ACTIVE_GIT_AGENT:
-                    self._send_json({"error": "Please call /api/prepare first"}, status=400)
-                    return
-
+                ws_dir = _resolve_active_workspace()
                 rel_path = payload.get("relative_path")
                 content = payload.get("content", "")
                 if not rel_path:
                     self._send_json({"error": "relative_path is required"}, status=400)
                     return
 
-                ws_dir = ACTIVE_GIT_AGENT.get_workspace_path()
                 target_file = (ws_dir / rel_path).resolve()
                 if not str(target_file).startswith(str(ws_dir.resolve())):
                     self._send_json({"error": "Forbidden path outside workspace"}, status=403)
@@ -466,8 +511,8 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                 target_file.write_text(content, encoding="utf-8")
                 self._send_json({
                     "message": f"Saved {rel_path}",
-                    "status": ACTIVE_GIT_AGENT.get_status(),
-                    "diff": ACTIVE_GIT_AGENT.get_diff(),
+                    "status": ACTIVE_GIT_AGENT.get_status() if ACTIVE_GIT_AGENT else None,
+                    "diff": ACTIVE_GIT_AGENT.get_diff() if ACTIVE_GIT_AGENT else "",
                 })
                 return
 
@@ -626,7 +671,7 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                     clean = raw_path.replace("file://", "")
                     current_dir = Path(os.path.expanduser(clean)).resolve()
                 else:
-                    current_dir = Path.cwd().resolve()
+                    current_dir = (APP_ROOT_DIR / "repos").resolve() if (APP_ROOT_DIR / "repos").exists() else Path.cwd().resolve()
 
                 if not current_dir.exists() or not current_dir.is_dir():
                     current_dir = Path.home().resolve()
@@ -647,11 +692,11 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                 parent_dir = str(current_dir.parent.resolve()) if current_dir != current_dir.parent else None
                 current_has_git = (current_dir / ".git").exists() or (current_dir / "HEAD").exists()
 
-                # Quick access locations for fast navigation (especially on macOS)
                 home = Path.home().resolve()
                 quick_access = [
+                    {"label": "🎯 CustomerApi Repo", "path": str(DEFAULT_LOCAL_REPO)},
+                    {"label": "📁 repos/", "path": str((APP_ROOT_DIR / "repos").resolve())},
                     {"label": "🏠 Home", "path": str(home)},
-                    {"label": "📁 Workspace", "path": str(Path.cwd().resolve())},
                 ]
                 for rel in ["Projects", "Documents", "Desktop", "Downloads"]:
                     candidate = home / rel

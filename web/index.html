@@ -185,8 +185,8 @@
           <span class="px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-slate-600 font-medium" id="activeBranchTag">
             Branch: <strong class="text-blue-700 font-mono" id="currentBranchDisplay">master</strong>
           </span>
-          <button onclick="syncTelemetry(true)" class="px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold transition flex items-center gap-1 shadow-sm cursor-pointer">
-            <span>↻</span> Sync
+          <button onclick="refreshAllSteps(true)" class="px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold transition flex items-center gap-1 shadow-sm cursor-pointer" title="Reset &amp; refresh all 5 pipeline steps">
+            <span>↻</span> Refresh All Steps
           </button>
         </div>
       </div>
@@ -286,6 +286,12 @@
               Show All Steps
             </button>
           </div>
+
+          <button onclick="refreshAllSteps(true)" id="btnRefreshAllSteps" type="button"
+            class="text-xs px-3 py-2 rounded-lg bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 font-mono font-semibold transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+            title="Reset and refresh all 5 steps to initial state">
+            <span>↺ Refresh Steps</span>
+          </button>
 
           <button onclick="runFullPipeline()" id="btnRunFullPipeline"
             class="text-xs px-4 py-2 rounded-lg bg-gradient-to-r from-blue-600 to-emerald-600 hover:from-blue-500 hover:to-emerald-500 text-white font-semibold transition flex items-center gap-1.5 shadow-md cursor-pointer">
@@ -1437,21 +1443,32 @@
         document.getElementById("kpiFleetSubtext").innerHTML =
           `Findings JSONs: <strong class="text-indigo-700">${data.scanner?.bug_findings?.length || 1}</strong> • Fix Reports: <strong class="text-emerald-700">${data.remediator?.reports_count || 0}</strong>`;
 
-        // 2. Populate Repository Input if empty
+        // 2. Normalize Repository Input (redirect portal root to repos/CustomerApi)
         const repoInput = document.getElementById("repoUrl");
-        if (repoInput && !repoInput.value.trim()) {
-          const initialRepo = data.git?.context?.repo_url || data.default_repo_path || "";
-          repoInput.value = initialRepo;
-          if (initialRepo) handlePathInput(initialRepo);
+        const fallbackCustomerRepo = data.default_repo_path || "repos/CustomerApi";
+        if (repoInput) {
+          const curVal = repoInput.value.trim();
+          const endsWithPortalRoot = curVal.replace(/[\\/]+$/, "").endsWith("air-gapped-API-remediator");
+          if (!curVal || endsWithPortalRoot) {
+            const candidate = data.git?.context?.repo_url || fallbackCustomerRepo;
+            const cleanCandidate = candidate.replace(/[\\/]+$/, "").endsWith("air-gapped-API-remediator")
+              ? fallbackCustomerRepo
+              : candidate;
+            repoInput.value = cleanCandidate;
+            if (cleanCandidate) handlePathInput(cleanCandidate);
+          }
         }
 
         // 3. Git / Workspace Status
-        const wsPath = data.active_workspace_path || data.default_repo_path || "repos/CustomerApi";
+        let wsPath = data.active_workspace_path || fallbackCustomerRepo;
+        if (wsPath.replace(/[\\/]+$/, "").endsWith("air-gapped-API-remediator")) {
+          wsPath = fallbackCustomerRepo;
+        }
         const wsName = wsPath.split(/[\\/]/).filter(Boolean).pop() || "CustomerApi";
         document.getElementById("activeWorkspaceHeaderText").textContent = `Active Repository Path: ${wsPath}`;
         document.getElementById("gitAuthorDisplay").textContent = data.git?.author || "Git SubAgent <git-agent@subagent.local>";
 
-        if (data.git && data.git.prepared && data.git.context) {
+        if (data.git && data.git.prepared && data.git.context && stepStates[1].completed) {
           const ctx = data.git.context;
           document.getElementById("currentBranchDisplay").textContent = ctx.feature_branch || "HEAD";
           document.getElementById("kpiPerimeterBadge").textContent = "ISOLATED";
@@ -1459,7 +1476,6 @@
           document.getElementById("kpiPerimeterStatus").textContent = `${wsName} (${(ctx.provider || "local").toUpperCase()})`;
           document.getElementById("kpiPerimeterSubtext").textContent = `Branch: ${ctx.feature_branch}`;
           document.getElementById("gitWorkspaceStateBadge").textContent = `BRANCH: ${ctx.feature_branch}`;
-          stepStates[1] = { completed: true, statusText: "DONE ✓" };
         } else {
           document.getElementById("kpiPerimeterStatus").textContent = wsName;
           document.getElementById("kpiPerimeterSubtext").textContent = wsPath;
@@ -1489,14 +1505,15 @@
           }
         }
 
-        // 5. Scanner Results & KPIs 1-2
-        applyScanResultToUI(data.scanner?.last_result, bugFindings);
+        // 5. Scanner Results & KPIs 1-2 (only apply previous scan result if Step 2+ is completed)
+        const effectiveScanResult = (stepStates[2].completed || stepStates[3].completed) ? data.scanner?.last_result : null;
+        applyScanResultToUI(effectiveScanResult, bugFindings);
 
         // 6. Commit & PR fields
         populateCommitAndPrDefaults(wsName, bugFindings, data.remediator?.last_result?.files_modified);
 
-        // 7. Active PR Card
-        if (data.latest_pr) {
+        // 7. Active PR Card (only show if Step 5 is completed)
+        if (data.latest_pr && stepStates[5].completed) {
           renderPrCard(data.latest_pr);
         }
 
@@ -1525,7 +1542,12 @@
 
     // Step 1: Repository Preparation (GitSubAgent)
     async function handlePrepare() {
-      const repoUrl = document.getElementById("repoUrl").value.trim();
+      let repoUrl = document.getElementById("repoUrl").value.trim();
+      if (repoUrl.replace(/[\\/]+$/, "").endsWith("air-gapped-API-remediator")) {
+        const sep = repoUrl.includes("\\") ? "\\" : "/";
+        repoUrl = repoUrl.replace(/[\\/]+$/, "") + sep + "repos" + sep + "CustomerApi";
+        document.getElementById("repoUrl").value = repoUrl;
+      }
       const baseBranch = document.getElementById("baseBranch").value;
       const featureBranch = document.getElementById("featureBranch").value;
       const gitToken = document.getElementById("gitToken").value.trim();
@@ -1697,27 +1719,7 @@
     }
 
     async function handleBugFixerReset() {
-      log("Resetting repository files back to original vulnerable state...", "info", "BugFixerAgent");
-      const res = await apiPost("/api/bug-fixer/reset", {});
-      if (res.error) {
-        log(`Reset error: ${res.error}`, "error", "BugFixerAgent");
-      } else {
-        log(res.message, "warn", "BugFixerAgent");
-        document.getElementById("bugFixerResultBox").classList.add("hidden");
-        stepStates[2] = { completed: false, statusText: "READY" };
-        stepStates[3] = { completed: false, statusText: "PENDING" };
-        stepStates[4] = { completed: false, statusText: "PENDING" };
-        stepStates[5] = { completed: false, statusText: "PENDING" };
-        activeStepNum = 2;
-        if (res.post_scan) {
-          applyScanResultToUI(res.post_scan, res.post_scan.bug_findings);
-        } else if (res.content) {
-          document.getElementById("patchPath").value = "Controllers/UsersController.cs";
-          document.getElementById("patchContent").value = res.content;
-        }
-        renderLivelineNodes();
-        await syncTelemetry(false);
-      }
+      await refreshAllSteps(true);
     }
 
     async function handleWriteFile() {
@@ -1858,17 +1860,113 @@
       });
     }
 
-    // Run Full Multi-Agent Pipeline
+    function sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    // Refresh & Reset All 5 Steps to Initial State
+    async function refreshAllSteps(resetBackend = true) {
+      log("Refreshing all 5 pipeline steps and resetting workspace state...", "info", "Orchestrator");
+
+      // 1. Reset all 5 step states on the Liveline
+      stepStates[1] = { completed: false, statusText: "ACTIVE" };
+      stepStates[2] = { completed: false, statusText: "PENDING" };
+      stepStates[3] = { completed: false, statusText: "PENDING" };
+      stepStates[4] = { completed: false, statusText: "PENDING" };
+      stepStates[5] = { completed: false, statusText: "PENDING" };
+      activeStepNum = 1;
+      renderLivelineNodes();
+      updateStepPanelsVisibility();
+
+      // 2. Reset UI cards, badges, and KPIs
+      const prCard = document.getElementById("prCard");
+      if (prCard) prCard.classList.add("hidden");
+      const bfBox = document.getElementById("bugFixerResultBox");
+      if (bfBox) bfBox.classList.add("hidden");
+      const ssBar = document.getElementById("secureScanSummaryBar");
+      if (ssBar) ssBar.classList.add("hidden");
+
+      document.getElementById("securityScoreValue").innerHTML = `--<span class="text-xs text-slate-500">/100</span>`;
+      document.getElementById("securityScoreBar").style.width = "0%";
+      document.getElementById("postureGradeBadge").textContent = "GRADE: --";
+      document.getElementById("postureGradeBadge").className = "px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 font-bold text-[10px]";
+      document.getElementById("postureDeltaText").textContent = "Awaiting Scan";
+      document.getElementById("postureDeltaText").className = "text-[10px] text-slate-600 font-mono font-semibold";
+      document.getElementById("threatLevelBadge").textContent = "READY TO SCAN";
+      document.getElementById("threatLevelBadge").className = "px-2 py-0.5 rounded bg-slate-200 text-slate-700 font-mono font-bold text-[11px]";
+      document.getElementById("kpiVulnTag").textContent = "SAST FEED";
+      document.getElementById("kpiVulnTag").className = "px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-bold text-[10px]";
+      document.getElementById("kpiHighCount").textContent = "Run Step 02 Scan";
+      document.getElementById("findingsCountBadge").textContent = "1 Queued in findings/";
+      document.getElementById("findingsCountBadge").className = "px-2 py-0.5 rounded text-[10px] bg-amber-100 text-amber-800 border border-amber-300 font-bold";
+
+      document.getElementById("statStaged").textContent = "0";
+      document.getElementById("statModified").textContent = "0";
+      document.getElementById("statUntracked").textContent = "0";
+      document.getElementById("diffOutput").textContent = "(no uncommitted changes in working tree)";
+      document.getElementById("commitStatusPill").textContent = "Ready";
+      document.getElementById("commitStatusPill").className = "text-[11px] text-slate-600 font-mono font-semibold";
+
+      // Ensure repoUrl points to CustomerApi if it was pointing to parent portal directory
+      const repoInput = document.getElementById("repoUrl");
+      if (repoInput && repoInput.value.trim().replace(/[\\/]+$/, "").endsWith("air-gapped-API-remediator")) {
+        const sep = repoInput.value.includes("\\") ? "\\" : "/";
+        repoInput.value = repoInput.value.trim().replace(/[\\/]+$/, "") + sep + "repos" + sep + "CustomerApi";
+        handlePathInput(repoInput.value);
+      }
+
+      // 3. Reset backend repository files & state so the next scan/fix runs on fresh vulnerable code
+      if (resetBackend) {
+        try {
+          let res = await apiPost("/api/reset-all", {});
+          if (res && res.error) {
+            res = await apiPost("/api/bug-fixer/reset", {});
+          }
+          if (res && res.content) {
+            document.getElementById("patchPath").value = "Controllers/UsersController.cs";
+            document.getElementById("patchContent").value = res.content;
+          }
+        } catch (e) {}
+      }
+
+      await syncTelemetry(false);
+      await loadWorkspaceFile("Controllers/UsersController.cs");
+      log("All 5 pipeline steps refreshed and ready at Step 01.", "success", "Orchestrator");
+    }
+
+    // Run Full Multi-Agent Pipeline (Refreshes all 5 steps first, then runs Step 01 -> 05 live)
     async function runFullPipeline() {
-      log("Initiating End-to-End 3-Process SecOps Playbook...", "info", "Orchestrator");
       const btn = document.getElementById("btnRunFullPipeline");
       btn.disabled = true;
-      btn.textContent = "⏳ Executing Playbook...";
+      btn.textContent = "⏳ Refreshing All Steps...";
 
+      // Always refresh/reset all 5 steps first so every stage runs live from Step 01 -> Step 05
+      await refreshAllSteps(true);
+      await sleep(500);
+
+      log("Initiating End-to-End 3-Process SecOps Playbook (Steps 01 → 05)...", "info", "Orchestrator");
+      btn.textContent = "⏳ Step 1/5: Initiating Repo...";
+      selectPipelineStep(1);
       await handlePrepare();
+      await sleep(600);
+
+      btn.textContent = "⏳ Step 2/5: Scanning Code...";
+      selectPipelineStep(2);
       await handleScan();
+      await sleep(700);
+
+      btn.textContent = "⏳ Step 3/5: Auto-Patching...";
+      selectPipelineStep(3);
       await handleFix();
+      await sleep(700);
+
+      btn.textContent = "⏳ Step 4/5: Committing...";
+      selectPipelineStep(4);
       await handleCommitPush();
+      await sleep(600);
+
+      btn.textContent = "⏳ Step 5/5: Opening PR...";
+      selectPipelineStep(5);
       await handleCreatePR();
 
       btn.disabled = false;
