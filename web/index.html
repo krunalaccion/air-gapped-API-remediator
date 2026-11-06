@@ -162,16 +162,9 @@
             🛡️
           </div>
           <div>
-            <div class="flex flex-wrap items-center gap-2">
-              <h1 class="text-lg md:text-xl font-bold tracking-tight text-slate-900">
-                AegisSec Autonomous Security Portal
-              </h1>
-              <!-- Inline Live Agent Status Pills -->
-              <div id="agentsTray" class="flex flex-wrap items-center gap-1.5"></div>
-            </div>
-            <p class="text-xs text-slate-500 mt-0.5 font-mono" id="activeWorkspaceHeaderText">
-              Workspace: Initializing live repository telemetry...
-            </p>
+            <h1 class="text-lg md:text-xl font-bold tracking-tight text-slate-900">
+              AegisSec Autonomous Security Portal
+            </h1>
           </div>
         </div>
 
@@ -1465,7 +1458,8 @@
           wsPath = fallbackCustomerRepo;
         }
         const wsName = wsPath.split(/[\\/]/).filter(Boolean).pop() || "CustomerApi";
-        document.getElementById("activeWorkspaceHeaderText").textContent = `Active Repository Path: ${wsPath}`;
+        const wsHeaderEl = document.getElementById("activeWorkspaceHeaderText");
+        if (wsHeaderEl) wsHeaderEl.textContent = `Active Repository Path: ${wsPath}`;
         document.getElementById("gitAuthorDisplay").textContent = data.git?.author || "Git SubAgent <git-agent@subagent.local>";
 
         if (data.git && data.git.prepared && data.git.context && stepStates[1].completed) {
