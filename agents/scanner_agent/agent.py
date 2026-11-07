@@ -396,7 +396,7 @@ class ScannerAgent(BaseAgent):
                     logger.debug("Could not remove old finding %s: %s", old_json, exc)
 
         # Persist all detected findings into agents/scanner_agent/findings/*.json for RemediatorAgent
-        repo_name = effective_scan_dir.name if (effective_scan_dir and effective_scan_dir.name != "workspace") else "CustomerApi"
+        repo_name = effective_scan_dir.name if effective_scan_dir else "repository"
         for idx, f in enumerate(combined_findings, 1):
             fid = f.get("finding_id") or f.get("id") or f"FINDING-{idx:03d}"
             rule_id = f.get("rule_id") or f.get("rule") or "security-violation"

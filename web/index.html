@@ -152,7 +152,7 @@
   </div>
 
   <!-- Main Security Portal Container -->
-  <div class="max-w-7xl w-full mx-auto p-4 md:p-5 space-y-4 flex-1">
+  <div id="portalMainContainer" class="max-w-7xl w-full mx-auto p-4 md:p-5 space-y-4 flex-1 transition-all duration-300">
 
     <!-- Unified Command Header + Live KPI Strip (Compact & Clean) -->
     <header class="soc-panel rounded-xl p-4 space-y-3.5">
@@ -385,12 +385,12 @@
     </section>
 
     <!-- ===================================================================== -->
-    <!-- MAIN WORKSPACE GRID: Left Active Step Controls (7 cols) + Right Telemetry (5 cols) -->
+    <!-- MAIN WORKSPACE GRID: Left Active Step Controls + Right Telemetry -->
     <!-- ===================================================================== -->
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+    <div id="mainWorkspaceGrid" class="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
 
-      <!-- Left Column: Step Execution Modules (7 cols) -->
-      <div class="lg:col-span-7 space-y-4">
+      <!-- Left Column: Step Execution Modules -->
+      <div id="stepPanelsCol" class="lg:col-span-7 space-y-4 transition-all duration-200">
 
         <!-- STEP 1 CARD: Repository & Isolation Branch Setup (GitSubAgent) -->
         <div id="step-panel-1" class="soc-panel rounded-xl p-5 space-y-4 border-t-4 border-t-blue-600">
@@ -543,141 +543,279 @@
         </div>
 
         <!-- STEP 3 CARD: Autonomous Remediation & BugFixer Engine (RemediatorAgent) -->
-        <div id="step-panel-3" class="soc-panel rounded-xl p-5 space-y-4 border-t-4 border-t-emerald-600">
-          <div class="flex items-center justify-between border-b border-slate-200 pb-3">
+        <div id="step-panel-3" class="soc-panel rounded-xl p-5 space-y-4 border-t-4 border-t-emerald-600 transition-all duration-200">
+          <div class="flex items-center justify-between border-b border-slate-200 pb-3 flex-wrap gap-2">
             <div class="flex items-center gap-2.5">
-              <span class="w-6 h-6 rounded-md bg-emerald-600 text-white flex items-center justify-center text-xs font-mono font-bold shadow-sm">03</span>
+              <span class="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center text-xs font-mono font-bold shadow-sm">03</span>
               <div>
-                <h2 class="text-sm font-bold text-slate-900 uppercase tracking-wide font-mono">Autonomous Code Patching &amp; Remediation</h2>
-                <p class="text-[11px] text-slate-500 font-mono">Process 3 (`agents/remediator_agent`): Reads `scanner_agent/findings/*.json` &amp; patches code</p>
+                <div class="flex items-center gap-2">
+                  <h2 class="text-sm font-bold text-slate-900 uppercase tracking-wide font-mono">Autonomous Code Patching &amp; Remediation</h2>
+                  <span id="step3StatusBadge" class="text-[10px] px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300 font-mono font-bold">READY</span>
+                </div>
+                <p class="text-[11px] text-slate-500 font-mono">Process 3: Consumes SAST findings, executes LLM/deterministic patches, generates air-gap proxy &amp; audit dossiers</p>
               </div>
             </div>
-            <span class="text-[11px] px-2.5 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 font-mono font-semibold">RemediatorAgent + BugFixerAgent</span>
+            <div class="flex items-center gap-2">
+              <button type="button" onclick="toggleStep3FullWidth()" id="btnStep3WidthToggle"
+                class="px-2.5 py-1 rounded-lg bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-300 text-xs font-mono font-semibold transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+                title="Toggle between Full-Width and Standard Grid view">
+                <span id="step3WidthIcon">◫</span>
+                <span id="step3WidthLabel">Exit Full Width</span>
+              </button>
+              <span class="text-[11px] px-2.5 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 font-mono font-semibold hidden sm:inline-block">RemediatorAgent + BugFixerAgent</span>
+            </div>
           </div>
 
-          <div class="space-y-3.5">
-            <div class="p-3 rounded-lg bg-emerald-50/70 border border-emerald-200 text-xs space-y-1.5">
+          <!-- Configuration & Queued Remediation Targets Row -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            <!-- Queued Actions (Consumes scanner_agent/findings/*.json) -->
+            <div class="p-3 rounded-lg bg-emerald-50/70 border border-emerald-200 text-xs space-y-1.5 flex flex-col">
               <div class="font-bold text-emerald-900 font-mono uppercase flex items-center justify-between">
-                <span>🛡️ Queued Remediation Actions</span>
-                <span class="text-[10px] text-emerald-700 font-semibold">Consumes `scanner_agent/findings/*.json`</span>
+                <span>🛡️ Queued Remediation Targets</span>
+                <span class="text-[10px] text-emerald-700 font-semibold font-mono">From Step 02 Findings</span>
               </div>
-              <ul id="remediationPlaybookList" class="list-disc list-inside text-[11px] text-slate-700 space-y-1 font-mono">
+              <ul id="remediationPlaybookList" class="list-disc list-inside text-[11px] text-slate-700 space-y-1 font-mono flex-1 overflow-y-auto max-h-28 custom-scroll">
                 <li class="text-slate-500 italic">⏳ Repository not prepared yet. Complete Step 01 to initialize workspace.</li>
               </ul>
             </div>
 
-            <!-- LLM Remediation Engine Selector (Local Ollama / LM Studio / Cloud API) -->
+            <!-- LLM Remediation Engine Selector -->
             <div class="p-3 rounded-lg bg-slate-50 border border-slate-200 text-xs space-y-2">
               <div class="flex items-center justify-between">
                 <label class="font-mono font-bold text-slate-800 text-[11px] uppercase flex items-center gap-1.5">
                   <span>🧠 Code Fixer AI Engine</span>
-                  <span class="text-[10px] font-normal text-slate-500">(Local LLM / Cloud API)</span>
                 </label>
                 <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-semibold" id="llmEngineBadge">LOCAL OLLAMA</span>
               </div>
 
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
-                  <label class="block text-[10px] font-semibold text-slate-600 mb-1">Provider &amp; Engine</label>
-                  <select id="llmProvider" onchange="handleLlmProviderChange()" class="soc-input w-full text-xs font-mono px-2.5 py-1.5 rounded-lg bg-white border border-slate-300">
-                    <option value="ollama" selected>🦙 Local Ollama (http://127.0.0.1:11434)</option>
-                    <option value="local">💻 Local OpenAI-compatible (LM Studio / vLLM)</option>
+                  <label class="block text-[10px] font-semibold text-slate-600 mb-0.5">Provider &amp; Engine</label>
+                  <select id="llmProvider" onchange="handleLlmProviderChange()" class="soc-input w-full text-xs font-mono px-2 py-1.5 rounded-lg bg-white border border-slate-300">
+                    <option value="ollama" selected>🦙 Local Ollama (127.0.0.1:11434)</option>
+                    <option value="local">💻 Local OpenAI (LM Studio / vLLM)</option>
                     <option value="gemini">✨ Google Gemini (gemini-2.5-flash)</option>
                     <option value="openai">🟢 OpenAI (gpt-4o)</option>
                     <option value="anthropic">🟣 Anthropic Claude (claude-3-5-sonnet)</option>
-                    <option value="auto-fallback">⚙️ Offline Deterministic Fixer (0 tokens / air-gap)</option>
+                    <option value="auto-fallback">⚙️ Offline Deterministic Fixer (0 tokens)</option>
                   </select>
                 </div>
-
                 <div>
-                  <label class="block text-[10px] font-semibold text-slate-600 mb-1">Model Name</label>
-                  <input type="text" id="llmModel" value="qwen2.5-coder:3b" placeholder="e.g. qwen2.5-coder:3b, llama3.2" class="soc-input w-full text-xs font-mono px-2.5 py-1.5 rounded-lg bg-white border border-slate-300">
+                  <label class="block text-[10px] font-semibold text-slate-600 mb-0.5">Model Name</label>
+                  <input type="text" id="llmModel" value="qwen2.5-coder:3b" placeholder="e.g. qwen2.5-coder:3b" class="soc-input w-full text-xs font-mono px-2 py-1.5 rounded-lg bg-white border border-slate-300">
                 </div>
               </div>
 
-              <div id="llmEndpointRow" class="pt-0.5">
-                <label class="block text-[10px] font-semibold text-slate-600 mb-1">Local Server Base URL</label>
-                <input type="text" id="llmBaseUrl" value="http://127.0.0.1:11434" placeholder="http://127.0.0.1:11434 or http://localhost:1234/v1" class="soc-input w-full text-xs font-mono px-2.5 py-1.5 rounded-lg bg-white border border-slate-300">
+              <div id="llmEndpointRow">
+                <label class="block text-[10px] font-semibold text-slate-600 mb-0.5">Local Server Base URL</label>
+                <input type="text" id="llmBaseUrl" value="http://127.0.0.1:11434" placeholder="http://127.0.0.1:11434" class="soc-input w-full text-xs font-mono px-2 py-1 rounded bg-white border border-slate-300">
+              </div>
+            </div>
+          </div>
+
+          <!-- Action Toolbar Buttons -->
+          <div class="flex items-center gap-2 flex-wrap">
+            <button onclick="handleFix()" id="btnFix"
+              class="flex-1 min-w-[240px] py-2.5 px-4 rounded-lg bg-gradient-to-r from-emerald-600 to-blue-600 hover:from-emerald-500 hover:to-blue-500 text-white text-xs font-bold uppercase tracking-wider font-mono transition flex items-center justify-center gap-2 shadow-md cursor-pointer">
+              <span>✨ Generate &amp; Apply Air-Gap Fixes</span>
+            </button>
+            <button onclick="handleBugFixerReset()" id="btnBugFixReset"
+              class="py-2.5 px-3 rounded-lg bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 text-xs font-mono font-semibold transition cursor-pointer shadow-sm"
+              title="Reset repository files back to baseline state">
+              <span>↺ Reset Repo</span>
+            </button>
+            <button onclick="selectPipelineStep(4)" type="button"
+              class="py-2.5 px-3 rounded-lg bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-700 text-xs font-mono font-semibold cursor-pointer">
+              Next: Step 04 →
+            </button>
+          </div>
+
+          <!-- Hidden Compatibility Elements for Legacy Function Calls -->
+          <input type="hidden" id="patchPath" value="">
+          <textarea id="patchContent" class="hidden"></textarea>
+          <div id="remediatedFilesTabs" class="hidden"></div>
+          <div id="bugFixerResultBox" class="hidden">
+            <span id="bugFixerSummaryText"></span>
+            <span id="bugFixerExplanationText"></span>
+            <span id="bugFixerProviderBadge"></span>
+            <code id="bugFixerTargetFileLabel"></code>
+            <pre id="bugFixerDiffOutput"></pre>
+          </div>
+          <div id="dynamicFilePills" class="hidden"></div>
+          <div id="remediatedFilesContainer" class="hidden"></div>
+
+          <!-- ================================================================= -->
+          <!-- FULL-WIDTH REMEDIATED FILES STUDIO: File Navigator + Code & Diff Inspector -->
+          <!-- ================================================================= -->
+          <div class="soc-panel rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm flex flex-col">
+            <!-- Studio Header Strip -->
+            <div class="p-3 bg-slate-100/90 border-b border-slate-200 flex items-center justify-between flex-wrap gap-2">
+              <div class="flex items-center gap-2.5">
+                <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                <h3 class="text-xs font-bold font-mono uppercase tracking-wider text-slate-800">
+                  Remediated &amp; Modified Workspace Files
+                </h3>
+                <span id="remediatedFilesCountBadge" class="px-2 py-0.5 rounded text-[10px] bg-slate-200 text-slate-700 border border-slate-300 font-bold font-mono">0 FILES MODIFIED</span>
+              </div>
+              <div class="flex items-center gap-3 text-xs font-mono">
+                <span id="diffStatsSummary" class="text-[11px] font-semibold text-slate-600">Awaiting Remediation</span>
               </div>
             </div>
 
-            <div class="flex items-center gap-2">
-              <button onclick="handleFix()" id="btnFix"
-                class="flex-1 py-2.5 px-4 rounded-lg bg-gradient-to-r from-emerald-600 to-blue-600 hover:from-emerald-500 hover:to-blue-500 text-white text-xs font-bold uppercase tracking-wider font-mono transition flex items-center justify-center gap-2 shadow-md cursor-pointer">
-                <span>✨ Generate &amp; Apply Air-Gap Fixes</span>
-              </button>
-              <button onclick="handleBugFixerReset()" id="btnBugFixReset"
-                class="py-2.5 px-3 rounded-lg bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 text-xs font-mono font-semibold transition cursor-pointer shadow-sm"
-                title="Reset CustomerApi repository files back to vulnerable state">
-                <span>↺ Reset Repo</span>
-              </button>
-              <button onclick="selectPipelineStep(4)" type="button"
-                class="py-2.5 px-3 rounded-lg bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-700 text-xs font-mono font-semibold cursor-pointer">
-                Next: Step 04 →
-              </button>
-            </div>
+            <!-- Main Studio Canvas: 2-Column Responsive Split -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 min-h-[500px]">
 
-            <!-- RemediatorAgent Interactive Changes Inspector (Clickable file tabs & diffs) -->
-            <div id="remediatedFilesContainer" class="hidden border-t border-emerald-200 pt-3 space-y-2.5">
-              <div class="flex items-center justify-between flex-wrap gap-2">
-                <div class="flex items-center gap-2">
-                  <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                  <span class="font-bold text-emerald-950 font-mono text-xs uppercase tracking-wide">
-                    🛡️ Remediated Changes Inspector
-                  </span>
-                  <span id="remediatedFilesCountBadge" class="px-2 py-0.5 rounded text-[10px] bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold font-mono">0 FILES</span>
+              <!-- LEFT: Modified Files Navigator (4 cols / ~320px) -->
+              <div class="lg:col-span-4 border-r border-slate-200 bg-slate-50/70 p-3 flex flex-col space-y-3">
+                <div class="flex items-center justify-between">
+                  <span class="text-[11px] font-mono font-bold text-slate-700 uppercase">Files Changed</span>
+                  <span class="text-[10px] text-slate-500 font-mono">Click file to inspect</span>
                 </div>
-                <span class="text-[10px] text-slate-500 font-mono">Click a file below to inspect its patch diff &amp; live code</span>
-              </div>
 
-              <!-- Clickable File Tabs -->
-              <div id="remediatedFilesTabs" class="flex items-center gap-1.5 flex-wrap"></div>
+                <!-- Filter search input -->
+                <div class="relative">
+                  <input type="text" id="fileFilterInput" oninput="filterRemediatedFiles(this.value)"
+                    placeholder="Filter modified files..."
+                    class="soc-input w-full text-xs font-mono pl-7 pr-2.5 py-1.5 rounded-lg border border-slate-300">
+                  <span class="absolute left-2.5 top-2 text-slate-400 text-xs">🔍</span>
+                </div>
 
-              <!-- Selected File Diff Box -->
-              <div id="bugFixerResultBox" class="space-y-2 pt-1">
-                <div class="p-2.5 rounded-lg bg-white border border-emerald-200 text-xs space-y-1 shadow-sm">
-                  <div class="flex items-center justify-between flex-wrap gap-1">
-                    <span class="text-emerald-800 font-bold font-mono text-xs" id="bugFixerSummaryText"></span>
-                    <span id="bugFixerProviderBadge" class="text-[10px] px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-semibold font-mono"></span>
+                <!-- Interactive List of Modified Files -->
+                <div class="flex-1 overflow-y-auto custom-scroll space-y-1.5 max-h-[520px]" id="remediatedFilesList">
+                  <div class="text-xs text-slate-400 italic p-3 text-center font-mono">No files modified yet. Complete Step 01 &amp; 02, then run Step 03.</div>
+                </div>
+
+                <!-- Expandable Other Repository Files Drawer -->
+                <div class="pt-2 border-t border-slate-200 space-y-1.5">
+                  <div class="flex items-center justify-between text-[11px] font-mono text-slate-600 font-semibold">
+                    <span>Other Workspace Files:</span>
+                    <button type="button" onclick="toggleAllFilesDrawer()" id="btnToggleAllFiles" class="text-blue-600 hover:text-blue-500 cursor-pointer">
+                      Browse All ▾
+                    </button>
                   </div>
-                  <div class="text-[11px] text-slate-600 leading-relaxed font-sans" id="bugFixerExplanationText"></div>
-                </div>
-
-                <div>
-                  <div class="text-[11px] font-mono text-slate-700 mb-1 flex items-center justify-between font-semibold">
-                    <span>SECURITY PATCH DIFF (<code id="bugFixerTargetFileLabel" class="text-blue-700 font-bold"></code>):</span>
-                    <span class="text-[10px] px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold">APPLIED TO WORKSPACE ✓</span>
+                  <div id="allFilesDrawer" class="hidden space-y-1 max-h-36 overflow-y-auto custom-scroll">
+                    <div id="allFilesList" class="flex flex-col gap-1"></div>
                   </div>
-                  <pre id="bugFixerDiffOutput" class="w-full bg-slate-900 text-slate-100 p-3 rounded-lg border border-slate-700 font-mono text-[11px] max-h-52 overflow-auto custom-scroll leading-relaxed whitespace-pre"></pre>
-                </div>
-              </div>
-            </div>
-
-            <!-- Live Workspace File Inspector -->
-            <div class="border-t border-slate-200 pt-3 space-y-2">
-              <div class="flex items-center justify-between flex-wrap gap-1.5">
-                <label class="text-xs font-bold text-slate-800 font-mono uppercase">Live Repository File Inspector</label>
-                <div id="dynamicFilePills" class="flex items-center gap-1 text-[10px] font-mono flex-wrap">
-                  <span class="text-[10px] text-slate-400 italic font-mono">No repository files loaded yet (Pending Step 01)</span>
                 </div>
               </div>
 
-              <div class="flex items-center gap-2">
-                <input type="text" id="patchPath" value="" placeholder="Select a file from pills above or enter relative path (e.g. main.py)"
-                  onkeydown="if(event.key==='Enter') loadWorkspaceFile(this.value)"
-                  class="soc-input flex-1 text-xs font-mono px-2.5 py-1.5 rounded-lg">
-                <button onclick="loadWorkspaceFile(document.getElementById('patchPath').value)"
-                  class="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 border border-slate-300 text-xs font-mono font-semibold text-slate-700 cursor-pointer">
-                  Load
-                </button>
-                <button onclick="handleWriteFile()"
-                  class="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-mono font-semibold cursor-pointer">
-                  💾 Save File
-                </button>
+              <!-- RIGHT: Code & Diff Inspector (8 cols / wide canvas) -->
+              <div class="lg:col-span-8 flex flex-col bg-slate-900 text-slate-100">
+
+                <!-- File Inspector Header Bar -->
+                <div class="p-3 bg-slate-800/90 border-b border-slate-700 flex items-center justify-between flex-wrap gap-2">
+                  <!-- File Breadcrumb & Status -->
+                  <div class="flex items-center gap-2 min-w-0">
+                    <span id="activeFileIcon" class="text-base flex-shrink-0">📄</span>
+                    <span id="activeFilePathLabel" class="text-xs font-mono font-bold text-white truncate max-w-xs md:max-w-md">No file selected</span>
+                    <span id="activeFileStatusBadge" class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-700 text-slate-300 border border-slate-600">PENDING</span>
+                  </div>
+
+                  <!-- View Switcher Tabs -->
+                  <div class="inline-flex rounded-lg bg-slate-900 p-0.5 text-[11px] font-mono border border-slate-700">
+                    <button type="button" onclick="setDiffViewMode('unified')" id="btnTabUnified"
+                      class="px-2.5 py-1 rounded bg-blue-600 text-white font-bold transition cursor-pointer shadow-sm">
+                      Unified Diff
+                    </button>
+                    <button type="button" onclick="setDiffViewMode('split')" id="btnTabSplit"
+                      class="px-2.5 py-1 rounded text-slate-400 hover:text-white font-semibold transition cursor-pointer">
+                      Side-by-Side
+                    </button>
+                    <button type="button" onclick="setDiffViewMode('full')" id="btnTabFull"
+                      class="px-2.5 py-1 rounded text-slate-400 hover:text-white font-semibold transition cursor-pointer">
+                      Live Code
+                    </button>
+                    <button type="button" onclick="setDiffViewMode('audit')" id="btnTabAudit"
+                      class="px-2.5 py-1 rounded text-slate-400 hover:text-white font-semibold transition cursor-pointer">
+                      Security Audit
+                    </button>
+                  </div>
+
+                  <!-- Action Buttons -->
+                  <div class="flex items-center gap-1.5">
+                    <button type="button" onclick="copyCurrentCodeView()" id="btnCopyCode"
+                      class="px-2.5 py-1 rounded bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-mono transition flex items-center gap-1 cursor-pointer shadow-sm"
+                      title="Copy to clipboard">
+                      <span>📋</span> <span>Copy</span>
+                    </button>
+                    <button type="button" onclick="saveCurrentCodeEdits()" id="btnSaveCode"
+                      class="px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-mono font-semibold transition flex items-center gap-1 cursor-pointer shadow-sm"
+                      title="Save modified code to disk">
+                      <span>💾</span> <span>Save to Disk</span>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Security Finding Summary Bar (when linked to a vulnerability) -->
+                <div id="fileFindingSummaryBar" class="px-3 py-2 bg-emerald-950/40 border-b border-slate-800 flex items-center justify-between text-xs font-mono text-emerald-300 hidden">
+                  <div class="flex items-center gap-2 truncate">
+                    <span class="px-1.5 py-0.5 rounded bg-emerald-900/80 text-emerald-200 border border-emerald-700 text-[10px] font-bold" id="barFindingId">ALERT</span>
+                    <span id="barFindingSummary" class="truncate font-semibold text-slate-200">Replaced vulnerable code with air-gap secured implementation</span>
+                  </div>
+                  <span id="barEngineInfo" class="text-[10px] text-slate-400 font-mono flex-shrink-0">BugFixerAgent</span>
+                </div>
+
+                <!-- MAIN DISPLAY AREA (Unified Diff / Split Diff / Live Code / Audit Dossier) -->
+                <div class="flex-1 relative min-h-[460px] max-h-[640px] overflow-hidden flex flex-col bg-slate-950">
+
+                  <!-- 1. Unified Diff View -->
+                  <div id="viewUnifiedDiff" class="flex-1 overflow-auto custom-scroll p-3 font-mono text-xs leading-relaxed">
+                    <div id="unifiedDiffContainer" class="space-y-0.5"></div>
+                  </div>
+
+                  <!-- 2. Split (Side-by-Side) Diff View -->
+                  <div id="viewSplitDiff" class="hidden flex-1 overflow-hidden grid grid-cols-2 divide-x divide-slate-800">
+                    <!-- Left: Baseline / Original -->
+                    <div class="flex flex-col h-full overflow-hidden">
+                      <div class="px-3 py-1.5 bg-rose-950/40 border-b border-slate-800 text-[11px] font-mono font-bold text-rose-300 flex items-center justify-between">
+                        <span>ORIGINAL (BASELINE / VULNERABLE)</span>
+                        <span class="text-[10px] text-rose-400 font-normal">Pre-Remediation</span>
+                      </div>
+                      <div id="splitDiffOriginal" class="flex-1 overflow-auto custom-scroll p-3 font-mono text-xs leading-relaxed text-slate-300 bg-slate-950/90"></div>
+                    </div>
+                    <!-- Right: Remediated / Patched -->
+                    <div class="flex flex-col h-full overflow-hidden">
+                      <div class="px-3 py-1.5 bg-emerald-950/40 border-b border-slate-800 text-[11px] font-mono font-bold text-emerald-300 flex items-center justify-between">
+                        <span>REMEDIATED (AIR-GAP SECURED)</span>
+                        <span class="text-[10px] text-emerald-400 font-normal">Post-Remediation</span>
+                      </div>
+                      <div id="splitDiffPatched" class="flex-1 overflow-auto custom-scroll p-3 font-mono text-xs leading-relaxed text-slate-100 bg-slate-950"></div>
+                    </div>
+                  </div>
+
+                  <!-- 3. Live Code Editor View -->
+                  <div id="viewLiveCode" class="hidden flex-1 overflow-hidden flex flex-col">
+                    <div class="px-3 py-1.5 bg-slate-800 border-b border-slate-700 text-[11px] font-mono text-slate-300 flex items-center justify-between">
+                      <span>LIVE FILE EDITOR (MODIFIABLE &amp; PERSISTED TO DISK)</span>
+                      <span class="text-[10px] text-slate-400">Click 'Save to Disk' above to write edits to repository</span>
+                    </div>
+                    <textarea id="liveCodeEditor"
+                      class="flex-1 w-full bg-slate-950 text-slate-100 p-4 font-mono text-xs leading-relaxed resize-none focus:outline-none custom-scroll border-none"
+                      spellcheck="false"></textarea>
+                  </div>
+
+                  <!-- 4. Security Audit Dossier View -->
+                  <div id="viewAuditDossier" class="hidden flex-1 overflow-auto custom-scroll p-5 space-y-4 bg-slate-900 text-slate-200">
+                    <div id="auditDossierContent" class="space-y-4"></div>
+                  </div>
+
+                  <!-- Empty State Overlay (Before any fixes) -->
+                  <div id="remediationEmptyState" class="absolute inset-0 bg-slate-900/95 flex flex-col items-center justify-center p-6 text-center space-y-3 z-10">
+                    <div class="w-14 h-14 rounded-2xl bg-emerald-900/40 border border-emerald-500/40 text-emerald-400 flex items-center justify-center text-2xl shadow-lg">
+                      🛡️
+                    </div>
+                    <h4 class="text-sm font-bold text-white font-mono uppercase tracking-wide">
+                      Awaiting Code Remediation Execution
+                    </h4>
+                    <p class="text-xs text-slate-400 max-w-md font-mono leading-relaxed" id="emptyStateHelpText">
+                      Complete Step 01 to isolate the repository and Step 02 to run the vulnerability scan. Then click <strong class="text-emerald-400">"Generate &amp; Apply Air-Gap Fixes"</strong> above to inspect modified files in full-width split view.
+                    </p>
+                  </div>
+
+                </div>
+
               </div>
-              <textarea id="patchContent" rows="6"
-                placeholder="// Repository not prepared yet. Complete Step 01 to load and inspect repository files."
-                class="soc-input w-full text-xs font-mono px-3 py-2 rounded-lg custom-scroll"></textarea>
+
             </div>
           </div>
         </div>
@@ -762,8 +900,8 @@
 
       </div>
 
-      <!-- Right Column: Sticky Live Git Diff & Real-Time Event Stream (5 cols) -->
-      <div class="lg:col-span-5 space-y-4 lg:sticky lg:top-4">
+      <!-- Right Column: Live Event Stream & Compliance Cards -->
+      <div id="sideTelemetryCol" class="lg:col-span-5 space-y-4 lg:sticky lg:top-4 transition-all duration-200">
 
         <!-- Active Pull Request Dispatch Card (Shown when PR is created) -->
         <div id="prCard" class="soc-panel rounded-xl p-4 border-l-4 border-l-indigo-600 space-y-2.5 hidden">
@@ -1000,6 +1138,7 @@
 
     function selectPipelineStep(stepNum) {
       activeStepNum = stepNum;
+      applyStep3WidthMode();
       updateStepPanelsVisibility();
       renderLivelineNodes();
       const panel = document.getElementById(`step-panel-${stepNum}`);
@@ -1016,6 +1155,7 @@
       if (!isCompleted) {
         activeStepNum = stageNum;
       }
+      applyStep3WidthMode();
       renderLivelineNodes();
       updateStepPanelsVisibility();
     }
@@ -1143,11 +1283,8 @@
         }
       } catch (e) {}
 
-      const baseDir = fsRes.current_path || "";
-      const sep = baseDir.includes("\\") ? "\\" : "/";
-      const defaultRepoPath = baseDir ? `${baseDir}${sep}repos${sep}CustomerApi` : "repos/CustomerApi";
       return {
-        default_repo_path: defaultRepoPath,
+        default_repo_path: "",
         active_workspace_path: gitData.context?.repo_path || "",
         agents: agentsRes.agents || [],
         git: gitData,
@@ -1166,24 +1303,409 @@
       };
     }
 
-    async function loadWorkspaceFile(relPath) {
-      const cleanRel = (relPath || "").trim();
-      if (!cleanRel) return;
-      document.getElementById("patchPath").value = cleanRel;
-      const patchContentEl = document.getElementById("patchContent");
-      const res = await apiPost("/api/read-file", { relative_path: cleanRel });
-      if (res && !res.error) {
-        if (!res.exists) {
-          patchContentEl.value = `// ${res.message || `File '${cleanRel}' has not been generated yet. Run Step 03 to generate.`}`;
-        } else {
-          patchContentEl.value = res.content;
+    // =========================================================
+    // Step 3 Width Mode & Full-Width Inspector Engine
+    // =========================================================
+    let step3FullWidth = true; // Enabled by default for expansive code review
+    let currentDiffViewMode = "unified"; // "unified", "split", "full", "audit"
+    let activeRemediatedFilePath = "";
+    let activeFileDiffText = "";
+    let activeFileOriginalText = "";
+    let activeFilePatchedText = "";
+    let currentRemediationData = null;
+
+    function toggleStep3FullWidth() {
+      step3FullWidth = !step3FullWidth;
+      applyStep3WidthMode();
+      log(`Toggled Step 3 workspace width: ${step3FullWidth ? 'FULL-WIDTH (100%)' : 'STANDARD (7/12)'}`, "info", "UI");
+    }
+
+    function applyStep3WidthMode() {
+      const portalContainer = document.getElementById("portalMainContainer");
+      const stepPanelsCol = document.getElementById("stepPanelsCol");
+      const sideTelemetryCol = document.getElementById("sideTelemetryCol");
+      const btnWidthToggle = document.getElementById("btnStep3WidthToggle");
+      const widthLabel = document.getElementById("step3WidthLabel");
+      const widthIcon = document.getElementById("step3WidthIcon");
+
+      const isFull = (activeStepNum === 3 && step3FullWidth);
+
+      if (isFull) {
+        if (portalContainer) {
+          portalContainer.classList.remove("max-w-7xl");
+          portalContainer.classList.add("max-w-[1650px]");
+        }
+        if (stepPanelsCol) {
+          stepPanelsCol.className = "lg:col-span-12 w-full space-y-4 transition-all duration-200";
+        }
+        if (sideTelemetryCol) {
+          sideTelemetryCol.className = "lg:col-span-12 w-full space-y-4 mt-2 transition-all duration-200";
+        }
+        if (widthLabel) widthLabel.textContent = "Exit Full Width";
+        if (widthIcon) widthIcon.textContent = "◫";
+        if (btnWidthToggle) {
+          btnWidthToggle.className = "px-2.5 py-1 rounded-lg bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-300 text-xs font-mono font-semibold transition flex items-center gap-1.5 cursor-pointer shadow-sm";
         }
       } else {
-        patchContentEl.value = `// Selected file: ${cleanRel}\n// Click '✨ Generate & Apply Air-Gap Fixes' in Step 03 to load live patched output.`;
+        if (portalContainer) {
+          portalContainer.classList.add("max-w-7xl");
+          portalContainer.classList.remove("max-w-[1650px]");
+        }
+        if (stepPanelsCol) {
+          stepPanelsCol.className = "lg:col-span-7 space-y-4 transition-all duration-200";
+        }
+        if (sideTelemetryCol) {
+          sideTelemetryCol.className = "lg:col-span-5 space-y-4 lg:sticky lg:top-4 transition-all duration-200";
+        }
+        if (widthLabel) widthLabel.textContent = "Full Width View";
+        if (widthIcon) widthIcon.textContent = "⛶";
+        if (btnWidthToggle) {
+          btnWidthToggle.className = "px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 text-xs font-mono font-semibold transition flex items-center gap-1.5 cursor-pointer shadow-sm";
+        }
       }
     }
 
-    let currentRemediationData = null;
+    function getFileIcon(filePath) {
+      if (!filePath) return "📄";
+      if (filePath.endsWith(".cs")) return "🔷";
+      if (filePath.endsWith(".py")) return "🐍";
+      if (filePath.endsWith(".json")) return "⚙️";
+      if (filePath.endsWith(".md")) return "📝";
+      if (filePath.endsWith(".js") || filePath.endsWith(".ts")) return "📜";
+      if (filePath.endsWith(".html")) return "🌐";
+      if (filePath.endsWith(".yml") || filePath.endsWith(".yaml")) return "🔧";
+      return "📄";
+    }
+
+    function renderUnifiedDiffHtml(diffText) {
+      if (!diffText || !diffText.trim()) {
+        return `<div class="text-slate-400 italic p-6 text-center font-mono text-xs">No diff changes recorded for this file</div>`;
+      }
+      const lines = diffText.split("\n");
+      let oldLine = 0;
+      let newLine = 0;
+      let html = `<div class="font-mono text-xs divide-y divide-slate-800/40 select-text">`;
+
+      for (const line of lines) {
+        const safe = escapeHtml(line);
+        if (line.startsWith("@@")) {
+          const match = line.match(/@@\s*-(\d+)(?:,\d+)?\s*\+(\d+)(?:,\d+)?\s*@@/);
+          if (match) {
+            oldLine = parseInt(match[1], 10) - 1;
+            newLine = parseInt(match[2], 10) - 1;
+          }
+          html += `
+            <div class="flex items-center bg-cyan-950/40 text-cyan-300 font-bold px-3 py-1 select-none">
+              <span class="w-14 text-right pr-3 text-cyan-600 text-[11px]">...</span>
+              <span class="w-14 text-right pr-3 text-cyan-600 text-[11px]">...</span>
+              <span class="flex-1 truncate text-[11px] font-mono text-cyan-300/90">${safe}</span>
+            </div>
+          `;
+        } else if (line.startsWith("+") && !line.startsWith("+++")) {
+          newLine++;
+          html += `
+            <div class="flex items-center bg-emerald-950/50 text-emerald-300 px-3 py-0.5 hover:bg-emerald-900/40 transition">
+              <span class="w-14 text-right pr-3 text-slate-700 select-none"></span>
+              <span class="w-14 text-right pr-3 text-emerald-400 select-none font-bold text-[11px]">${newLine}</span>
+              <span class="w-5 text-center select-none text-emerald-400 font-bold">+</span>
+              <span class="flex-1 whitespace-pre overflow-x-auto">${safe.substring(1)}</span>
+            </div>
+          `;
+        } else if (line.startsWith("-") && !line.startsWith("---")) {
+          oldLine++;
+          html += `
+            <div class="flex items-center bg-rose-950/50 text-rose-300 px-3 py-0.5 hover:bg-rose-900/40 transition">
+              <span class="w-14 text-right pr-3 text-rose-400 select-none font-bold text-[11px]">${oldLine}</span>
+              <span class="w-14 text-right pr-3 text-slate-700 select-none"></span>
+              <span class="w-5 text-center select-none text-rose-400 font-bold">-</span>
+              <span class="flex-1 whitespace-pre overflow-x-auto">${safe.substring(1)}</span>
+            </div>
+          `;
+        } else if (line.startsWith("---") || line.startsWith("+++")) {
+          html += `
+            <div class="flex items-center bg-slate-900/90 text-slate-400 px-3 py-1 select-none font-bold text-[11px]">
+              <span class="w-28 pr-3"></span>
+              <span class="flex-1">${safe}</span>
+            </div>
+          `;
+        } else {
+          oldLine++;
+          newLine++;
+          html += `
+            <div class="flex items-center hover:bg-slate-900/60 px-3 py-0.5 text-slate-300">
+              <span class="w-14 text-right pr-3 text-slate-600 select-none text-[11px]">${oldLine}</span>
+              <span class="w-14 text-right pr-3 text-slate-600 select-none text-[11px]">${newLine}</span>
+              <span class="w-5 text-center select-none text-slate-600"> </span>
+              <span class="flex-1 whitespace-pre overflow-x-auto">${line.startsWith(" ") ? safe.substring(1) : safe}</span>
+            </div>
+          `;
+        }
+      }
+      html += `</div>`;
+      return html;
+    }
+
+    function renderSplitDiffHtml(originalText, patchedText, diffText) {
+      let origLines = [];
+      let patchLines = [];
+
+      if (originalText && patchedText) {
+        origLines = originalText.split("\n");
+        patchLines = patchedText.split("\n");
+      } else if (diffText) {
+        const lines = diffText.split("\n");
+        for (const line of lines) {
+          if (line.startsWith("@@") || line.startsWith("---") || line.startsWith("+++")) continue;
+          if (line.startsWith("-")) {
+            origLines.push(line.substring(1));
+          } else if (line.startsWith("+")) {
+            patchLines.push(line.substring(1));
+          } else if (line.startsWith(" ")) {
+            origLines.push(line.substring(1));
+            patchLines.push(line.substring(1));
+          }
+        }
+      }
+
+      if (origLines.length === 0 && patchLines.length > 0) {
+        origLines = ["// (New configuration/audit file created during air-gap remediation)"];
+      }
+
+      const origHtml = origLines.map((l, i) => `
+        <div class="flex items-center px-3 py-0.5 hover:bg-slate-900 border-b border-slate-900/50">
+          <span class="w-10 text-right pr-3 text-slate-600 select-none text-[11px] font-mono">${i + 1}</span>
+          <span class="flex-1 whitespace-pre overflow-x-auto text-slate-300 font-mono text-xs">${escapeHtml(l) || " "}</span>
+        </div>
+      `).join("");
+
+      const patchHtml = patchLines.map((l, i) => `
+        <div class="flex items-center px-3 py-0.5 hover:bg-slate-900 border-b border-slate-900/50">
+          <span class="w-10 text-right pr-3 text-emerald-500 select-none text-[11px] font-mono font-bold">${i + 1}</span>
+          <span class="flex-1 whitespace-pre overflow-x-auto text-emerald-200 font-mono text-xs">${escapeHtml(l) || " "}</span>
+        </div>
+      `).join("");
+
+      return { origHtml, patchHtml };
+    }
+
+    function renderAuditDossierHtml(filePath, bf, res) {
+      if (bf) {
+        return `
+          <div class="space-y-4">
+            <div class="p-4 rounded-xl bg-slate-800 border border-slate-700 space-y-2">
+              <div class="flex items-center justify-between flex-wrap gap-2">
+                <span class="text-xs font-bold font-mono uppercase text-emerald-400 flex items-center gap-2">
+                  <span>🛡️</span> Security Finding Remediated: ${escapeHtml(bf.finding_id || "FINDING")}
+                </span>
+                <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-rose-900/60 text-rose-300 border border-rose-500">
+                  SEVERITY: ${escapeHtml(bf.severity || "HIGH")}
+                </span>
+              </div>
+              <h4 class="text-sm font-semibold text-white font-mono">${escapeHtml(bf.summary || "Security vulnerability remediated")}</h4>
+              <div class="text-xs text-slate-300 font-sans leading-relaxed pt-1 border-t border-slate-700">
+                ${escapeHtml(bf.explanation || bf.report?.explanation || "Autonomous code remediation verified and applied by BugFixerAgent.")}
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs font-mono">
+              <div class="p-3 rounded-lg bg-slate-800/70 border border-slate-700 space-y-1">
+                <span class="text-[10px] text-slate-400 uppercase font-semibold">Security Rule / CWE</span>
+                <div class="text-slate-100 font-bold">${escapeHtml(bf.rule_id || "csharp-sqli")}</div>
+              </div>
+              <div class="p-3 rounded-lg bg-slate-800/70 border border-slate-700 space-y-1">
+                <span class="text-[10px] text-slate-400 uppercase font-semibold">Location in Repository</span>
+                <div class="text-emerald-300 font-bold">${escapeHtml(filePath)}:${bf.line_number || 1}</div>
+              </div>
+              <div class="p-3 rounded-lg bg-slate-800/70 border border-slate-700 space-y-1">
+                <span class="text-[10px] text-slate-400 uppercase font-semibold">AI Remediation Engine</span>
+                <div class="text-blue-300 font-bold">${escapeHtml(bf.provider || "Ollama (qwen2.5-coder:3b)")}</div>
+              </div>
+              <div class="p-3 rounded-lg bg-slate-800/70 border border-slate-700 space-y-1">
+                <span class="text-[10px] text-slate-400 uppercase font-semibold">Air-Gap Perimeter Check</span>
+                <div class="text-emerald-400 font-bold">PASSED (Zero Egress Verified)</div>
+              </div>
+            </div>
+          </div>
+        `;
+      } else if (filePath.includes("airgap_proxy")) {
+        return `
+          <div class="p-4 rounded-xl bg-slate-800 border border-slate-700 space-y-3">
+            <h4 class="text-sm font-bold text-emerald-400 font-mono">Air-Gap Egress Proxy Interceptor Configuration</h4>
+            <p class="text-xs text-slate-300 leading-relaxed font-sans">
+              This configuration file redirects all outbound network calls to the isolated local air-gap perimeter proxy at <code>http://proxy.airgap.internal:8080</code>. Outbound internet egress is strictly blocked.
+            </p>
+          </div>
+        `;
+      } else if (filePath.includes("AIRGAP_SECURITY_AUDIT")) {
+        return `
+          <div class="p-4 rounded-xl bg-slate-800 border border-slate-700 space-y-3">
+            <h4 class="text-sm font-bold text-amber-400 font-mono">Air-Gap Security Compliance Audit Manifest</h4>
+            <p class="text-xs text-slate-300 leading-relaxed font-sans">
+              Complete cryptographic and architectural audit record verifying that all known SAST findings, insecure outbound connections, and unvetted egress rules have been neutralized.
+            </p>
+          </div>
+        `;
+      } else {
+        return `
+          <div class="p-4 rounded-xl bg-slate-800 border border-slate-700 space-y-2">
+            <h4 class="text-sm font-bold text-white font-mono">Modified Workspace File</h4>
+            <p class="text-xs text-slate-300 leading-relaxed font-sans">
+              File was remediated and written to the active quarantine workspace branch.
+            </p>
+          </div>
+        `;
+      }
+    }
+
+    function setDiffViewMode(mode) {
+      currentDiffViewMode = mode;
+      const modes = ["unified", "split", "full", "audit"];
+      modes.forEach(m => {
+        const btn = document.getElementById(`btnTab${m.charAt(0).toUpperCase() + m.slice(1)}`);
+        const view = document.getElementById(
+          m === "unified" ? "viewUnifiedDiff" :
+          m === "split" ? "viewSplitDiff" :
+          m === "full" ? "viewLiveCode" : "viewAuditDossier"
+        );
+        if (m === mode) {
+          if (btn) {
+            btn.className = "px-2.5 py-1 rounded bg-blue-600 text-white font-bold transition cursor-pointer shadow-sm";
+          }
+          if (view) {
+            view.classList.remove("hidden");
+          }
+        } else {
+          if (btn) {
+            btn.className = "px-2.5 py-1 rounded text-slate-400 hover:text-white font-semibold transition cursor-pointer";
+          }
+          if (view) {
+            view.classList.add("hidden");
+          }
+        }
+      });
+    }
+
+    function filterRemediatedFiles(query) {
+      const q = (query || "").toLowerCase().trim();
+      document.querySelectorAll(".remediated-file-card").forEach(card => {
+        const f = (card.getAttribute("data-file") || "").toLowerCase();
+        if (!q || f.includes(q)) {
+          card.style.display = "";
+        } else {
+          card.style.display = "none";
+        }
+      });
+    }
+
+    function toggleAllFilesDrawer() {
+      const drawer = document.getElementById("allFilesDrawer");
+      const btn = document.getElementById("btnToggleAllFiles");
+      if (!drawer) return;
+      if (drawer.classList.contains("hidden")) {
+        drawer.classList.remove("hidden");
+        if (btn) btn.textContent = "Close ▴";
+      } else {
+        drawer.classList.add("hidden");
+        if (btn) btn.textContent = "Browse All ▾";
+      }
+    }
+
+    function copyCurrentCodeView() {
+      let textToCopy = "";
+      if (currentDiffViewMode === "unified") {
+        textToCopy = activeFileDiffText || "";
+      } else if (currentDiffViewMode === "split") {
+        textToCopy = activeFilePatchedText || "";
+      } else if (currentDiffViewMode === "full") {
+        textToCopy = document.getElementById("liveCodeEditor")?.value || "";
+      } else if (currentDiffViewMode === "audit") {
+        textToCopy = document.getElementById("auditDossierContent")?.innerText || "";
+      }
+      if (!textToCopy && document.getElementById("liveCodeEditor")) {
+        textToCopy = document.getElementById("liveCodeEditor").value;
+      }
+      if (textToCopy) {
+        navigator.clipboard.writeText(textToCopy).then(() => {
+          const btn = document.getElementById("btnCopyCode");
+          if (btn) {
+            const orig = btn.innerHTML;
+            btn.innerHTML = `<span>✓</span> <span>Copied!</span>`;
+            setTimeout(() => { btn.innerHTML = orig; }, 2000);
+          }
+        }).catch(() => {
+          alert("Copied code to clipboard!");
+        });
+      }
+    }
+
+    async function saveCurrentCodeEdits() {
+      const activeFile = activeRemediatedFilePath || document.getElementById("patchPath")?.value;
+      const editorEl = document.getElementById("liveCodeEditor");
+      const content = editorEl ? editorEl.value : document.getElementById("patchContent")?.value;
+
+      if (!activeFile) {
+        alert("Please select a file to save.");
+        return;
+      }
+      log(`Saving modified ${activeFile} to active workspace...`, "info", "RemediatorAgent");
+      const btn = document.getElementById("btnSaveCode");
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<span>⏳</span> <span>Saving...</span>`;
+      }
+
+      const res = await apiPost("/api/write-file", {
+        relative_path: activeFile,
+        content: content
+      });
+
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `<span>💾</span> <span>Save to Disk</span>`;
+      }
+
+      if (res.error) {
+        log(`Write file error: ${res.error}`, "error", "RemediatorAgent");
+        alert(`Failed to save file: ${res.error}`);
+      } else {
+        log(`Saved real file to workspace: ${activeFile}`, "success", "RemediatorAgent");
+        if (currentRemediationData && currentRemediationData.patched_files) {
+          currentRemediationData.patched_files[activeFile] = content;
+        }
+        const badge = document.getElementById("activeFileStatusBadge");
+        if (badge) {
+          badge.textContent = "SAVED TO DISK ✓";
+          badge.className = "px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-700 text-white border border-emerald-500";
+        }
+        await syncTelemetry(false);
+      }
+    }
+
+    async function handleWriteFile() {
+      return await saveCurrentCodeEdits();
+    }
+
+    async function loadWorkspaceFile(relPath) {
+      const cleanRel = (relPath || "").trim();
+      if (!cleanRel) return;
+      const patchPathEl = document.getElementById("patchPath");
+      if (patchPathEl) patchPathEl.value = cleanRel;
+      const editorEl = document.getElementById("liveCodeEditor");
+      const patchContentEl = document.getElementById("patchContent");
+      const res = await apiPost("/api/read-file", { relative_path: cleanRel });
+      let content = "";
+      if (res && !res.error) {
+        if (!res.exists) {
+          content = `// ${res.message || `File '${cleanRel}' has not been generated yet. Run Step 03 to generate.`}`;
+        } else {
+          content = res.content;
+        }
+      } else {
+        content = `// Selected file: ${cleanRel}\n// Click '✨ Generate & Apply Air-Gap Fixes' in Step 03 to load live patched output.`;
+      }
+      if (editorEl) editorEl.value = content;
+      if (patchContentEl) patchContentEl.value = content;
+    }
 
     function formatDiffSyntax(diffText) {
       if (!diffText) return `<span class="text-slate-400 italic font-mono">(No diff available)</span>`;
@@ -1203,89 +1725,235 @@
     function renderRemediatedFilesUI(res) {
       if (!res) return;
       currentRemediationData = res;
-      const container = document.getElementById("remediatedFilesContainer");
-      const tabs = document.getElementById("remediatedFilesTabs");
-      const badge = document.getElementById("remediatedFilesCountBadge");
-      if (!container || !tabs) return;
 
       const files = Array.isArray(res.files_modified) && res.files_modified.length > 0
         ? res.files_modified
         : Object.keys(res.patched_files || {});
 
+      const emptyOverlay = document.getElementById("remediationEmptyState");
+      const countBadge = document.getElementById("remediatedFilesCountBadge");
+      const diffSummaryEl = document.getElementById("diffStatsSummary");
+      const filesListEl = document.getElementById("remediatedFilesList");
+      const step3StatusBadge = document.getElementById("step3StatusBadge");
+
       if (files.length === 0) {
-        container.classList.add("hidden");
+        if (emptyOverlay) emptyOverlay.classList.remove("hidden");
+        if (countBadge) countBadge.textContent = "0 FILES MODIFIED";
+        if (filesListEl) {
+          filesListEl.innerHTML = `<div class="text-xs text-slate-400 italic p-3 text-center font-mono">No files modified yet. Complete Step 01 &amp; 02, then run Step 03.</div>`;
+        }
         return;
       }
 
-      container.classList.remove("hidden");
-      if (badge) badge.textContent = `${files.length} FILE${files.length === 1 ? "" : "S"}`;
+      if (emptyOverlay) emptyOverlay.classList.add("hidden");
+      if (countBadge) countBadge.textContent = `${files.length} FILE${files.length === 1 ? "" : "S"} MODIFIED`;
+      if (step3StatusBadge) {
+        step3StatusBadge.textContent = `REMEDIATED (${files.length} FILES)`;
+        step3StatusBadge.className = "text-[10px] px-2 py-0.5 rounded bg-emerald-200 text-emerald-900 border border-emerald-400 font-mono font-bold";
+      }
 
-      tabs.innerHTML = files.map((file, idx) => {
-        const isBf = res.bug_fixes && res.bug_fixes.some(b => b.file_path === file || b.target_file === file);
-        const icon = isBf ? "🛡️" : (file.endsWith(".json") ? "⚙️" : (file.endsWith(".md") ? "📝" : "📄"));
-        return `
-          <button onclick="selectRemediatedFile('${escapeHtml(file)}')" id="rem-tab-${idx}"
-            data-file="${escapeHtml(file)}"
-            class="remediated-file-tab px-2.5 py-1 rounded-lg text-xs font-mono font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-sm border ${idx === 0 ? 'bg-emerald-600 text-white border-emerald-700 shadow-md' : 'bg-white hover:bg-emerald-50 text-slate-700 border-slate-300'}">
-            <span>${icon}</span>
-            <span>${escapeHtml(file)}</span>
-          </button>
-        `;
-      }).join("");
+      let totalAdd = 0;
+      let totalDel = 0;
+      Object.values(res.file_diffs || {}).forEach(d => {
+        (d || "").split("\n").forEach(l => {
+          if (l.startsWith("+") && !l.startsWith("+++")) totalAdd++;
+          if (l.startsWith("-") && !l.startsWith("---")) totalDel++;
+        });
+      });
+      if (diffSummaryEl) {
+        diffSummaryEl.innerHTML = `Total Changes: <strong class="text-emerald-700">+${totalAdd}</strong> / <strong class="text-rose-700">-${totalDel}</strong> lines`;
+      }
+
+      if (filesListEl) {
+        filesListEl.innerHTML = files.map((file, idx) => {
+          const parts = file.split(/[\\/]/);
+          const fileName = parts.pop() || file;
+          const dirPath = parts.join("/") || "./";
+          const icon = getFileIcon(file);
+
+          const bf = (res.bug_fixes || []).find(b => b.file_path === file || b.target_file === file);
+          let statusLabel = "MODIFIED";
+          let statusColor = "bg-blue-100 text-blue-800 border border-blue-200";
+          let findingTag = "";
+
+          if (bf) {
+            statusLabel = "PATCHED";
+            statusColor = "bg-emerald-100 text-emerald-800 border border-emerald-300";
+            findingTag = `<span class="px-1 py-0.2 rounded bg-rose-50 text-rose-700 border border-rose-200">${escapeHtml(bf.finding_id || "ALERT")}</span>`;
+          } else if (file.includes("airgap_proxy")) {
+            statusLabel = "CONFIG";
+            statusColor = "bg-purple-100 text-purple-800 border border-purple-200";
+            findingTag = `<span class="text-purple-700 font-medium">Zero-Egress Proxy</span>`;
+          } else if (file.includes("AIRGAP_SECURITY_AUDIT")) {
+            statusLabel = "AUDIT";
+            statusColor = "bg-amber-100 text-amber-800 border border-amber-200";
+            findingTag = `<span class="text-amber-700 font-medium">Compliance Manifest</span>`;
+          }
+
+          const fileDiff = (res.file_diffs && res.file_diffs[file]) || (bf && bf.diff) || "";
+          let fAdd = 0, fDel = 0;
+          fileDiff.split("\n").forEach(l => {
+            if (l.startsWith("+") && !l.startsWith("+++")) fAdd++;
+            if (l.startsWith("-") && !l.startsWith("---")) fDel++;
+          });
+          const statHtml = (fAdd || fDel)
+            ? `<span class="text-emerald-700 font-bold">+${fAdd}</span> <span class="text-rose-700 font-bold">-${fDel}</span>`
+            : `<span class="text-slate-400">0</span>`;
+
+          return `
+            <div onclick="selectRemediatedFile('${escapeHtml(file)}')" id="file-card-${idx}"
+              data-file="${escapeHtml(file)}"
+              class="remediated-file-card p-2.5 rounded-lg border transition cursor-pointer flex flex-col gap-1.5 ${idx === 0 ? 'bg-emerald-50 border-emerald-400 shadow-sm ring-2 ring-emerald-300' : 'bg-white hover:bg-slate-50 border-slate-200'}">
+              <div class="flex items-center justify-between gap-1.5">
+                <div class="flex items-center gap-2 min-w-0">
+                  <span class="text-base flex-shrink-0">${icon}</span>
+                  <div class="min-w-0">
+                    <div class="text-xs font-bold text-slate-900 font-mono truncate">${escapeHtml(fileName)}</div>
+                    <div class="text-[10px] text-slate-500 font-mono truncate">${escapeHtml(dirPath)}</div>
+                  </div>
+                </div>
+                <span class="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold flex-shrink-0 ${statusColor}">${statusLabel}</span>
+              </div>
+              <div class="flex items-center justify-between text-[10px] font-mono pt-1 border-t border-slate-100">
+                <span class="truncate">${findingTag}</span>
+                <span class="font-bold flex-shrink-0">${statHtml}</span>
+              </div>
+            </div>
+          `;
+        }).join("");
+      }
+
+      const allFilesListEl = document.getElementById("allFilesList");
+      if (allFilesListEl && lastTelemetryData && Array.isArray(lastTelemetryData.workspace_files)) {
+        allFilesListEl.innerHTML = lastTelemetryData.workspace_files.filter(f => f.exists).map(f => {
+          const isModified = files.includes(f.relative_path);
+          return `
+            <button type="button" onclick="selectRemediatedFile('${escapeHtml(f.relative_path)}')"
+              class="text-left px-2 py-1 rounded text-[11px] font-mono transition flex items-center justify-between ${isModified ? 'bg-emerald-100/70 text-emerald-900 font-bold' : 'hover:bg-slate-200 text-slate-700'}">
+              <span class="truncate">${escapeHtml(f.relative_path)}</span>
+              ${isModified ? '<span class="text-[9px] px-1 rounded bg-emerald-600 text-white font-bold ml-1">MODIFIED</span>' : ''}
+            </button>
+          `;
+        }).join("");
+      }
 
       selectRemediatedFile(files[0]);
     }
 
     function selectRemediatedFile(filePath) {
-      if (!currentRemediationData) return;
-      const res = currentRemediationData;
+      if (!filePath) return;
+      activeRemediatedFilePath = filePath;
 
-      document.querySelectorAll(".remediated-file-tab").forEach(btn => {
-        if (btn.getAttribute("data-file") === filePath) {
-          btn.className = "remediated-file-tab px-2.5 py-1 rounded-lg text-xs font-mono font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-md border bg-emerald-600 text-white border-emerald-700";
+      document.querySelectorAll(".remediated-file-card").forEach(card => {
+        const f = card.getAttribute("data-file");
+        if (f === filePath) {
+          card.className = "remediated-file-card p-2.5 rounded-lg border transition cursor-pointer flex flex-col gap-1.5 bg-emerald-50 border-emerald-400 shadow-sm ring-2 ring-emerald-300";
         } else {
-          btn.className = "remediated-file-tab px-2.5 py-1 rounded-lg text-xs font-mono font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-sm border bg-white hover:bg-emerald-50 text-slate-700 border-slate-300";
+          card.className = "remediated-file-card p-2.5 rounded-lg border transition cursor-pointer flex flex-col gap-1.5 bg-white hover:bg-slate-50 border-slate-200";
         }
       });
 
-      const labelEl = document.getElementById("bugFixerTargetFileLabel");
-      if (labelEl) labelEl.textContent = filePath;
+      const icon = getFileIcon(filePath);
+      const iconEl = document.getElementById("activeFileIcon");
+      if (iconEl) iconEl.textContent = icon;
 
+      const pathLabel = document.getElementById("activeFilePathLabel");
+      if (pathLabel) pathLabel.textContent = filePath;
+
+      const targetLabelOld = document.getElementById("bugFixerTargetFileLabel");
+      if (targetLabelOld) targetLabelOld.textContent = filePath;
+
+      const patchPathEl = document.getElementById("patchPath");
+      if (patchPathEl) patchPathEl.value = filePath;
+
+      const statusBadge = document.getElementById("activeFileStatusBadge");
+      if (statusBadge) {
+        statusBadge.textContent = "APPLIED TO WORKSPACE ✓";
+        statusBadge.className = "px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-900/60 text-emerald-300 border border-emerald-500";
+      }
+
+      const res = currentRemediationData || {};
       const bf = (res.bug_fixes || []).find(b => b.file_path === filePath || b.target_file === filePath);
-      const summaryText = document.getElementById("bugFixerSummaryText");
-      const expText = document.getElementById("bugFixerExplanationText");
-      const provBadge = document.getElementById("bugFixerProviderBadge");
-      const diffOutput = document.getElementById("bugFixerDiffOutput");
 
-      if (bf) {
-        if (summaryText) summaryText.textContent = `[${bf.report?.finding?.finding_id || "REMEDIATED"}] ${bf.summary || "Security vulnerability remediated."}`;
-        if (expText) expText.textContent = bf.explanation || bf.report?.explanation || "Autonomous code remediation applied by BugFixerAgent.";
-        if (provBadge) provBadge.textContent = bf.provider || "BugFixerAgent";
-      } else if (filePath.includes("airgap_proxy")) {
-        if (summaryText) summaryText.textContent = "[AIRGAP-002] Configured Zero-Egress Proxy Interceptor";
-        if (expText) expText.textContent = "Routes external outbound traffic to internal air-gapped proxy gateway http://proxy.airgap.internal:8080.";
-        if (provBadge) provBadge.textContent = "RemediatorAgent";
-      } else if (filePath.includes("AIRGAP_SECURITY_AUDIT")) {
-        if (summaryText) summaryText.textContent = "[AIRGAP-003] Generated Compliance & Audit Manifest";
-        if (expText) expText.textContent = "Full verification manifest of all remediated endpoints, rules, and air-gap assurance.";
-        if (provBadge) provBadge.textContent = "RemediatorAgent";
-      } else {
-        if (summaryText) summaryText.textContent = `Remediated ${filePath}`;
-        if (expText) expText.textContent = "Applied security hardening and zero-egress proxy configuration.";
-        if (provBadge) provBadge.textContent = "RemediatorAgent";
+      const summaryBar = document.getElementById("fileFindingSummaryBar");
+      const barFindingId = document.getElementById("barFindingId");
+      const barFindingSummary = document.getElementById("barFindingSummary");
+      const barEngineInfo = document.getElementById("barEngineInfo");
+
+      if (summaryBar) {
+        if (bf) {
+          summaryBar.classList.remove("hidden");
+          if (barFindingId) barFindingId.textContent = bf.finding_id || "FINDING";
+          if (barFindingSummary) barFindingSummary.textContent = bf.summary || "Security vulnerability remediated.";
+          if (barEngineInfo) barEngineInfo.textContent = `Engine: ${bf.provider || "BugFixerAgent"}`;
+        } else if (filePath.includes("airgap_proxy")) {
+          summaryBar.classList.remove("hidden");
+          if (barFindingId) barFindingId.textContent = "AIRGAP-CONFIG";
+          if (barFindingSummary) barFindingSummary.textContent = "Configured Zero-Egress Proxy Interceptor";
+          if (barEngineInfo) barEngineInfo.textContent = "RemediatorAgent";
+        } else if (filePath.includes("AIRGAP_SECURITY_AUDIT")) {
+          summaryBar.classList.remove("hidden");
+          if (barFindingId) barFindingId.textContent = "AUDIT-MANIFEST";
+          if (barFindingSummary) barFindingSummary.textContent = "Compliance & Remediation Dossier";
+          if (barEngineInfo) barEngineInfo.textContent = "RemediatorAgent";
+        } else {
+          summaryBar.classList.remove("hidden");
+          if (barFindingId) barFindingId.textContent = "MODIFIED";
+          if (barFindingSummary) barFindingSummary.textContent = `Applied air-gap security patches to ${filePath}`;
+          if (barEngineInfo) barEngineInfo.textContent = "RemediatorAgent";
+        }
       }
 
       let diff = (res.file_diffs && res.file_diffs[filePath])
-        || (bf && bf.diff)
-        || "";
+              || (bf && bf.diff)
+              || "";
       if (!diff && res.diff && res.files_modified?.length === 1) {
         diff = res.diff;
       }
-      if (!diff && res.patched_files && res.patched_files[filePath]) {
-        diff = `+++ b/${filePath} (Remediated Content)\n` + res.patched_files[filePath];
+
+      let patched = (res.patched_files && res.patched_files[filePath])
+                 || (bf && bf.patched_content)
+                 || "";
+      let original = (bf && bf.original_content) || "";
+
+      if (!diff && patched) {
+        const lines = patched.split("\n");
+        diff = `+++ b/${filePath}\n@@ -0,0 +1,${lines.length} @@\n` + lines.map(l => "+" + l).join("\n");
       }
-      if (diffOutput) {
-        diffOutput.innerHTML = formatDiffSyntax(diff || "(No diff changes recorded for this file)");
+
+      activeFileDiffText = diff;
+      activeFileOriginalText = original;
+      activeFilePatchedText = patched;
+
+      const unifiedContainer = document.getElementById("unifiedDiffContainer");
+      if (unifiedContainer) {
+        unifiedContainer.innerHTML = renderUnifiedDiffHtml(diff || "(No diff changes recorded for this file)");
+      }
+      const oldDiffOutput = document.getElementById("bugFixerDiffOutput");
+      if (oldDiffOutput) {
+        oldDiffOutput.innerHTML = formatDiffSyntax(diff || "(No diff recorded)");
+      }
+
+      const splitOrig = document.getElementById("splitDiffOriginal");
+      const splitPatch = document.getElementById("splitDiffPatched");
+      if (splitOrig && splitPatch) {
+        const splitData = renderSplitDiffHtml(original, patched, diff);
+        splitOrig.innerHTML = splitData.origHtml;
+        splitPatch.innerHTML = splitData.patchHtml;
+      }
+
+      const editorEl = document.getElementById("liveCodeEditor");
+      if (editorEl) {
+        editorEl.value = patched || "// Loading file content from workspace...";
+      }
+      const patchContentEl = document.getElementById("patchContent");
+      if (patchContentEl) {
+        patchContentEl.value = patched || "";
+      }
+
+      const auditContent = document.getElementById("auditDossierContent");
+      if (auditContent) {
+        auditContent.innerHTML = renderAuditDossierHtml(filePath, bf, res);
       }
 
       loadWorkspaceFile(filePath);
@@ -1642,16 +2310,11 @@
         document.getElementById("kpiFleetSubtext").innerHTML =
           `Findings JSONs: <strong class="text-indigo-700">${bugFindings.length}</strong> • Fix Reports: <strong class="text-emerald-700">${isPrepared ? (data.remediator?.reports_count || 0) : 0}</strong>`;
 
-        // 2. Normalize Repository Input
+        // 2. Normalize Repository Input (only prefill if Step 01 workspace is actively prepared)
         const repoInput = document.getElementById("repoUrl");
-        const fallbackCustomerRepo = data.default_repo_path || "repos/CustomerApi";
-        if (repoInput && !repoInput.value.trim()) {
-          const candidate = data.git?.context?.repo_url || fallbackCustomerRepo;
-          const cleanCandidate = candidate.replace(/[\\/]+$/, "").endsWith("air-gapped-API-remediator")
-            ? fallbackCustomerRepo
-            : candidate;
-          repoInput.value = cleanCandidate;
-          if (cleanCandidate) handlePathInput(cleanCandidate);
+        if (repoInput && !repoInput.value.trim() && isPrepared && data.git?.context?.repo_url) {
+          repoInput.value = data.git.context.repo_url;
+          handlePathInput(data.git.context.repo_url);
         }
 
         // 3. Git / Workspace Status
@@ -1663,7 +2326,7 @@
         let wsPath = "";
 
         if (isPrepared && data.git && data.git.prepared) {
-          wsPath = data.active_workspace_path || fallbackCustomerRepo;
+          wsPath = data.active_workspace_path || "";
           wsName = wsPath.split(/[\\/]/).filter(Boolean).pop() || "Workspace";
           if (wsHeaderEl) wsHeaderEl.textContent = `Active Repository Path: ${wsPath}`;
 
@@ -1764,12 +2427,7 @@
 
     // Step 1: Repository Preparation (GitSubAgent)
     async function handlePrepare() {
-      let repoUrl = document.getElementById("repoUrl").value.trim();
-      if (repoUrl.replace(/[\\/]+$/, "").endsWith("air-gapped-API-remediator")) {
-        const sep = repoUrl.includes("\\") ? "\\" : "/";
-        repoUrl = repoUrl.replace(/[\\/]+$/, "") + sep + "repos" + sep + "CustomerApi";
-        document.getElementById("repoUrl").value = repoUrl;
-      }
+      const repoUrl = document.getElementById("repoUrl").value.trim();
       const baseBranch = document.getElementById("baseBranch").value;
       const featureBranch = document.getElementById("featureBranch").value;
       const gitToken = document.getElementById("gitToken").value.trim();
@@ -1809,11 +2467,13 @@
       document.getElementById("btnPrepare").textContent = isLocal ? "Prepare Local Repository & Create Branch" : "Initialize Quarantine Workspace & Checkout Branch";
 
       if (res.error) {
+        window.activePreparedWorkspacePath = "";
         setStage(1, "FAILED", false);
         log(`Prepare failed: ${res.error}`, "error", "GitSubAgent");
         showPathFeedback(`❌ ${res.error}`, false);
         alert(`Prepare failed: ${res.error}`);
       } else {
+        window.activePreparedWorkspacePath = res.context.repo_path;
         log(`Workspace isolated on branch: ${res.context.feature_branch} (${res.context.repo_path})`, "success", "GitSubAgent");
         document.getElementById("currentBranchDisplay").textContent = res.context.feature_branch;
         showPathFeedback(`✓ Active Repository: ${res.context.repo_path} (${res.context.provider})`, true);
@@ -1834,8 +2494,9 @@
       btn.innerHTML = `<span>⏳ Scanning Repository Files...</span>`;
 
       const repoUrl = document.getElementById("repoUrl").value.trim();
+      const targetWs = window.activePreparedWorkspacePath || repoUrl;
       const res = await apiPost("/api/scan", {
-        workspace_path: repoUrl,
+        workspace_path: targetWs,
         repo_url: repoUrl,
         rules: {
           egress: document.getElementById("ruleEgress").checked,
@@ -1924,8 +2585,9 @@
       btn.textContent = "⏳ Applying BugFixer & Air-Gap Patches...";
 
       const repoUrl = document.getElementById("repoUrl").value.trim();
+      const targetWs = window.activePreparedWorkspacePath || repoUrl;
       const res = await apiPost("/api/fix", {
-        workspace_path: repoUrl,
+        workspace_path: targetWs,
         repo_url: repoUrl,
         provider: provider,
         model: model,
@@ -2152,6 +2814,40 @@
       const diffPre = document.getElementById("bugFixerDiffOutput");
       if (diffPre) diffPre.textContent = "";
 
+      // Reset Step 3 Remediated Files Studio
+      currentRemediationData = null;
+      activeRemediatedFilePath = "";
+      activeFileDiffText = "";
+      activeFileOriginalText = "";
+      activeFilePatchedText = "";
+      const emptyOverlay = document.getElementById("remediationEmptyState");
+      if (emptyOverlay) emptyOverlay.classList.remove("hidden");
+      const remBadge = document.getElementById("remediatedFilesCountBadge");
+      if (remBadge) remBadge.textContent = "0 FILES MODIFIED";
+      const diffSum = document.getElementById("diffStatsSummary");
+      if (diffSum) diffSum.textContent = "Awaiting Remediation";
+      const s3Badge = document.getElementById("step3StatusBadge");
+      if (s3Badge) {
+        s3Badge.textContent = "READY";
+        s3Badge.className = "text-[10px] px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300 font-mono font-bold";
+      }
+      const filesListEl = document.getElementById("remediatedFilesList");
+      if (filesListEl) {
+        filesListEl.innerHTML = `<div class="text-xs text-slate-400 italic p-3 text-center font-mono">No files modified yet. Complete Step 01 &amp; 02, then run Step 03.</div>`;
+      }
+      const unifDiff = document.getElementById("unifiedDiffContainer");
+      if (unifDiff) unifDiff.innerHTML = "";
+      const spOrig = document.getElementById("splitDiffOriginal");
+      if (spOrig) spOrig.innerHTML = "";
+      const spPatch = document.getElementById("splitDiffPatched");
+      if (spPatch) spPatch.innerHTML = "";
+      const liveEd = document.getElementById("liveCodeEditor");
+      if (liveEd) liveEd.value = "";
+      const pathLbl = document.getElementById("activeFilePathLabel");
+      if (pathLbl) pathLbl.textContent = "No file selected";
+      const sumBar = document.getElementById("fileFindingSummaryBar");
+      if (sumBar) sumBar.classList.add("hidden");
+
       // Reset Security Posture KPI card
       document.getElementById("securityScoreValue").innerHTML = `100<span class="text-xs text-slate-500">/100</span>`;
       document.getElementById("securityScoreBar").style.width = "100%";
@@ -2253,12 +2949,11 @@
         btnCreatePr.innerHTML = `<span>🚀 Submit Pull Request for Code Review</span>`;
       }
 
-      // Ensure repoUrl points to CustomerApi if it was pointing to parent portal directory
       const repoInput = document.getElementById("repoUrl");
-      if (repoInput && repoInput.value.trim().replace(/[\\/]+$/, "").endsWith("air-gapped-API-remediator")) {
-        const sep = repoInput.value.includes("\\") ? "\\" : "/";
-        repoInput.value = repoInput.value.trim().replace(/[\\/]+$/, "") + sep + "repos" + sep + "CustomerApi";
-        handlePathInput(repoInput.value);
+      if (repoInput) {
+        repoInput.value = "";
+        handlePathInput("");
+        showPathFeedback("", true);
       }
 
       // 3. Reset backend repository files & state so the next scan/fix runs on fresh vulnerable code

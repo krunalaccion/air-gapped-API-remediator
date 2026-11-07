@@ -66,7 +66,7 @@ _ensure_default_local_repo_ready(reset_files=False)
 # Register core agents
 AgentRegistry.register(
     "git",
-    GitSubAgent(GitAgentConfig(repo_url=str(DEFAULT_LOCAL_REPO), provider=ProviderType.LOCAL)),
+    GitSubAgent(GitAgentConfig(repo_url="", provider=ProviderType.GENERIC)),
 )
 AgentRegistry.register("scanner", SCANNER_AGENT)
 AgentRegistry.register("remediator", REMEDIATOR_AGENT)
@@ -130,7 +130,7 @@ def _build_telemetry_payload() -> Dict[str, Any]:
                 })
 
     return {
-        "default_repo_path": str(DEFAULT_LOCAL_REPO),
+        "default_repo_path": "",
         "active_workspace_path": str(ws_dir) if (git_prepared and ws_dir) else "",
         "agents": agents_list,
         "agents_total": len(agents_list),
@@ -336,17 +336,10 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                 if config.is_local or config.provider == ProviderType.LOCAL:
                     clean_path = Path(config.sanitized_repo_url).resolve()
                     if clean_path == APP_ROOT_DIR:
-                        logger.info("Redirecting target repo from portal root (%s) to sample repo (%s)", APP_ROOT_DIR, DEFAULT_LOCAL_REPO)
-                        _ensure_default_local_repo_ready(reset_files=False)
-                        clean_path = DEFAULT_LOCAL_REPO
-                        config = GitAgentConfig(
-                            repo_url=str(DEFAULT_LOCAL_REPO),
-                            provider=ProviderType.LOCAL,
-                            base_branch=payload.get("base_branch") or "master",
-                            feature_branch_name=payload.get("feature_branch"),
-                            author_name=payload.get("author_name", "Git SubAgent"),
-                            author_email=payload.get("author_email", "git-agent@subagent.local"),
-                        )
+                        self._send_json({
+                            "error": "Cannot use the agent root directory as target repository. Please select or clone your project repository."
+                        }, status=400)
+                        return
                     elif clean_path == DEFAULT_LOCAL_REPO:
                         _ensure_default_local_repo_ready(reset_files=False)
 
@@ -405,28 +398,10 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                 try:
                     ctx = ACTIVE_GIT_AGENT.prepare_workspace()
                 except Exception as clone_exc:
-                    if config.is_local or config.provider == ProviderType.LOCAL:
-                        logger.error("Failed to prepare local repository (%s): %s", config.repo_url, clone_exc)
-                        ACTIVE_GIT_AGENT = None
-                        self._send_json({"error": f"Failed to prepare local repository: {clone_exc}"}, status=400)
-                        return
-                    # Offline / air-gapped fallback to local CustomerApi Git repository ONLY when remote clone is unreachable
-                    _ensure_default_local_repo_ready(reset_files=False)
-                    if DEFAULT_LOCAL_REPO.exists() and (DEFAULT_LOCAL_REPO / ".git").exists():
-                        logger.info("Fallback to local CustomerApi repository (%s): %s", DEFAULT_LOCAL_REPO, clone_exc)
-                        fallback_cfg = GitAgentConfig(
-                            repo_url=str(DEFAULT_LOCAL_REPO),
-                            provider=ProviderType.LOCAL,
-                            base_branch="master",
-                            feature_branch_name=payload.get("feature_branch"),
-                            author_name=payload.get("author_name", "Git SubAgent"),
-                            author_email=payload.get("author_email", "git-agent@subagent.local"),
-                        )
-                        ACTIVE_GIT_AGENT = GitSubAgent(fallback_cfg)
-                        AgentRegistry.register("git", ACTIVE_GIT_AGENT)
-                        ctx = ACTIVE_GIT_AGENT.prepare_workspace()
-                    else:
-                        raise
+                    logger.error("Failed to prepare repository (%s): %s", config.sanitized_repo_url, clone_exc)
+                    ACTIVE_GIT_AGENT = None
+                    self._send_json({"error": f"Failed to prepare repository: {clone_exc}"}, status=400)
+                    return
 
                 self._send_json({
                     "message": "Repository prepared successfully",
@@ -437,14 +412,21 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
 
             # 2. Scan Code (ScannerAgent)
             elif path == "/api/scan":
+                prepared_ws = _resolve_active_workspace()
                 explicit_ws = (payload.get("workspace_path") or payload.get("repo_url") or "").strip()
                 ws_path = None
+
                 if explicit_ws:
                     candidate_p = Path(explicit_ws).resolve()
                     if candidate_p.exists() and candidate_p != APP_ROOT_DIR:
                         ws_path = candidate_p
+
+                # If no valid explicit directory was found or it was a remote URL, prioritize Step 01 prepared workspace
                 if not ws_path:
-                    ws_path = _resolve_active_workspace()
+                    ws_path = prepared_ws
+                elif prepared_ws and ws_path == DEFAULT_LOCAL_REPO and prepared_ws != DEFAULT_LOCAL_REPO:
+                    # Do not let fallback CustomerApi default override user's active workspace
+                    ws_path = prepared_ws
 
                 if not ws_path:
                     self._send_json({"error": "Repository not prepared yet. Complete Step 01 to initialize workspace."}, status=400)
@@ -473,14 +455,19 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
 
             # 3. Fix Code (RemediatorAgent + BugFixerAgent on scanner_agent/findings/*.json)
             elif path == "/api/fix":
+                prepared_ws = _resolve_active_workspace()
                 explicit_ws = (payload.get("workspace_path") or payload.get("repo_url") or "").strip()
                 ws_path = None
+
                 if explicit_ws:
                     candidate_p = Path(explicit_ws).resolve()
                     if candidate_p.exists() and candidate_p != APP_ROOT_DIR:
                         ws_path = candidate_p
+
                 if not ws_path:
-                    ws_path = _resolve_active_workspace()
+                    ws_path = prepared_ws
+                elif prepared_ws and ws_path == DEFAULT_LOCAL_REPO and prepared_ws != DEFAULT_LOCAL_REPO:
+                    ws_path = prepared_ws
 
                 if not ws_path:
                     self._send_json({"error": "Repository not prepared yet. Complete Step 01 to initialize workspace."}, status=400)
@@ -810,8 +797,6 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
 
                 home = Path.home().resolve()
                 quick_access = [
-                    {"label": "🎯 CustomerApi Repo", "path": str(DEFAULT_LOCAL_REPO)},
-                    {"label": "📁 repos/", "path": str((APP_ROOT_DIR / "repos").resolve())},
                     {"label": "🏠 Home", "path": str(home)},
                 ]
                 for rel in ["Projects", "Documents", "Desktop", "Downloads"]:
