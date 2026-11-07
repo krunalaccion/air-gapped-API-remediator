@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -154,11 +155,47 @@ class BugFixerAgent:
         if not fixed_content or not fixed_content.strip():
             raise ValueError("LLM returned empty file content.")
 
+        snippet_core = (finding.code_snippet or "").strip().rstrip(";")
+        is_comment = (
+            snippet_core.startswith("//")
+            or snippet_core.startswith("/*")
+            or snippet_core.startswith("*")
+            or snippet_core.startswith("#")
+        )
+        is_missing_heuristic = (
+            "not found" in snippet_core.lower()
+            or "missing" in snippet_core.lower()
+            or "hsts" in finding.rule_id.lower()
+        )
+
+        clean_snip = re.sub(r'[\s\'\",;]+', '', snippet_core).lower()
+        clean_orig = re.sub(r'[\s\'\",;]+', '', original_content).lower()
+
+        # Specifically check if vulnerable snippet is present
+        if "allowedhosts" in clean_snip:
+            is_vuln_in_fixed = bool(re.search(r'\"AllowedHosts\"\s*:\s*\"\*\"', fixed_content))
+            is_vuln_in_orig = bool(re.search(r'\"AllowedHosts\"\s*:\s*\"\*\"', original_content))
+        else:
+            is_vuln_in_fixed = snippet_core in fixed_content or (
+                len(clean_snip) > 6 and clean_snip in re.sub(r'[\s\'\",;]+', '', fixed_content).lower()
+            )
+            is_vuln_in_orig = snippet_core in original_content or (
+                len(clean_snip) > 6 and clean_snip in clean_orig
+            )
+
         if fixed_content.strip() == original_content.strip():
+            # If the vulnerable snippet was already absent from original_content (or is a comment/already patched),
+            # accept the file as already compliant.
+            if not is_missing_heuristic and (is_comment or not is_vuln_in_orig):
+                return
             raise ValueError("LLM returned unchanged file content; vulnerability was not fixed.")
 
-        snippet_core = finding.code_snippet.strip().rstrip(";")
-        if snippet_core in fixed_content:
+        if (
+            not is_missing_heuristic
+            and not is_comment
+            and is_vuln_in_fixed
+        ):
+            # If the exact vulnerable snippet still remains in fixed content
             raise ValueError(
                 f"Validation failed: vulnerable snippet `{snippet_core}` is still present in the fixed code."
             )

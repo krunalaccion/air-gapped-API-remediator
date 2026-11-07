@@ -668,8 +668,8 @@
               <!-- LEFT: Modified Files Navigator (4 cols / ~320px) -->
               <div class="lg:col-span-4 border-r border-slate-200 bg-slate-50/70 p-3 flex flex-col space-y-3">
                 <div class="flex items-center justify-between">
-                  <span class="text-[11px] font-mono font-bold text-slate-700 uppercase">Files Changed</span>
-                  <span class="text-[10px] text-slate-500 font-mono">Click file to inspect</span>
+                  <span class="text-[11px] font-mono font-bold text-slate-700 uppercase" id="step3FilesNavTitle">Files Changed</span>
+                  <span class="text-[10px] text-slate-500 font-mono" id="step3FilesNavSubtext">Click file to inspect</span>
                 </div>
 
                 <!-- Filter search input -->
@@ -1722,9 +1722,189 @@
       }).join("\n");
     }
 
+    let currentAwaitingFindings = [];
+
+    function populateStep3AwaitingFindings(findings) {
+      if (!Array.isArray(findings) || findings.length === 0) return;
+      currentAwaitingFindings = findings;
+
+      // If Step 3 has already completed remediation, do not overwrite the completed remediation studio
+      if (stepStates[3].completed || (currentRemediationData && currentRemediationData.files_modified?.length > 0)) {
+        return;
+      }
+
+      const emptyOverlay = document.getElementById("remediationEmptyState");
+      const countBadge = document.getElementById("remediatedFilesCountBadge");
+      const diffSummaryEl = document.getElementById("diffStatsSummary");
+      const filesListEl = document.getElementById("remediatedFilesList");
+      const step3StatusBadge = document.getElementById("step3StatusBadge");
+      const navTitle = document.getElementById("step3FilesNavTitle");
+      const navSub = document.getElementById("step3FilesNavSubtext");
+
+      if (emptyOverlay) emptyOverlay.classList.add("hidden");
+      if (navTitle) navTitle.textContent = "Queued Targets";
+      if (navSub) navSub.textContent = `${findings.length} findings awaiting fix`;
+
+      if (countBadge) {
+        countBadge.textContent = `${findings.length} FINDING${findings.length === 1 ? "" : "S"} AWAITING FIX`;
+        countBadge.className = "text-[10px] px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 font-mono font-bold";
+      }
+
+      if (step3StatusBadge) {
+        step3StatusBadge.textContent = `${findings.length} FINDINGS QUEUED`;
+        step3StatusBadge.className = "text-[10px] px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 font-mono font-bold animate-pulse";
+      }
+
+      if (diffSummaryEl) {
+        diffSummaryEl.innerHTML = `<strong>${findings.length} Vulnerabilities Detected</strong> • Click '✨ Generate &amp; Apply Air-Gap Fixes' to remediate`;
+      }
+
+      if (filesListEl) {
+        filesListEl.innerHTML = findings.map((f, idx) => {
+          const filePath = f.file || f.file_path || "source.cs";
+          const parts = filePath.split(/[\\/]/);
+          const fileName = parts.pop() || filePath;
+          const dirPath = parts.join("/") || "./";
+          const icon = getFileIcon(filePath);
+          const fid = f.id || f.finding_id || `FINDING-${idx + 1}`;
+          const sev = (f.severity || "MEDIUM").toUpperCase();
+          const line = f.line || f.line_number || f.line_start || 1;
+          const rule = f.rule_id || f.rule || "Security Policy";
+
+          const sevBadge = (sev === "CRITICAL" || sev === "HIGH")
+            ? "bg-rose-100 text-rose-700 border-rose-300"
+            : (sev === "MEDIUM" ? "bg-amber-100 text-amber-800 border-amber-300" : "bg-blue-100 text-blue-700 border-blue-300");
+
+          return `
+            <div onclick="selectAwaitingFinding(${idx})" id="awaiting-finding-card-${idx}"
+              data-file="${escapeHtml(filePath)}"
+              class="remediated-file-card awaiting-finding-card p-2.5 rounded-lg border transition cursor-pointer flex flex-col gap-1.5 ${idx === 0 ? 'bg-amber-50 border-amber-400 shadow-sm ring-2 ring-amber-300' : 'bg-white hover:bg-slate-50 border-slate-200'}">
+              <div class="flex items-center justify-between gap-1.5">
+                <div class="flex items-center gap-2 min-w-0">
+                  <span class="text-base flex-shrink-0">${icon}</span>
+                  <div class="min-w-0">
+                    <div class="text-xs font-bold text-slate-900 font-mono truncate">${escapeHtml(fileName)}</div>
+                    <div class="text-[10px] text-slate-500 font-mono truncate">${escapeHtml(dirPath)}:${line}</div>
+                  </div>
+                </div>
+                <span class="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold flex-shrink-0 bg-amber-100 text-amber-800 border border-amber-300">AWAITING FIX</span>
+              </div>
+              <div class="flex items-center justify-between text-[10px] font-mono pt-1 border-t border-slate-100">
+                <span class="truncate px-1.5 py-0.5 rounded border text-[9px] font-bold ${sevBadge}">${escapeHtml(fid)}</span>
+                <span class="text-slate-500 truncate ml-1 text-[9px]">${escapeHtml(rule)}</span>
+              </div>
+            </div>
+          `;
+        }).join("");
+      }
+
+      selectAwaitingFinding(0);
+    }
+
+    function selectAwaitingFinding(index) {
+      if (!Array.isArray(currentAwaitingFindings) || !currentAwaitingFindings[index]) return;
+      const f = currentAwaitingFindings[index];
+      const filePath = f.file || f.file_path || "source.cs";
+      const line = f.line || f.line_number || f.line_start || 1;
+      const fid = f.id || f.finding_id || "FINDING";
+      const sev = (f.severity || "MEDIUM").toUpperCase();
+      const rule = f.rule_id || f.rule || "Security Policy";
+
+      activeRemediatedFilePath = filePath;
+
+      document.querySelectorAll(".awaiting-finding-card").forEach((card, idx) => {
+        if (idx === index) {
+          card.className = "remediated-file-card awaiting-finding-card p-2.5 rounded-lg border transition cursor-pointer flex flex-col gap-1.5 bg-amber-50 border-amber-400 shadow-sm ring-2 ring-amber-300";
+        } else {
+          card.className = "remediated-file-card awaiting-finding-card p-2.5 rounded-lg border transition cursor-pointer flex flex-col gap-1.5 bg-white hover:bg-slate-50 border-slate-200";
+        }
+      });
+
+      const icon = getFileIcon(filePath);
+      const iconEl = document.getElementById("activeFileIcon");
+      if (iconEl) iconEl.textContent = icon;
+
+      const pathLabel = document.getElementById("activeFilePathLabel");
+      if (pathLabel) pathLabel.textContent = `${filePath} (Line ${line})`;
+
+      const targetLabelOld = document.getElementById("bugFixerTargetFileLabel");
+      if (targetLabelOld) targetLabelOld.textContent = filePath;
+
+      const patchPathEl = document.getElementById("patchPath");
+      if (patchPathEl) patchPathEl.value = filePath;
+
+      const statusBadge = document.getElementById("activeFileStatusBadge");
+      if (statusBadge) {
+        statusBadge.textContent = `AWAITING FIX (Line ${line}) ⏳`;
+        statusBadge.className = "px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-900/60 text-amber-300 border border-amber-500";
+      }
+
+      const summaryBar = document.getElementById("fileFindingSummaryBar");
+      const barFindingId = document.getElementById("barFindingId");
+      const barFindingSummary = document.getElementById("barFindingSummary");
+      const barEngineInfo = document.getElementById("barEngineInfo");
+
+      if (summaryBar) {
+        summaryBar.classList.remove("hidden");
+        if (barFindingId) barFindingId.textContent = `${fid} • Line ${line}`;
+        if (barFindingSummary) barFindingSummary.textContent = f.description || f.message || "Vulnerability detected by ScannerAgent";
+        if (barEngineInfo) barEngineInfo.textContent = `Rule: ${rule} • Severity: ${sev}`;
+      }
+
+      // Unified Diff Preview of vulnerable line awaiting remediation
+      const unifiedContainer = document.getElementById("unifiedDiffContainer");
+      if (unifiedContainer) {
+        const snip = (f.code_snippet || "").trim();
+        const diffPreview = `--- a/${filePath} (Line ${line} • Vulnerable Code)\n+++ b/${filePath} (Remediation Target Plan)\n@@ -${line},1 +${line},1 @@\n-${snip || "// Vulnerable code line"}\n+[Awaiting BugFixerAgent execution upon clicking '✨ Generate & Apply Air-Gap Fixes']`;
+        unifiedContainer.innerHTML = renderUnifiedDiffHtml(diffPreview);
+      }
+
+      const auditContent = document.getElementById("auditDossierContent");
+      if (auditContent) {
+        auditContent.innerHTML = `
+          <div class="space-y-4">
+            <div class="p-3 bg-amber-900/40 border border-amber-600 rounded-lg text-amber-200 text-xs">
+              <strong>⏳ Vulnerability Queued for Autonomous Remediation</strong>
+              <div class="mt-1 text-[11px] text-amber-300/90">This finding was flagged by ScannerAgent during Step 02 and is scheduled for remediation by BugFixerAgent.</div>
+            </div>
+            <div class="grid grid-cols-2 gap-3 text-xs">
+              <div class="p-2 bg-slate-900 rounded border border-slate-700">
+                <span class="text-slate-400">Finding ID:</span>
+                <span class="font-bold text-white ml-1 font-mono">${escapeHtml(fid)}</span>
+              </div>
+              <div class="p-2 bg-slate-900 rounded border border-slate-700">
+                <span class="text-slate-400">Severity:</span>
+                <span class="font-bold text-rose-400 ml-1 font-mono">${escapeHtml(sev)}</span>
+              </div>
+              <div class="p-2 bg-slate-900 rounded border border-slate-700">
+                <span class="text-slate-400">Rule:</span>
+                <span class="font-bold text-indigo-300 ml-1 font-mono">${escapeHtml(rule)}</span>
+              </div>
+              <div class="p-2 bg-slate-900 rounded border border-slate-700">
+                <span class="text-slate-400">CWE Category:</span>
+                <span class="font-bold text-emerald-300 ml-1 font-mono">${escapeHtml(f.cwe_id || "CWE-Security")}</span>
+              </div>
+            </div>
+            <div class="p-3 bg-slate-900/80 rounded border border-slate-700 text-xs text-slate-300">
+              <div class="text-[10px] text-slate-400 uppercase font-mono font-bold mb-1">Recommended Remediation Action:</div>
+              <div>${escapeHtml(f.recommendation || "Apply SecureScanAI security hardening via RemediatorAgent.")}</div>
+            </div>
+          </div>
+        `;
+      }
+
+      loadWorkspaceFile(filePath);
+    }
+
     function renderRemediatedFilesUI(res) {
       if (!res) return;
       currentRemediationData = res;
+      currentAwaitingFindings = [];
+
+      const navTitle = document.getElementById("step3FilesNavTitle");
+      const navSub = document.getElementById("step3FilesNavSubtext");
+      if (navTitle) navTitle.textContent = "Files Changed";
+      if (navSub) navSub.textContent = "Click file to inspect";
 
       const files = Array.isArray(res.files_modified) && res.files_modified.length > 0
         ? res.files_modified
@@ -2392,6 +2572,8 @@
         // 6c. Render Remediator Changes Inspector if Remediator has results
         if (data.remediator?.last_result?.files_modified && (stepStates[3].completed || data.remediator?.status === "COMPLETED")) {
           renderRemediatedFilesUI(data.remediator.last_result);
+        } else if (isScanned && bugFindings.length > 0 && !stepStates[3].completed) {
+          populateStep3AwaitingFindings(bugFindings);
         }
 
         // 7. Active PR Card (only show if Step 5 is completed)
@@ -2519,6 +2701,7 @@
           log(`SHA-256 non-mutation verification: ${ss.target_unmodified_verified ? "PASSED ✓" : "MODIFIED"}`, "success", "ScannerAgent");
         }
         applyScanResultToUI(res, res.bug_findings);
+        populateStep3AwaitingFindings(res.findings || res.bug_findings || []);
         log(res.summary, res.total_findings > 0 ? "warn" : "success", "ScannerAgent");
         setStage(2, "SCANNED ✓", true);
         setStage(3, "READY", false);
@@ -2816,6 +2999,7 @@
 
       // Reset Step 3 Remediated Files Studio
       currentRemediationData = null;
+      currentAwaitingFindings = [];
       activeRemediatedFilePath = "";
       activeFileDiffText = "";
       activeFileOriginalText = "";
@@ -2823,7 +3007,14 @@
       const emptyOverlay = document.getElementById("remediationEmptyState");
       if (emptyOverlay) emptyOverlay.classList.remove("hidden");
       const remBadge = document.getElementById("remediatedFilesCountBadge");
-      if (remBadge) remBadge.textContent = "0 FILES MODIFIED";
+      if (remBadge) {
+        remBadge.textContent = "0 FILES MODIFIED";
+        remBadge.className = "text-[10px] px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300 font-mono font-bold";
+      }
+      const navTitle = document.getElementById("step3FilesNavTitle");
+      if (navTitle) navTitle.textContent = "Files Changed";
+      const navSub = document.getElementById("step3FilesNavSubtext");
+      if (navSub) navSub.textContent = "Click file to inspect";
       const diffSum = document.getElementById("diffStatsSummary");
       if (diffSum) diffSum.textContent = "Awaiting Remediation";
       const s3Badge = document.getElementById("step3StatusBadge");

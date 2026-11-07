@@ -72,6 +72,31 @@ AgentRegistry.register("scanner", SCANNER_AGENT)
 AgentRegistry.register("remediator", REMEDIATOR_AGENT)
 
 
+def _normalize_local_repo_path(raw_path: str | Path) -> Path:
+    """Normalizes local repository path and resolves common path aliases or nested working dirs."""
+    if not raw_path:
+        return Path(raw_path) if isinstance(raw_path, Path) else Path(".")
+    raw_str = str(raw_path).replace("file://", "").strip()
+    p = Path(raw_str).expanduser().resolve()
+    if p.exists():
+        return p
+    # Fallback 1: If path includes GitAgent/EnterpriseEmployeePortal, try without GitAgent/
+    if "GitAgent" in p.parts:
+        parts = [part for part in p.parts if part != "GitAgent"]
+        alt1 = Path(*parts)
+        if alt1.exists():
+            return alt1
+    # Fallback 2: Check in parent directory of APP_ROOT_DIR
+    alt2 = (APP_ROOT_DIR.parent / p.name).resolve()
+    if alt2.exists():
+        return alt2
+    # Fallback 3: Check inside APP_ROOT_DIR / "repos" / p.name
+    alt3 = (APP_ROOT_DIR / "repos" / p.name).resolve()
+    if alt3.exists():
+        return alt3
+    return p
+
+
 def _resolve_active_workspace() -> Optional[Path]:
     """Returns the active GitSubAgent workspace path or None if not prepared."""
     if ACTIVE_GIT_AGENT and ACTIVE_GIT_AGENT.context:
@@ -311,6 +336,21 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                     self._send_json({"error": "repo_url is required"}, status=400)
                     return
 
+                # Normalize local path if specified
+                is_local_hint = (
+                    repo_url.startswith("/")
+                    or repo_url.startswith("~")
+                    or repo_url.startswith("./")
+                    or repo_url.startswith("../")
+                    or repo_url.startswith("file://")
+                    or repo_url == "."
+                    or (len(repo_url) > 2 and repo_url[1] == ":")
+                )
+                if is_local_hint:
+                    norm_path = _normalize_local_repo_path(repo_url)
+                    if norm_path.exists():
+                        repo_url = str(norm_path)
+
                 token = payload.get("token") or os.getenv("GITHUB_TOKEN") or os.getenv("GITLAB_TOKEN")
                 provider_str = payload.get("provider")
                 if provider_str:
@@ -417,7 +457,7 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                 ws_path = None
 
                 if explicit_ws:
-                    candidate_p = Path(explicit_ws).resolve()
+                    candidate_p = _normalize_local_repo_path(explicit_ws)
                     if candidate_p.exists() and candidate_p != APP_ROOT_DIR:
                         ws_path = candidate_p
 
@@ -460,7 +500,7 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                 ws_path = None
 
                 if explicit_ws:
-                    candidate_p = Path(explicit_ws).resolve()
+                    candidate_p = _normalize_local_repo_path(explicit_ws)
                     if candidate_p.exists() and candidate_p != APP_ROOT_DIR:
                         ws_path = candidate_p
 
@@ -564,11 +604,19 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                     return
 
                 ws_dir = _resolve_active_workspace()
+                if not ws_dir and SCANNER_AGENT.last_result and SCANNER_AGENT.last_result.get("workspace_scanned"):
+                    cand = _normalize_local_repo_path(SCANNER_AGENT.last_result["workspace_scanned"])
+                    if cand.exists() and cand != APP_ROOT_DIR:
+                        ws_dir = cand
+
                 if not ws_dir:
                     self._send_json({"error": "No repository prepared yet. Complete Step 01 to initialize workspace."}, status=400)
                     return
 
-                target_file = (ws_dir / rel_path).resolve()
+                clean_rel = rel_path.lstrip("/\\")
+                if ws_dir and clean_rel.startswith(ws_dir.name + "/"):
+                    clean_rel = clean_rel[len(ws_dir.name) + 1:]
+                target_file = (ws_dir / clean_rel).resolve()
                 if not str(target_file).startswith(str(ws_dir.resolve())):
                     self._send_json({"error": "Forbidden path outside workspace"}, status=403)
                     return
@@ -714,7 +762,7 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                     return
 
                 clean = raw_path.replace("file://", "")
-                target_path = Path(os.path.expanduser(clean)).resolve()
+                target_path = _normalize_local_repo_path(clean)
 
                 if not target_path.exists():
                     self._send_json({

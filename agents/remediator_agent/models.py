@@ -15,6 +15,7 @@ class Finding:
     code_snippet: str
     repository: str
     status: str = "NEW"
+    cwe_id: Optional[str] = None
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Finding":
@@ -42,6 +43,7 @@ class Finding:
             code_snippet=str(data["code_snippet"]),
             repository=str(data["repository"]),
             status=str(data.get("status", "NEW")).upper(),
+            cwe_id=str(data.get("cwe_id", "")) if data.get("cwe_id") else None,
         )
 
     def to_dict(self) -> Dict[str, Any]:

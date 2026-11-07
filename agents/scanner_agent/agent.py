@@ -413,6 +413,10 @@ class ScannerAgent(BaseAgent):
                 "code_snippet": f.get("code_snippet", ""),
                 "repository": repo_name,
                 "status": "NEW",
+                "cwe_id": f.get("cwe_id"),
+                "classification": f.get("classification"),
+                "owasp_category": f.get("owasp_category"),
+                "recommendation": f.get("recommendation"),
             }
             try:
                 (self.findings_dir / fname).write_text(json.dumps(finding_payload, indent=2), encoding="utf-8")
