@@ -98,6 +98,25 @@ class TestMultiAgentArchitecture(unittest.TestCase):
         self.assertTrue(proxy_content["airgap_mode"])
         self.assertEqual(proxy_content["proxy_host"], "proxy.airgap.internal")
 
+    def test_remediator_agent_bug_fixer_finding(self):
+        remediator = RemediatorAgent(
+            repos_root=self.temp_dir / "repos",
+            reports_dir=self.temp_dir / "reports",
+        )
+        ws_dir = self.temp_dir / "ws"
+        ws_dir.mkdir(parents=True, exist_ok=True)
+
+        result = remediator.fix_finding(
+            workspace_path=ws_dir,
+            provider="mock",
+        )
+        self.assertEqual(result["status"], "completed")
+        self.assertTrue(result["applied"])
+        self.assertIn("Controllers/UsersController.cs", result["files_modified"])
+        self.assertTrue((ws_dir / "Controllers" / "UsersController.cs").exists())
+        patched = (ws_dir / "Controllers" / "UsersController.cs").read_text(encoding="utf-8")
+        self.assertIn("Parameters.AddWithValue", patched)
+
     def test_multi_agent_pipeline_local_repo(self):
         # Create a local git repo
         local_repo = self.temp_dir / "pipeline_local_repo"
@@ -133,4 +152,3 @@ class TestMultiAgentArchitecture(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -42,3 +42,4 @@ test_venv/
 # Environment files with secrets
 .env
 
+repos/

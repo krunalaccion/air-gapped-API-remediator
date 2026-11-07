@@ -1,0 +1,12 @@
+{
+  "finding_id": "SQLI-001",
+  "rule_id": "csharp-sql-injection",
+  "severity": "HIGH",
+  "file_path": "Controllers/UsersController.cs",
+  "line_number": 12,
+  "message": "Potential SQL injection",
+  "code_snippet": "var query = $\"SELECT * FROM Users WHERE Id = '{userId}'\"",
+  "repository": "CustomerApi",
+  "status": "NEW"
+}
+
