@@ -202,32 +202,32 @@
         </div>
 
         <!-- Metric 2: Active Vulnerabilities -->
-        <div class="p-3 rounded-lg bg-slate-50 border border-slate-200 border-l-4 border-l-red-500">
+        <div class="p-3 rounded-lg bg-slate-50 border border-slate-200 border-l-4 border-l-slate-400" id="kpiVulnCard">
           <div class="flex items-center justify-between text-[11px] text-slate-500 font-mono uppercase font-semibold">
             <span>Vulnerabilities</span>
-            <span id="kpiVulnTag" class="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-bold text-[10px]">SAST FEED</span>
+            <span id="kpiVulnTag" class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-bold text-[10px]">AWAITING PREP</span>
           </div>
           <div class="mt-1 flex items-baseline justify-between">
-            <div class="text-xl font-bold text-slate-900 font-mono" id="kpiVulnCount">1 <span class="text-xs font-normal text-slate-500">Queued</span></div>
-            <span class="text-[10px] text-slate-600 font-mono font-semibold" id="kpiHighCount">Run Step 02 Scan</span>
+            <div class="text-xl font-bold text-slate-900 font-mono" id="kpiVulnCount">0 <span class="text-xs font-normal text-slate-500">Unscanned</span></div>
+            <span class="text-[10px] text-slate-600 font-mono font-semibold" id="kpiHighCount">Step 01 Pending</span>
           </div>
           <div class="mt-1 text-[10px] text-slate-500 font-mono truncate" id="kpiVulnSubtext">
-            Feed: <code class="text-indigo-700 font-semibold">findings/sqli_001.json</code>
+            Prepare repository in Step 01 to begin
           </div>
         </div>
 
         <!-- Metric 3: Repository Isolation -->
-        <div class="p-3 rounded-lg bg-slate-50 border border-slate-200 border-l-4 border-l-emerald-500">
+        <div class="p-3 rounded-lg bg-slate-50 border border-slate-200 border-l-4 border-l-slate-400" id="kpiPerimeterCard">
           <div class="flex items-center justify-between text-[11px] text-slate-500 font-mono uppercase font-semibold">
             <span>Target Repository</span>
-            <span id="kpiPerimeterBadge" class="px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 font-bold text-[10px]">LOCAL GIT</span>
+            <span id="kpiPerimeterBadge" class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-bold text-[10px]">NOT PREPARED</span>
           </div>
           <div class="mt-1 flex items-baseline justify-between">
-            <div class="text-sm font-bold text-emerald-700 font-mono truncate" id="kpiPerimeterStatus">CustomerApi</div>
-            <span class="text-[10px] text-slate-500 font-mono" id="kpiPerimeterMode">Air-Gap Ready</span>
+            <div class="text-sm font-bold text-slate-700 font-mono truncate" id="kpiPerimeterStatus">NOT INITIALIZED</div>
+            <span class="text-[10px] text-slate-500 font-mono" id="kpiPerimeterMode">Pending Step 01</span>
           </div>
           <div class="mt-1 text-[10px] text-slate-500 font-mono truncate" id="kpiPerimeterSubtext">
-            repos/CustomerApi
+            Enter repository path &amp; click 'Initialize Quarantine Workspace'
           </div>
         </div>
 
@@ -522,7 +522,7 @@
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <span class="text-xs font-bold text-slate-900 font-mono uppercase flex items-center gap-2">
                   <span>Detected Threat Advisories</span>
-                  <span id="findingsCountBadge" class="px-2 py-0.5 rounded text-[10px] bg-amber-100 text-amber-800 border border-amber-300 font-bold">1 Queued in findings/</span>
+                  <span id="findingsCountBadge" class="px-2 py-0.5 rounded text-[10px] bg-slate-100 text-slate-600 border border-slate-300 font-bold">0 Advisories (Awaiting Step 01)</span>
                 </span>
                 <div class="flex items-center gap-1 font-mono">
                   <button id="btnFilterAll" onclick="filterFindings('ALL')" class="text-[10px] px-2 py-0.5 rounded bg-slate-200 text-slate-800 font-semibold cursor-pointer">ALL</button>
@@ -532,7 +532,12 @@
                 </div>
               </div>
 
-              <div id="findingsList" class="space-y-2 max-h-64 overflow-y-auto custom-scroll pr-1"></div>
+              <div id="findingsList" class="space-y-2 max-h-64 overflow-y-auto custom-scroll pr-1">
+                <div class="p-4 rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-600 font-mono text-center space-y-1">
+                  <div class="font-bold text-slate-800 text-[11px]">⏳ Repository has not been prepared yet</div>
+                  <div class="text-[10px] text-slate-500">Complete <strong>Step 01 (Initialize Quarantine Workspace)</strong> to load and scan this repository.</div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -556,7 +561,44 @@
                 <span>🛡️ Queued Remediation Actions</span>
                 <span class="text-[10px] text-emerald-700 font-semibold">Consumes `scanner_agent/findings/*.json`</span>
               </div>
-              <ul id="remediationPlaybookList" class="list-disc list-inside text-[11px] text-slate-700 space-y-1 font-mono"></ul>
+              <ul id="remediationPlaybookList" class="list-disc list-inside text-[11px] text-slate-700 space-y-1 font-mono">
+                <li class="text-slate-500 italic">⏳ Repository not prepared yet. Complete Step 01 to initialize workspace.</li>
+              </ul>
+            </div>
+
+            <!-- LLM Remediation Engine Selector (Local Ollama / LM Studio / Cloud API) -->
+            <div class="p-3 rounded-lg bg-slate-50 border border-slate-200 text-xs space-y-2">
+              <div class="flex items-center justify-between">
+                <label class="font-mono font-bold text-slate-800 text-[11px] uppercase flex items-center gap-1.5">
+                  <span>🧠 Code Fixer AI Engine</span>
+                  <span class="text-[10px] font-normal text-slate-500">(Local LLM / Cloud API)</span>
+                </label>
+                <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-semibold" id="llmEngineBadge">LOCAL OLLAMA</span>
+              </div>
+
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                <div>
+                  <label class="block text-[10px] font-semibold text-slate-600 mb-1">Provider &amp; Engine</label>
+                  <select id="llmProvider" onchange="handleLlmProviderChange()" class="soc-input w-full text-xs font-mono px-2.5 py-1.5 rounded-lg bg-white border border-slate-300">
+                    <option value="ollama" selected>🦙 Local Ollama (http://127.0.0.1:11434)</option>
+                    <option value="local">💻 Local OpenAI-compatible (LM Studio / vLLM)</option>
+                    <option value="gemini">✨ Google Gemini (gemini-2.5-flash)</option>
+                    <option value="openai">🟢 OpenAI (gpt-4o)</option>
+                    <option value="anthropic">🟣 Anthropic Claude (claude-3-5-sonnet)</option>
+                    <option value="auto-fallback">⚙️ Offline Deterministic Fixer (0 tokens / air-gap)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label class="block text-[10px] font-semibold text-slate-600 mb-1">Model Name</label>
+                  <input type="text" id="llmModel" value="qwen2.5-coder:3b" placeholder="e.g. qwen2.5-coder:3b, llama3.2" class="soc-input w-full text-xs font-mono px-2.5 py-1.5 rounded-lg bg-white border border-slate-300">
+                </div>
+              </div>
+
+              <div id="llmEndpointRow" class="pt-0.5">
+                <label class="block text-[10px] font-semibold text-slate-600 mb-1">Local Server Base URL</label>
+                <input type="text" id="llmBaseUrl" value="http://127.0.0.1:11434" placeholder="http://127.0.0.1:11434 or http://localhost:1234/v1" class="soc-input w-full text-xs font-mono px-2.5 py-1.5 rounded-lg bg-white border border-slate-300">
+              </div>
             </div>
 
             <div class="flex items-center gap-2">
@@ -575,25 +617,39 @@
               </button>
             </div>
 
-            <!-- BugFixerAgent Live Verification & Unified Diff Box -->
-            <div id="bugFixerResultBox" class="hidden border-t border-emerald-200 pt-3 space-y-2">
-              <div class="flex items-center justify-between text-xs font-mono">
-                <span class="font-bold text-emerald-900 flex items-center gap-2 uppercase">
-                  <span>🛡️ BugFixerAgent SAST Patch Verification</span>
-                  <span id="bugFixerStatusBadge" class="px-2 py-0.5 rounded text-[10px] bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold">VERIFIED &amp; PATCHED</span>
-                </span>
-                <span id="bugFixerProviderBadge" class="text-[10px] px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-semibold"></span>
-              </div>
-              <div class="p-2.5 rounded-lg bg-white border border-emerald-200 text-xs space-y-1 shadow-sm">
-                <div class="text-emerald-700 font-bold font-mono" id="bugFixerSummaryText"></div>
-                <div class="text-[11px] text-slate-600 leading-relaxed" id="bugFixerExplanationText"></div>
-              </div>
-              <div>
-                <div class="text-[11px] font-mono text-slate-600 mb-1 flex items-center justify-between font-semibold">
-                  <span>UNIFIED SECURITY PATCH DIFF (<code id="bugFixerTargetFileLabel" class="text-blue-700"></code>):</span>
-                  <span class="text-[10px] text-emerald-700">APPLIED TO WORKSPACE ✓</span>
+            <!-- RemediatorAgent Interactive Changes Inspector (Clickable file tabs & diffs) -->
+            <div id="remediatedFilesContainer" class="hidden border-t border-emerald-200 pt-3 space-y-2.5">
+              <div class="flex items-center justify-between flex-wrap gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span class="font-bold text-emerald-950 font-mono text-xs uppercase tracking-wide">
+                    🛡️ Remediated Changes Inspector
+                  </span>
+                  <span id="remediatedFilesCountBadge" class="px-2 py-0.5 rounded text-[10px] bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold font-mono">0 FILES</span>
                 </div>
-                <pre id="bugFixerDiffOutput" class="w-full bg-slate-50 p-2.5 rounded-lg border border-slate-300 font-mono text-[11px] text-slate-800 max-h-44 overflow-auto custom-scroll leading-relaxed"></pre>
+                <span class="text-[10px] text-slate-500 font-mono">Click a file below to inspect its patch diff &amp; live code</span>
+              </div>
+
+              <!-- Clickable File Tabs -->
+              <div id="remediatedFilesTabs" class="flex items-center gap-1.5 flex-wrap"></div>
+
+              <!-- Selected File Diff Box -->
+              <div id="bugFixerResultBox" class="space-y-2 pt-1">
+                <div class="p-2.5 rounded-lg bg-white border border-emerald-200 text-xs space-y-1 shadow-sm">
+                  <div class="flex items-center justify-between flex-wrap gap-1">
+                    <span class="text-emerald-800 font-bold font-mono text-xs" id="bugFixerSummaryText"></span>
+                    <span id="bugFixerProviderBadge" class="text-[10px] px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-semibold font-mono"></span>
+                  </div>
+                  <div class="text-[11px] text-slate-600 leading-relaxed font-sans" id="bugFixerExplanationText"></div>
+                </div>
+
+                <div>
+                  <div class="text-[11px] font-mono text-slate-700 mb-1 flex items-center justify-between font-semibold">
+                    <span>SECURITY PATCH DIFF (<code id="bugFixerTargetFileLabel" class="text-blue-700 font-bold"></code>):</span>
+                    <span class="text-[10px] px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold">APPLIED TO WORKSPACE ✓</span>
+                  </div>
+                  <pre id="bugFixerDiffOutput" class="w-full bg-slate-900 text-slate-100 p-3 rounded-lg border border-slate-700 font-mono text-[11px] max-h-52 overflow-auto custom-scroll leading-relaxed whitespace-pre"></pre>
+                </div>
               </div>
             </div>
 
@@ -601,17 +657,13 @@
             <div class="border-t border-slate-200 pt-3 space-y-2">
               <div class="flex items-center justify-between flex-wrap gap-1.5">
                 <label class="text-xs font-bold text-slate-800 font-mono uppercase">Live Repository File Inspector</label>
-                <div class="flex items-center gap-1 text-[10px] font-mono flex-wrap">
-                  <button onclick="loadWorkspaceFile('Controllers/UsersController.cs')" class="px-2 py-0.5 rounded bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-800 font-semibold cursor-pointer">UsersController.cs</button>
-                  <button onclick="loadWorkspaceFile('Program.cs')" class="px-2 py-0.5 rounded bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-800 font-semibold cursor-pointer">Program.cs</button>
-                  <button onclick="loadWorkspaceFile('appsettings.json')" class="px-2 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 font-semibold cursor-pointer">appsettings.json</button>
-                  <button onclick="loadWorkspaceFile('AIRGAP_SECURITY_AUDIT.md')" class="px-2 py-0.5 rounded bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 font-semibold cursor-pointer">AIRGAP_SECURITY_AUDIT.md</button>
-                  <button onclick="loadWorkspaceFile('config/airgap_proxy.json')" class="px-2 py-0.5 rounded bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 font-semibold cursor-pointer">airgap_proxy.json</button>
+                <div id="dynamicFilePills" class="flex items-center gap-1 text-[10px] font-mono flex-wrap">
+                  <span class="text-[10px] text-slate-400 italic font-mono">No repository files loaded yet (Pending Step 01)</span>
                 </div>
               </div>
 
               <div class="flex items-center gap-2">
-                <input type="text" id="patchPath" value="Controllers/UsersController.cs"
+                <input type="text" id="patchPath" value="" placeholder="Select a file from pills above or enter relative path (e.g. main.py)"
                   onkeydown="if(event.key==='Enter') loadWorkspaceFile(this.value)"
                   class="soc-input flex-1 text-xs font-mono px-2.5 py-1.5 rounded-lg">
                 <button onclick="loadWorkspaceFile(document.getElementById('patchPath').value)"
@@ -624,6 +676,7 @@
                 </button>
               </div>
               <textarea id="patchContent" rows="6"
+                placeholder="// Repository not prepared yet. Complete Step 01 to load and inspect repository files."
                 class="soc-input w-full text-xs font-mono px-3 py-2 rounded-lg custom-scroll"></textarea>
             </div>
           </div>
@@ -847,6 +900,7 @@
     // Theme, Clock, and Liveline Stepper State
     // =========================================================
     let telemetryInitialized = false;
+    let lastTelemetryData = null;
     let currentLocalPr = null;
     let stepViewMode = "all"; // "all" or "focus"
     let activeStepNum = 1;
@@ -1092,17 +1146,15 @@
       const baseDir = fsRes.current_path || "";
       const sep = baseDir.includes("\\") ? "\\" : "/";
       const defaultRepoPath = baseDir ? `${baseDir}${sep}repos${sep}CustomerApi` : "repos/CustomerApi";
-      const defaultFinding = reportsRes.default_finding ? [Object.assign({ _source_file: "sqli_001.json" }, reportsRes.default_finding)] : [];
-
       return {
         default_repo_path: defaultRepoPath,
-        active_workspace_path: gitData.context?.repo_path || defaultRepoPath,
+        active_workspace_path: gitData.context?.repo_path || "",
         agents: agentsRes.agents || [],
         git: gitData,
         scanner: {
-          status: "READY",
+          status: gitData.prepared ? "READY" : "IDLE",
           last_result: null,
-          bug_findings: defaultFinding,
+          bug_findings: [],
         },
         remediator: {
           status: "READY",
@@ -1128,6 +1180,159 @@
         }
       } else {
         patchContentEl.value = `// Selected file: ${cleanRel}\n// Click '✨ Generate & Apply Air-Gap Fixes' in Step 03 to load live patched output.`;
+      }
+    }
+
+    let currentRemediationData = null;
+
+    function formatDiffSyntax(diffText) {
+      if (!diffText) return `<span class="text-slate-400 italic font-mono">(No diff available)</span>`;
+      return diffText.split("\n").map(line => {
+        const safe = escapeHtml(line);
+        if (line.startsWith("+") && !line.startsWith("+++")) {
+          return `<span class="text-emerald-400 font-semibold bg-emerald-950/40 block px-1">${safe}</span>`;
+        } else if (line.startsWith("-") && !line.startsWith("---")) {
+          return `<span class="text-rose-400 font-semibold bg-rose-950/40 block px-1">${safe}</span>`;
+        } else if (line.startsWith("@@")) {
+          return `<span class="text-cyan-400 font-bold block px-1">${safe}</span>`;
+        }
+        return `<span>${safe}</span>`;
+      }).join("\n");
+    }
+
+    function renderRemediatedFilesUI(res) {
+      if (!res) return;
+      currentRemediationData = res;
+      const container = document.getElementById("remediatedFilesContainer");
+      const tabs = document.getElementById("remediatedFilesTabs");
+      const badge = document.getElementById("remediatedFilesCountBadge");
+      if (!container || !tabs) return;
+
+      const files = Array.isArray(res.files_modified) && res.files_modified.length > 0
+        ? res.files_modified
+        : Object.keys(res.patched_files || {});
+
+      if (files.length === 0) {
+        container.classList.add("hidden");
+        return;
+      }
+
+      container.classList.remove("hidden");
+      if (badge) badge.textContent = `${files.length} FILE${files.length === 1 ? "" : "S"}`;
+
+      tabs.innerHTML = files.map((file, idx) => {
+        const isBf = res.bug_fixes && res.bug_fixes.some(b => b.file_path === file || b.target_file === file);
+        const icon = isBf ? "🛡️" : (file.endsWith(".json") ? "⚙️" : (file.endsWith(".md") ? "📝" : "📄"));
+        return `
+          <button onclick="selectRemediatedFile('${escapeHtml(file)}')" id="rem-tab-${idx}"
+            data-file="${escapeHtml(file)}"
+            class="remediated-file-tab px-2.5 py-1 rounded-lg text-xs font-mono font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-sm border ${idx === 0 ? 'bg-emerald-600 text-white border-emerald-700 shadow-md' : 'bg-white hover:bg-emerald-50 text-slate-700 border-slate-300'}">
+            <span>${icon}</span>
+            <span>${escapeHtml(file)}</span>
+          </button>
+        `;
+      }).join("");
+
+      selectRemediatedFile(files[0]);
+    }
+
+    function selectRemediatedFile(filePath) {
+      if (!currentRemediationData) return;
+      const res = currentRemediationData;
+
+      document.querySelectorAll(".remediated-file-tab").forEach(btn => {
+        if (btn.getAttribute("data-file") === filePath) {
+          btn.className = "remediated-file-tab px-2.5 py-1 rounded-lg text-xs font-mono font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-md border bg-emerald-600 text-white border-emerald-700";
+        } else {
+          btn.className = "remediated-file-tab px-2.5 py-1 rounded-lg text-xs font-mono font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-sm border bg-white hover:bg-emerald-50 text-slate-700 border-slate-300";
+        }
+      });
+
+      const labelEl = document.getElementById("bugFixerTargetFileLabel");
+      if (labelEl) labelEl.textContent = filePath;
+
+      const bf = (res.bug_fixes || []).find(b => b.file_path === filePath || b.target_file === filePath);
+      const summaryText = document.getElementById("bugFixerSummaryText");
+      const expText = document.getElementById("bugFixerExplanationText");
+      const provBadge = document.getElementById("bugFixerProviderBadge");
+      const diffOutput = document.getElementById("bugFixerDiffOutput");
+
+      if (bf) {
+        if (summaryText) summaryText.textContent = `[${bf.report?.finding?.finding_id || "REMEDIATED"}] ${bf.summary || "Security vulnerability remediated."}`;
+        if (expText) expText.textContent = bf.explanation || bf.report?.explanation || "Autonomous code remediation applied by BugFixerAgent.";
+        if (provBadge) provBadge.textContent = bf.provider || "BugFixerAgent";
+      } else if (filePath.includes("airgap_proxy")) {
+        if (summaryText) summaryText.textContent = "[AIRGAP-002] Configured Zero-Egress Proxy Interceptor";
+        if (expText) expText.textContent = "Routes external outbound traffic to internal air-gapped proxy gateway http://proxy.airgap.internal:8080.";
+        if (provBadge) provBadge.textContent = "RemediatorAgent";
+      } else if (filePath.includes("AIRGAP_SECURITY_AUDIT")) {
+        if (summaryText) summaryText.textContent = "[AIRGAP-003] Generated Compliance & Audit Manifest";
+        if (expText) expText.textContent = "Full verification manifest of all remediated endpoints, rules, and air-gap assurance.";
+        if (provBadge) provBadge.textContent = "RemediatorAgent";
+      } else {
+        if (summaryText) summaryText.textContent = `Remediated ${filePath}`;
+        if (expText) expText.textContent = "Applied security hardening and zero-egress proxy configuration.";
+        if (provBadge) provBadge.textContent = "RemediatorAgent";
+      }
+
+      let diff = (res.file_diffs && res.file_diffs[filePath])
+        || (bf && bf.diff)
+        || "";
+      if (!diff && res.diff && res.files_modified?.length === 1) {
+        diff = res.diff;
+      }
+      if (!diff && res.patched_files && res.patched_files[filePath]) {
+        diff = `+++ b/${filePath} (Remediated Content)\n` + res.patched_files[filePath];
+      }
+      if (diffOutput) {
+        diffOutput.innerHTML = formatDiffSyntax(diff || "(No diff changes recorded for this file)");
+      }
+
+      loadWorkspaceFile(filePath);
+    }
+
+    function renderDynamicFilePills(wsFiles, modifiedFiles) {
+      const pillsContainer = document.getElementById("dynamicFilePills");
+      if (!pillsContainer) return;
+
+      const set = new Set();
+      if (Array.isArray(modifiedFiles)) {
+        modifiedFiles.forEach(f => set.add(f));
+      }
+      if (Array.isArray(wsFiles)) {
+        wsFiles.filter(f => f.exists).forEach(f => set.add(f.relative_path));
+      }
+
+      if (set.size === 0) {
+        pillsContainer.innerHTML = `<span class="text-[10px] text-slate-400 italic font-mono">No files loaded yet</span>`;
+        return;
+      }
+
+      pillsContainer.innerHTML = Array.from(set).map(file => {
+        const isMod = Array.isArray(modifiedFiles) && modifiedFiles.includes(file);
+        const color = isMod
+          ? "bg-emerald-100 hover:bg-emerald-200 text-emerald-900 border-emerald-300 font-bold"
+          : "bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300";
+        return `
+          <button onclick="loadWorkspaceFile('${escapeHtml(file)}')" class="px-2 py-0.5 rounded border text-[10px] font-mono cursor-pointer transition ${color}">
+            ${isMod ? "✓ " : ""}${escapeHtml(file)}
+          </button>
+        `;
+      }).join("");
+    }
+
+    async function autoLoadBestFile(wsFiles) {
+      if (Array.isArray(wsFiles) && wsFiles.length > 0) {
+        const found = wsFiles.find(f => f.exists && !f.relative_path.endsWith(".md") && !f.relative_path.endsWith(".json"))
+                   || wsFiles.find(f => f.exists);
+        if (found) {
+          await loadWorkspaceFile(found.relative_path);
+          return;
+        }
+      }
+      const targetInput = document.getElementById("patchPath");
+      if (targetInput && targetInput.value) {
+        await loadWorkspaceFile(targetInput.value);
       }
     }
 
@@ -1157,7 +1362,7 @@
       trayEl.innerHTML = badges.join("");
     }
 
-    function applyScanResultToUI(scanResult, bugFindings) {
+    function applyScanResultToUI(scanResult, bugFindings, isPreparedArg) {
       const scoreVal = document.getElementById("securityScoreValue");
       const scoreBar = document.getElementById("securityScoreBar");
       const gradeBadge = document.getElementById("postureGradeBadge");
@@ -1170,15 +1375,35 @@
       const findingsCountBadge = document.getElementById("findingsCountBadge");
 
       if (!scanResult) {
-        const qCount = Array.isArray(bugFindings) ? bugFindings.length : 0;
-        if (kpiVulnCount) kpiVulnCount.innerHTML = `${qCount} <span class="text-xs font-normal text-slate-500">Queued JSON</span>`;
-        if (kpiVulnSubtext && qCount > 0) {
-          const ids = bugFindings.map(b => `${b.finding_id || "SQLI-001"} (${b.file_path})`).join(", ");
-          kpiVulnSubtext.innerHTML = `Feed: <span class="text-indigo-700 font-semibold">${escapeHtml(ids)}</span>`;
+        const isPrepared = isPreparedArg !== undefined
+          ? Boolean(isPreparedArg)
+          : Boolean(stepStates[1].completed || (lastTelemetryData && lastTelemetryData.git?.prepared));
+        const listEl = document.getElementById("findingsList");
+        if (scoreVal) scoreVal.innerHTML = `100<span class="text-xs text-slate-500">/100</span>`;
+        if (scoreBar) { scoreBar.style.width = "100%"; scoreBar.className = "bg-gradient-to-r from-emerald-500 to-blue-600 h-full transition-all duration-500"; }
+        if (gradeBadge) { gradeBadge.textContent = "GRADE: A+"; gradeBadge.className = "px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold text-[10px]"; }
+        if (threatBadge) { threatBadge.textContent = isPrepared ? "AWAITING SCAN" : "NOT INITIALIZED"; threatBadge.className = "px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300 font-mono font-bold text-[11px]"; }
+        if (deltaText) { deltaText.textContent = isPrepared ? "Ready for Step 02" : "Awaiting Step 01"; deltaText.className = "text-[10px] text-slate-500 font-mono font-semibold"; }
+        if (kpiVulnTag) { kpiVulnTag.textContent = isPrepared ? "READY TO SCAN" : "AWAITING PREP"; kpiVulnTag.className = "px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-bold text-[10px]"; }
+        if (kpiVulnCount) { kpiVulnCount.innerHTML = `0 <span class="text-xs font-normal text-slate-500">${isPrepared ? "Pending Scan" : "Unscanned"}</span>`; }
+        if (kpiHighCount) { kpiHighCount.textContent = isPrepared ? "Run Step 02 Scan" : "Step 01 Pending"; }
+        if (kpiVulnSubtext) { kpiVulnSubtext.innerHTML = `<span class="text-slate-500">${isPrepared ? "Click 'Execute Deep Security Scan' in Step 02" : "Prepare repository in Step 01 to begin"}</span>`; }
+        if (findingsCountBadge) { findingsCountBadge.textContent = isPrepared ? "0 Advisories (Awaiting Scan)" : "0 Advisories (Awaiting Step 01)"; findingsCountBadge.className = "px-2 py-0.5 rounded text-[10px] bg-slate-100 text-slate-600 border border-slate-300 font-bold"; }
+
+        if (listEl) {
+          listEl.innerHTML = `
+            <div class="p-4 rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-600 font-mono text-center space-y-1">
+              <div class="font-bold text-slate-800 text-[11px]">${isPrepared ? "🔍 Repository workspace is isolated &amp; ready" : "⏳ Repository has not been prepared yet"}</div>
+              <div class="text-[10px] text-slate-500">${isPrepared ? "Click <strong>'Execute Deep Security Scan'</strong> above to analyze repository files for vulnerabilities and egress." : "Complete <strong>Step 01 (Initialize Quarantine Workspace)</strong> to load and scan this repository."}</div>
+            </div>
+          `;
         }
-        if (qCount > 0) {
-          renderQueuedBugFindings(bugFindings);
-        }
+        const summaryBar = document.getElementById("secureScanSummaryBar");
+        if (summaryBar) summaryBar.classList.add("hidden");
+        const bAll = document.getElementById("btnFilterAll"); if (bAll) bAll.textContent = "ALL (0)";
+        const bHigh = document.getElementById("btnFilterHigh"); if (bHigh) bHigh.textContent = "HIGH (0)";
+        const bMed = document.getElementById("btnFilterMed"); if (bMed) bMed.textContent = "MED (0)";
+        const bLow = document.getElementById("btnFilterLow"); if (bLow) bLow.textContent = "LOW (0)";
         return;
       }
 
@@ -1255,9 +1480,9 @@
           : "px-2 py-0.5 rounded text-[10px] bg-red-100 text-red-700 border border-red-300 font-bold";
       }
 
+      const summaryBar = document.getElementById("secureScanSummaryBar");
       if (scanResult.securescan && scanResult.securescan.executed) {
         const ss = scanResult.securescan;
-        const summaryBar = document.getElementById("secureScanSummaryBar");
         if (summaryBar) {
           summaryBar.classList.remove("hidden");
           const topoBadge = document.getElementById("ssTopologyBadge");
@@ -1273,6 +1498,8 @@
             }).join("");
           }
         }
+      } else if (summaryBar) {
+        summaryBar.classList.add("hidden");
       }
 
       renderScannedFindings(scanResult.findings || []);
@@ -1286,11 +1513,11 @@
         <div class="finding-item p-3 rounded-lg border border-indigo-200 bg-indigo-50/70 text-xs space-y-1" data-severity="${escapeHtml((bf.severity || 'HIGH').toUpperCase())}">
           <div class="flex items-center justify-between gap-2 flex-wrap">
             <span class="font-mono text-indigo-900 font-bold flex items-center gap-2">
-              <span class="px-1.5 py-0.5 rounded bg-red-100 text-red-700 border border-red-300 text-[10px]">${escapeHtml(bf.finding_id || "SQLI-001")}</span>
+              <span class="px-1.5 py-0.5 rounded bg-red-100 text-red-700 border border-red-300 text-[10px]">${escapeHtml(bf.finding_id || "FINDING")}</span>
               <span>${escapeHtml(bf.file_path || "")}:${bf.line_number || 1}</span>
             </span>
             <span class="text-[10px] px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 border border-indigo-200 uppercase font-mono font-bold">
-              findings/${escapeHtml(bf._source_file || "sqli_001.json")} • ${escapeHtml(bf.severity || "HIGH")}
+              findings/${escapeHtml(bf._source_file || "advisory.json")} • ${escapeHtml(bf.severity || "HIGH")}
             </span>
           </div>
           <p class="text-[11px] text-slate-700">${escapeHtml(bf.message || "")}</p>
@@ -1370,7 +1597,8 @@
       document.getElementById("btnFilterLow").textContent = `LOW (${lowCount})`;
     }
 
-    function populateCommitAndPrDefaults(repoName, bugFindings, modifiedFiles) {
+    function populateCommitAndPrDefaults(repoName, bugFindings, modifiedFiles, isScanned) {
+      if (!isScanned) return;
       const commitInput = document.getElementById("commitMsg");
       const prTitleInput = document.getElementById("prTitle");
       const prDescInput = document.getElementById("prDescription");
@@ -1381,22 +1609,30 @@
 
       const filesList = Array.isArray(modifiedFiles) && modifiedFiles.length > 0
         ? modifiedFiles
-        : (Array.isArray(bugFindings) && bugFindings.length > 0 ? bugFindings.map(b => b.file_path) : ["Controllers/UsersController.cs"]);
+        : (Array.isArray(bugFindings) && bugFindings.length > 0 ? bugFindings.map(b => b.file_path || b.file) : []);
+
+      const filesFormatted = filesList.length > 0
+        ? filesList.map(f => `\`${f}\``).join(", ")
+        : "Files modified by RemediatorAgent";
 
       if (commitInput && !commitInput.value) {
-        commitInput.value = `fix(${repoName || "CustomerApi"}): remediate ${findingIds}`;
+        commitInput.value = `fix(${repoName || "repository"}): remediate ${findingIds}`;
       }
       if (prTitleInput && !prTitleInput.value) {
-        prTitleInput.value = `[SecOps Remediation] Fix ${findingIds} in ${repoName || "CustomerApi"}`;
+        prTitleInput.value = `[SecOps Remediation] Fix ${findingIds} in ${repoName || "repository"}`;
       }
       if (prDescInput && !prDescInput.value) {
-        prDescInput.value = `## Automated Multi-Agent Remediation Summary\n- **Target Repository**: \`${repoName || "CustomerApi"}\`\n- **Remediated Findings**: ${findingIds}\n- **Modified Files**: ${filesList.map(f => `\`${f}\``).join(", ")}\n- **Verified By**: GitSubAgent → ScannerAgent → RemediatorAgent (BugFixerAgent)`;
+        prDescInput.value = `## Automated Multi-Agent Remediation Summary\n- **Target Repository**: \`${repoName || "repository"}\`\n- **Remediated Findings**: ${findingIds}\n- **Modified Files**: ${filesFormatted}\n- **Verified By**: GitSubAgent → ScannerAgent → RemediatorAgent (BugFixerAgent)`;
       }
     }
 
     async function syncTelemetry(isManual = false) {
       try {
         const data = await fetchTelemetryWithFallback();
+        lastTelemetryData = data;
+        const isPrepared = Boolean(stepStates[1].completed || (data.git && data.git.prepared));
+        const isScanned = Boolean(stepStates[2].completed || (data.scanner && data.scanner.last_result));
+        const bugFindings = isScanned ? (data.scanner?.bug_findings || []) : [];
 
         // 1. Render Agent Pills & Fleet KPI
         renderAgentsTray(data.agents, data.remediator);
@@ -1404,46 +1640,49 @@
         document.getElementById("agentCountBadge").textContent = `${totalModules} Modules`;
         document.getElementById("kpiFleetStatus").textContent = `SCAN: ${data.scanner?.status || "READY"} • FIX: ${data.remediator?.status || "READY"}`;
         document.getElementById("kpiFleetSubtext").innerHTML =
-          `Findings JSONs: <strong class="text-indigo-700">${data.scanner?.bug_findings?.length || 1}</strong> • Fix Reports: <strong class="text-emerald-700">${data.remediator?.reports_count || 0}</strong>`;
+          `Findings JSONs: <strong class="text-indigo-700">${bugFindings.length}</strong> • Fix Reports: <strong class="text-emerald-700">${isPrepared ? (data.remediator?.reports_count || 0) : 0}</strong>`;
 
-        // 2. Normalize Repository Input (redirect portal root to repos/CustomerApi)
+        // 2. Normalize Repository Input
         const repoInput = document.getElementById("repoUrl");
         const fallbackCustomerRepo = data.default_repo_path || "repos/CustomerApi";
-        if (repoInput) {
-          const curVal = repoInput.value.trim();
-          const endsWithPortalRoot = curVal.replace(/[\\/]+$/, "").endsWith("air-gapped-API-remediator");
-          if (!curVal || endsWithPortalRoot) {
-            const candidate = data.git?.context?.repo_url || fallbackCustomerRepo;
-            const cleanCandidate = candidate.replace(/[\\/]+$/, "").endsWith("air-gapped-API-remediator")
-              ? fallbackCustomerRepo
-              : candidate;
-            repoInput.value = cleanCandidate;
-            if (cleanCandidate) handlePathInput(cleanCandidate);
-          }
+        if (repoInput && !repoInput.value.trim()) {
+          const candidate = data.git?.context?.repo_url || fallbackCustomerRepo;
+          const cleanCandidate = candidate.replace(/[\\/]+$/, "").endsWith("air-gapped-API-remediator")
+            ? fallbackCustomerRepo
+            : candidate;
+          repoInput.value = cleanCandidate;
+          if (cleanCandidate) handlePathInput(cleanCandidate);
         }
 
         // 3. Git / Workspace Status
-        let wsPath = data.active_workspace_path || fallbackCustomerRepo;
-        if (wsPath.replace(/[\\/]+$/, "").endsWith("air-gapped-API-remediator")) {
-          wsPath = fallbackCustomerRepo;
-        }
-        const wsName = wsPath.split(/[\\/]/).filter(Boolean).pop() || "CustomerApi";
         const wsHeaderEl = document.getElementById("activeWorkspaceHeaderText");
-        if (wsHeaderEl) wsHeaderEl.textContent = `Active Repository Path: ${wsPath}`;
+        const wsStateBadge = document.getElementById("gitWorkspaceStateBadge");
         document.getElementById("gitAuthorDisplay").textContent = data.git?.author || "Git SubAgent <git-agent@subagent.local>";
 
-        if (data.git && data.git.prepared && data.git.context && stepStates[1].completed) {
+        let wsName = "repository";
+        let wsPath = "";
+
+        if (isPrepared && data.git && data.git.prepared) {
+          wsPath = data.active_workspace_path || fallbackCustomerRepo;
+          wsName = wsPath.split(/[\\/]/).filter(Boolean).pop() || "Workspace";
+          if (wsHeaderEl) wsHeaderEl.textContent = `Active Repository Path: ${wsPath}`;
+
           const ctx = data.git.context;
-          document.getElementById("currentBranchDisplay").textContent = ctx.feature_branch || "HEAD";
-          document.getElementById("kpiPerimeterBadge").textContent = "ISOLATED";
+          const branch = ctx?.feature_branch || "HEAD";
+          document.getElementById("currentBranchDisplay").textContent = branch;
+          document.getElementById("kpiPerimeterBadge").textContent = (ctx && ctx.provider ? ctx.provider : "LOCAL").toUpperCase() + " GIT";
           document.getElementById("kpiPerimeterBadge").className = "px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]";
-          document.getElementById("kpiPerimeterStatus").textContent = `${wsName} (${(ctx.provider || "local").toUpperCase()})`;
-          document.getElementById("kpiPerimeterSubtext").textContent = `Branch: ${ctx.feature_branch}`;
-          const wsStateBadge = document.getElementById("gitWorkspaceStateBadge");
-          if (wsStateBadge) wsStateBadge.textContent = `BRANCH: ${ctx.feature_branch}`;
+          document.getElementById("kpiPerimeterStatus").textContent = `${wsName} (${(ctx?.provider || "local").toUpperCase()})`;
+          document.getElementById("kpiPerimeterSubtext").textContent = `Branch: ${branch}`;
+          if (wsStateBadge) wsStateBadge.textContent = `BRANCH: ${branch}`;
         } else {
-          document.getElementById("kpiPerimeterStatus").textContent = wsName;
-          document.getElementById("kpiPerimeterSubtext").textContent = wsPath;
+          if (wsHeaderEl) wsHeaderEl.textContent = "Active Repository Path: (Pending Step 01)";
+          document.getElementById("currentBranchDisplay").textContent = "none";
+          document.getElementById("kpiPerimeterBadge").textContent = "NOT PREPARED";
+          document.getElementById("kpiPerimeterBadge").className = "px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-bold text-[10px]";
+          document.getElementById("kpiPerimeterStatus").textContent = "NOT INITIALIZED";
+          document.getElementById("kpiPerimeterSubtext").textContent = "Complete Step 01 to isolate workspace";
+          if (wsStateBadge) wsStateBadge.textContent = "UNPREPARED";
         }
 
         if (data.git && data.git.status) {
@@ -1461,25 +1700,36 @@
         }
 
         // 4. Module 3 Remediation Queue
-        const bugFindings = data.scanner?.bug_findings || [];
         const playbookList = document.getElementById("remediationPlaybookList");
         if (playbookList) {
-          if (bugFindings.length > 0) {
+          if (!isPrepared) {
+            playbookList.innerHTML = `<li class="text-slate-500 italic">⏳ Repository not prepared yet. Complete Step 01 to initialize workspace.</li>`;
+          } else if (!isScanned) {
+            playbookList.innerHTML = `<li class="text-slate-500 italic">🔍 Awaiting Step 02. Click 'Execute Deep Security Scan' to detect vulnerabilities for remediation.</li>`;
+          } else if (bugFindings.length > 0) {
             playbookList.innerHTML = bugFindings.map(b =>
-              `<li>Patch <strong class="text-indigo-800">${escapeHtml(b.finding_id)} (${escapeHtml(b.rule_id)})</strong> in <code class="text-emerald-700 font-semibold">${escapeHtml(b.file_path)}:${b.line_number || 1}</code> from <code class="text-blue-700">findings/${escapeHtml(b._source_file || "sqli_001.json")}</code></li>`
+              `<li>Patch <strong class="text-indigo-800">${escapeHtml(b.finding_id || b.id || "FINDING")} (${escapeHtml(b.rule_id || b.cwe || "ALERT")})</strong> in <code class="text-emerald-700 font-semibold">${escapeHtml(b.file_path || b.file || "")}:${b.line_number || b.line || 1}</code>${b._source_file ? ` from <code class="text-blue-700">findings/${escapeHtml(b._source_file)}</code>` : ""}</li>`
             ).join("") +
-            `<li>Harden <code class="text-purple-700 font-semibold">Program.cs</code>, <code class="text-emerald-700 font-semibold">appsettings.json</code>, <code class="text-blue-700 font-semibold">config/airgap_proxy.json</code> &amp; <code class="text-amber-700 font-semibold">AIRGAP_SECURITY_AUDIT.md</code></li>`;
+            `<li>Generate Air-Gap Security Proxy &amp; Audit Report (<code class="text-blue-700 font-semibold">config/airgap_proxy.json</code> &amp; <code class="text-amber-700 font-semibold">AIRGAP_SECURITY_AUDIT.md</code>)</li>`;
           } else {
-            playbookList.innerHTML = `<li>Ready to remediate findings from <code>agents/scanner_agent/findings/</code></li>`;
+            playbookList.innerHTML = `<li class="text-emerald-700 font-semibold">✓ Zero open vulnerabilities detected in this repository.</li>`;
           }
         }
 
         // 5. Scanner Results & KPIs 1-2 (only apply previous scan result if Step 2+ is completed)
-        const effectiveScanResult = (stepStates[2].completed || stepStates[3].completed) ? data.scanner?.last_result : null;
-        applyScanResultToUI(effectiveScanResult, bugFindings);
+        const effectiveScanResult = isScanned ? data.scanner?.last_result : null;
+        applyScanResultToUI(effectiveScanResult, bugFindings, isPrepared);
 
         // 6. Commit & PR fields
-        populateCommitAndPrDefaults(wsName, bugFindings, data.remediator?.last_result?.files_modified);
+        populateCommitAndPrDefaults(wsName, bugFindings, data.remediator?.last_result?.files_modified, isScanned);
+
+        // 6b. Dynamic file pills in Live Repository File Inspector
+        renderDynamicFilePills(isPrepared ? data.workspace_files : [], data.remediator?.last_result?.files_modified);
+
+        // 6c. Render Remediator Changes Inspector if Remediator has results
+        if (data.remediator?.last_result?.files_modified && (stepStates[3].completed || data.remediator?.status === "COMPLETED")) {
+          renderRemediatedFilesUI(data.remediator.last_result);
+        }
 
         // 7. Active PR Card (only show if Step 5 is completed)
         if (data.latest_pr && stepStates[5].completed) {
@@ -1490,11 +1740,14 @@
 
         if (!telemetryInitialized) {
           telemetryInitialized = true;
-          log(`Connected to live multi-agent backend • Target: ${wsPath}`, "success", "System");
-          log(`Loaded ${bugFindings.length} SAST finding JSON(s) from agents/scanner_agent/findings/`, "info", "ScannerAgent");
-          await loadWorkspaceFile("Controllers/UsersController.cs");
+          if (isPrepared) {
+            log(`Connected to live multi-agent backend • Target: ${wsPath}`, "success", "System");
+            await autoLoadBestFile(data.workspace_files);
+          } else {
+            log(`Connected to live multi-agent backend • Awaiting Step 01 repository preparation`, "info", "System");
+          }
         } else if (isManual) {
-          log(`Synced live telemetry (${wsName})`, "info", "System");
+          log(`Synced live telemetry (${isPrepared ? wsName : "Ready"})`, "info", "System");
         }
       } catch (err) {
         log(`Telemetry sync error: ${err.message}`, "error", "System");
@@ -1567,7 +1820,8 @@
         setStage(1, "DONE ✓", true);
         setStage(2, "READY", false);
         await syncTelemetry(false);
-        await loadWorkspaceFile("Controllers/UsersController.cs");
+        const wsFiles = (lastTelemetryData && lastTelemetryData.workspace_files) || [];
+        await autoLoadBestFile(wsFiles);
       }
     }
 
@@ -1579,7 +1833,10 @@
       btn.disabled = true;
       btn.innerHTML = `<span>⏳ Scanning Repository Files...</span>`;
 
+      const repoUrl = document.getElementById("repoUrl").value.trim();
       const res = await apiPost("/api/scan", {
+        workspace_path: repoUrl,
+        repo_url: repoUrl,
         rules: {
           egress: document.getElementById("ruleEgress").checked,
           cloud: document.getElementById("ruleCloud").checked,
@@ -1618,15 +1875,62 @@
       });
     }
 
+    function handleLlmProviderChange() {
+      const prov = document.getElementById("llmProvider")?.value || "ollama";
+      const modelInput = document.getElementById("llmModel");
+      const urlInput = document.getElementById("llmBaseUrl");
+      const badge = document.getElementById("llmEngineBadge");
+      const endpointRow = document.getElementById("llmEndpointRow");
+
+      if (prov === "ollama") {
+        if (modelInput) modelInput.value = "qwen2.5-coder:3b";
+        if (urlInput) urlInput.value = "http://127.0.0.1:11434";
+        if (badge) { badge.textContent = "LOCAL OLLAMA"; badge.className = "text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-semibold"; }
+        if (endpointRow) endpointRow.classList.remove("hidden");
+      } else if (prov === "local") {
+        if (modelInput) modelInput.value = "qwen2.5-coder-7b-instruct";
+        if (urlInput) urlInput.value = "http://localhost:1234/v1";
+        if (badge) { badge.textContent = "OPENAI COMPATIBLE"; badge.className = "text-[10px] font-mono px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-semibold"; }
+        if (endpointRow) endpointRow.classList.remove("hidden");
+      } else if (prov === "gemini") {
+        if (modelInput) modelInput.value = "gemini-2.5-flash";
+        if (badge) { badge.textContent = "GOOGLE GEMINI"; badge.className = "text-[10px] font-mono px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-semibold"; }
+        if (endpointRow) endpointRow.classList.add("hidden");
+      } else if (prov === "openai") {
+        if (modelInput) modelInput.value = "gpt-4o";
+        if (badge) { badge.textContent = "OPENAI"; badge.className = "text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-semibold"; }
+        if (endpointRow) endpointRow.classList.add("hidden");
+      } else if (prov === "anthropic") {
+        if (modelInput) modelInput.value = "claude-3-5-sonnet-latest";
+        if (badge) { badge.textContent = "ANTHROPIC"; badge.className = "text-[10px] font-mono px-2 py-0.5 rounded bg-purple-100 text-purple-800 font-semibold"; }
+        if (endpointRow) endpointRow.classList.add("hidden");
+      } else {
+        if (modelInput) modelInput.value = "rule-based-security-fixer";
+        if (badge) { badge.textContent = "AIR-GAP OFFLINE"; badge.className = "text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 text-slate-800 font-semibold"; }
+        if (endpointRow) endpointRow.classList.add("hidden");
+      }
+    }
+
     // Step 3: Fix Code (RemediatorAgent + BugFixerAgent)
     async function handleFix() {
       setStage(3, "PATCHING...", false);
-      log(`Reading finding JSONs from agents/scanner_agent/findings/ and executing BugFixerAgent + RemediatorAgent...`, "info", "RemediatorAgent");
+      const provider = document.getElementById("llmProvider")?.value || "ollama";
+      const model = document.getElementById("llmModel")?.value.trim() || undefined;
+      const baseUrl = document.getElementById("llmBaseUrl")?.value.trim() || undefined;
+
+      log(`Reading finding JSONs from agents/scanner_agent/findings/ and executing BugFixerAgent with AI engine '${provider}' (${model || "default"})...`, "info", "RemediatorAgent");
       const btn = document.getElementById("btnFix");
       btn.disabled = true;
       btn.textContent = "⏳ Applying BugFixer & Air-Gap Patches...";
 
-      const res = await apiPost("/api/fix", {});
+      const repoUrl = document.getElementById("repoUrl").value.trim();
+      const res = await apiPost("/api/fix", {
+        workspace_path: repoUrl,
+        repo_url: repoUrl,
+        provider: provider,
+        model: model,
+        base_url: baseUrl
+      });
 
       btn.disabled = false;
       btn.textContent = "✨ Generate & Apply Air-Gap Fixes";
@@ -1636,27 +1940,13 @@
         log(`Fix error: ${res.error}`, "error", "RemediatorAgent");
       } else {
         if (res.bug_fixes && res.bug_fixes.length > 0) {
-          const bf = res.bug_fixes[0];
           for (const item of res.bug_fixes) {
             log(`${item.summary} (Engine: ${item.provider})`, "success", "BugFixerAgent");
           }
-
-          const resultBox = document.getElementById("bugFixerResultBox");
-          if (resultBox) {
-            resultBox.classList.remove("hidden");
-            document.getElementById("bugFixerStatusBadge").textContent = "VERIFIED & PATCHED";
-            document.getElementById("bugFixerProviderBadge").textContent = bf.provider || "";
-            document.getElementById("bugFixerSummaryText").textContent = bf.summary || "";
-            document.getElementById("bugFixerExplanationText").textContent = bf.explanation || "";
-            document.getElementById("bugFixerTargetFileLabel").textContent = bf.file_path || bf.target_file || "Controllers/UsersController.cs";
-            document.getElementById("bugFixerDiffOutput").textContent = res.bug_diff || bf.diff || "(no diff changes)";
-          }
-
-          if (res.patched_files && res.patched_files["Controllers/UsersController.cs"]) {
-            document.getElementById("patchPath").value = "Controllers/UsersController.cs";
-            document.getElementById("patchContent").value = res.patched_files["Controllers/UsersController.cs"];
-          }
         }
+
+        // Render interactive clickable tabs & diffs for all modified files
+        renderRemediatedFilesUI(res);
 
         log(res.summary || res.message, "success", "RemediatorAgent");
         if (res.files_modified) {
@@ -1855,21 +2145,66 @@
       if (bfBox) bfBox.classList.add("hidden");
       const ssBar = document.getElementById("secureScanSummaryBar");
       if (ssBar) ssBar.classList.add("hidden");
+      const remCont = document.getElementById("remediatedFilesContainer");
+      if (remCont) remCont.classList.add("hidden");
+      const remTabs = document.getElementById("remediatedFilesTabs");
+      if (remTabs) remTabs.innerHTML = "";
+      const diffPre = document.getElementById("bugFixerDiffOutput");
+      if (diffPre) diffPre.textContent = "";
 
-      document.getElementById("securityScoreValue").innerHTML = `--<span class="text-xs text-slate-500">/100</span>`;
-      document.getElementById("securityScoreBar").style.width = "0%";
-      document.getElementById("postureGradeBadge").textContent = "GRADE: --";
-      document.getElementById("postureGradeBadge").className = "px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 font-bold text-[10px]";
-      document.getElementById("postureDeltaText").textContent = "Awaiting Scan";
-      document.getElementById("postureDeltaText").className = "text-[10px] text-slate-600 font-mono font-semibold";
-      document.getElementById("threatLevelBadge").textContent = "READY TO SCAN";
-      document.getElementById("threatLevelBadge").className = "px-2 py-0.5 rounded bg-slate-200 text-slate-700 font-mono font-bold text-[11px]";
-      document.getElementById("kpiVulnTag").textContent = "SAST FEED";
-      document.getElementById("kpiVulnTag").className = "px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-bold text-[10px]";
-      document.getElementById("kpiHighCount").textContent = "Run Step 02 Scan";
-      document.getElementById("findingsCountBadge").textContent = "1 Queued in findings/";
-      document.getElementById("findingsCountBadge").className = "px-2 py-0.5 rounded text-[10px] bg-amber-100 text-amber-800 border border-amber-300 font-bold";
+      // Reset Security Posture KPI card
+      document.getElementById("securityScoreValue").innerHTML = `100<span class="text-xs text-slate-500">/100</span>`;
+      document.getElementById("securityScoreBar").style.width = "100%";
+      document.getElementById("securityScoreBar").className = "bg-gradient-to-r from-emerald-500 to-blue-600 h-full transition-all duration-500";
+      document.getElementById("postureGradeBadge").textContent = "GRADE: A+";
+      document.getElementById("postureGradeBadge").className = "px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold text-[10px]";
+      document.getElementById("postureDeltaText").textContent = "Awaiting Step 01";
+      document.getElementById("postureDeltaText").className = "text-[10px] text-slate-500 font-mono font-semibold";
+      document.getElementById("threatLevelBadge").textContent = "NOT INITIALIZED";
+      document.getElementById("threatLevelBadge").className = "px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300 font-mono font-bold text-[11px]";
 
+      // Reset Vulnerabilities KPI card
+      document.getElementById("kpiVulnTag").textContent = "AWAITING PREP";
+      document.getElementById("kpiVulnTag").className = "px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-bold text-[10px]";
+      document.getElementById("kpiVulnCount").innerHTML = `0 <span class="text-xs font-normal text-slate-500">Unscanned</span>`;
+      document.getElementById("kpiHighCount").textContent = "Step 01 Pending";
+      document.getElementById("kpiVulnSubtext").innerHTML = `<span class="text-slate-500">Prepare repository in Step 01 to begin</span>`;
+
+      // Reset Target Repository KPI card & workspace indicators
+      document.getElementById("kpiPerimeterBadge").textContent = "NOT PREPARED";
+      document.getElementById("kpiPerimeterBadge").className = "px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-bold text-[10px]";
+      document.getElementById("kpiPerimeterStatus").textContent = "NOT INITIALIZED";
+      document.getElementById("kpiPerimeterSubtext").textContent = "Enter repository path & click 'Initialize Quarantine Workspace'";
+      document.getElementById("currentBranchDisplay").textContent = "none";
+      const wsStateBadge = document.getElementById("gitWorkspaceStateBadge");
+      if (wsStateBadge) wsStateBadge.textContent = "UNPREPARED";
+      const wsHeaderEl = document.getElementById("activeWorkspaceHeaderText");
+      if (wsHeaderEl) wsHeaderEl.textContent = "Active Repository Path: (Pending Step 01)";
+
+      // Reset Findings list, badge, and filter buttons
+      document.getElementById("findingsCountBadge").textContent = "0 Advisories (Awaiting Step 01)";
+      document.getElementById("findingsCountBadge").className = "px-2 py-0.5 rounded text-[10px] bg-slate-100 text-slate-600 border border-slate-300 font-bold";
+      const findingsEl = document.getElementById("findingsList");
+      if (findingsEl) {
+        findingsEl.innerHTML = `
+          <div class="p-4 rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-600 font-mono text-center space-y-1">
+            <div class="font-bold text-slate-800 text-[11px]">⏳ Repository has not been prepared yet</div>
+            <div class="text-[10px] text-slate-500">Complete <strong>Step 01 (Initialize Quarantine Workspace)</strong> to load and scan this repository.</div>
+          </div>
+        `;
+      }
+      const bAll = document.getElementById("btnFilterAll"); if (bAll) bAll.textContent = "ALL (0)";
+      const bHigh = document.getElementById("btnFilterHigh"); if (bHigh) bHigh.textContent = "HIGH (0)";
+      const bMed = document.getElementById("btnFilterMed"); if (bMed) bMed.textContent = "MED (0)";
+      const bLow = document.getElementById("btnFilterLow"); if (bLow) bLow.textContent = "LOW (0)";
+
+      // Reset Remediation Playbook list
+      const pbList = document.getElementById("remediationPlaybookList");
+      if (pbList) {
+        pbList.innerHTML = `<li class="text-slate-500 italic">⏳ Repository not prepared yet. Complete Step 01 to initialize workspace.</li>`;
+      }
+
+      // Reset Git working tree stats
       const elStaged = document.getElementById("statStaged");
       const elMod = document.getElementById("statModified");
       const elUntr = document.getElementById("statUntracked");
@@ -1880,6 +2215,43 @@
       if (elDiff) elDiff.textContent = "(no uncommitted changes in working tree)";
       document.getElementById("commitStatusPill").textContent = "Ready";
       document.getElementById("commitStatusPill").className = "text-[11px] text-slate-600 font-mono font-semibold";
+
+      // Reset File Inspector & pills
+      renderDynamicFilePills([], null);
+      document.getElementById("patchPath").value = "";
+      document.getElementById("patchContent").value = "// Complete Step 01 to inspect repository files.";
+
+      // Reset Commit & PR inputs
+      const commitInput = document.getElementById("commitMsg"); if (commitInput) commitInput.value = "";
+      const prTitleInput = document.getElementById("prTitle"); if (prTitleInput) prTitleInput.value = "";
+      const prDescInput = document.getElementById("prDescription"); if (prDescInput) prDescInput.value = "";
+
+      // Reset action button labels & states
+      const btnPrepare = document.getElementById("btnPrepare");
+      if (btnPrepare) {
+        btnPrepare.disabled = false;
+        btnPrepare.innerHTML = `<span>Initialize Quarantine Workspace &amp; Checkout Branch</span>`;
+      }
+      const btnScan = document.getElementById("btnScan");
+      if (btnScan) {
+        btnScan.disabled = false;
+        btnScan.innerHTML = `<span>Execute Deep Security Scan (Process 2)</span>`;
+      }
+      const btnFix = document.getElementById("btnFix");
+      if (btnFix) {
+        btnFix.disabled = false;
+        btnFix.innerHTML = `<span>✨ Generate &amp; Apply Air-Gap Fixes</span>`;
+      }
+      const btnCommit = document.getElementById("btnCommit");
+      if (btnCommit) {
+        btnCommit.disabled = false;
+        btnCommit.innerHTML = `<span>🛡️ Create Cryptographic Commit (Process 4)</span>`;
+      }
+      const btnCreatePr = document.getElementById("btnCreatePr");
+      if (btnCreatePr) {
+        btnCreatePr.disabled = false;
+        btnCreatePr.innerHTML = `<span>🚀 Submit Pull Request for Code Review</span>`;
+      }
 
       // Ensure repoUrl points to CustomerApi if it was pointing to parent portal directory
       const repoInput = document.getElementById("repoUrl");
@@ -1896,15 +2268,17 @@
           if (res && res.error) {
             res = await apiPost("/api/bug-fixer/reset", {});
           }
-          if (res && res.content) {
-            document.getElementById("patchPath").value = "Controllers/UsersController.cs";
-            document.getElementById("patchContent").value = res.content;
-          }
         } catch (e) {}
       }
 
       await syncTelemetry(false);
-      await loadWorkspaceFile("Controllers/UsersController.cs");
+      const wsFiles = (lastTelemetryData && lastTelemetryData.workspace_files) || [];
+      if (wsFiles.length > 0) {
+        await autoLoadBestFile(wsFiles);
+      } else {
+        document.getElementById("patchPath").value = "";
+        document.getElementById("patchContent").value = "// Complete Step 01 to inspect repository files.";
+      }
       log("All 5 pipeline steps refreshed and ready at Step 01.", "success", "Orchestrator");
     }
 

@@ -203,6 +203,28 @@ class TestAirGappedScannerAndRemediator(unittest.TestCase):
         self.assertIn("Local Test PR", get_data["content"])
         self.assertEqual(get_data.get("filename"), "PR-1.md")
 
+    def test_scanner_does_not_scan_customer_api_on_external_repo(self):
+        ext_repo = self.temp_dir / "external_python_repo"
+        ext_repo.mkdir()
+        (ext_repo / "server.py").write_text("import requests\nresp = requests.get('https://api.external-cloud.com/v1')\n")
+        subprocess.run(["git", "init"], cwd=str(ext_repo), check=True, capture_output=True)
+
+        scanner = ScannerAgent()
+        scan_res = scanner.run({"workspace_path": str(ext_repo)})
+
+        self.assertFalse(scan_res["securescan"]["executed"])
+        files_scanned = [f.get("file") or f.get("file_path") for f in scan_res["findings"]]
+        self.assertNotIn("Controllers/UsersController.cs", files_scanned)
+        finding_ids = [f.get("id") or f.get("finding_id") for f in scan_res["findings"]]
+        self.assertNotIn("SQLI-001", finding_ids)
+
+        # Remediate external repo and ensure UsersController.cs is NEVER injected
+        remediator = RemediatorAgent()
+        rem_res = remediator.remediate(workspace_path=ext_repo)
+        self.assertFalse((ext_repo / "Controllers").exists())
+        self.assertFalse((ext_repo / "Controllers" / "UsersController.cs").exists())
+        self.assertFalse((ext_repo / "reports" / "SQLI-001_report.json").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

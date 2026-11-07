@@ -72,8 +72,8 @@ AgentRegistry.register("scanner", SCANNER_AGENT)
 AgentRegistry.register("remediator", REMEDIATOR_AGENT)
 
 
-def _resolve_active_workspace() -> Path:
-    """Returns the active GitSubAgent workspace path or the default CustomerApi repo."""
+def _resolve_active_workspace() -> Optional[Path]:
+    """Returns the active GitSubAgent workspace path or None if not prepared."""
     if ACTIVE_GIT_AGENT and ACTIVE_GIT_AGENT.context:
         try:
             ws = ACTIVE_GIT_AGENT.get_workspace_path()
@@ -81,13 +81,13 @@ def _resolve_active_workspace() -> Path:
                 return ws
         except Exception:
             pass
-    return DEFAULT_LOCAL_REPO
+    return None
 
 
 def _build_telemetry_payload() -> Dict[str, Any]:
     """Builds a 100% real-time telemetry snapshot from the active agents and repository."""
     ws_dir = _resolve_active_workspace()
-    git_prepared = bool(ACTIVE_GIT_AGENT and ACTIVE_GIT_AGENT.context)
+    git_prepared = bool(ACTIVE_GIT_AGENT and ACTIVE_GIT_AGENT.context and ws_dir)
     git_status = None
     git_context = None
     git_diff = ""
@@ -103,30 +103,35 @@ def _build_telemetry_payload() -> Dict[str, Any]:
             logger.debug("Telemetry git status check error: %s", exc)
 
     agents_list = AgentRegistry.list_agents()
-    bug_findings = SCANNER_AGENT.load_bug_findings()
-    remediator_reports = REMEDIATOR_AGENT.list_reports()
+    if git_prepared and SCANNER_AGENT.last_result:
+        bug_findings = SCANNER_AGENT.load_bug_findings()
+    else:
+        bug_findings = []
+    remediator_reports = REMEDIATOR_AGENT.list_reports(ws_dir) if (git_prepared and REMEDIATOR_AGENT.last_result) else []
 
-    tracked_rel_paths = [
-        "Controllers/UsersController.cs",
-        "Program.cs",
-        "appsettings.json",
-        "CustomerApi.csproj",
-        "AIRGAP_SECURITY_AUDIT.md",
-        "config/airgap_proxy.json",
-    ]
+    discovered_files = set()
     workspace_files: List[Dict[str, Any]] = []
-    if ws_dir and ws_dir.exists():
-        for rel in tracked_rel_paths:
+    if git_prepared and ws_dir and ws_dir.exists():
+        for p in ws_dir.rglob("*"):
+            if p.is_file() and not any(part.startswith(".") for part in p.parts if part != p.name):
+                if p.suffix in {".cs", ".py", ".js", ".ts", ".json", ".yaml", ".yml", ".md", ".sh", ".config"}:
+                    try:
+                        rel = str(p.relative_to(ws_dir)).replace("\\", "/")
+                        discovered_files.add(rel)
+                    except ValueError:
+                        pass
+        for rel in sorted(discovered_files):
             f_path = ws_dir / rel
-            workspace_files.append({
-                "relative_path": rel,
-                "exists": f_path.exists(),
-                "size_bytes": f_path.stat().st_size if f_path.exists() else 0,
-            })
+            if f_path.exists() and f_path.is_file():
+                workspace_files.append({
+                    "relative_path": rel,
+                    "exists": True,
+                    "size_bytes": f_path.stat().st_size,
+                })
 
     return {
         "default_repo_path": str(DEFAULT_LOCAL_REPO),
-        "active_workspace_path": str(ws_dir),
+        "active_workspace_path": str(ws_dir) if (git_prepared and ws_dir) else "",
         "agents": agents_list,
         "agents_total": len(agents_list),
         "git": {
@@ -137,14 +142,14 @@ def _build_telemetry_payload() -> Dict[str, Any]:
             "author": git_author,
         },
         "scanner": {
-            "status": SCANNER_AGENT.status,
-            "last_result": SCANNER_AGENT.last_result,
+            "status": SCANNER_AGENT.status if git_prepared else "IDLE",
+            "last_result": SCANNER_AGENT.last_result if git_prepared else None,
             "bug_findings": bug_findings,
             "findings_dir": str(SCANNER_AGENT.findings_dir),
         },
         "remediator": {
-            "status": REMEDIATOR_AGENT.status,
-            "last_result": REMEDIATOR_AGENT.last_result,
+            "status": REMEDIATOR_AGENT.status if git_prepared else "IDLE",
+            "last_result": REMEDIATOR_AGENT.last_result if git_prepared else None,
             "reports_count": len(remediator_reports),
         },
         "workspace_files": workspace_files,
@@ -179,6 +184,7 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        global ACTIVE_GIT_AGENT
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
 
@@ -198,11 +204,12 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
 
         elif path == "/api/bug-fixer/reports":
             """List all saved BugFixerAgent remediation reports from RemediatorAgent."""
-            reports = REMEDIATOR_AGENT.list_reports()
+            git_prepared = bool(ACTIVE_GIT_AGENT and ACTIVE_GIT_AGENT.context)
+            reports = REMEDIATOR_AGENT.list_reports(_resolve_active_workspace()) if (git_prepared and REMEDIATOR_AGENT.last_result) else []
             self._send_json({
                 "count": len(reports),
                 "reports": reports,
-                "default_finding": DEFAULT_SQLI_FINDING,
+                "default_finding": None,
             })
             return
 
@@ -224,7 +231,6 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         elif path == "/api/status":
-            global ACTIVE_GIT_AGENT
             if not ACTIVE_GIT_AGENT:
                 self._send_json({"error": "No active repository prepared"}, status=400)
                 return
@@ -360,12 +366,51 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                             }, status=400)
                             return
 
+                    # Clean up demo artifacts that may have been previously injected into non-CustomerApi repo
+                    if clean_path.name != "CustomerApi":
+                        injected_c = clean_path / "Controllers" / "UsersController.cs"
+                        if injected_c.exists():
+                            try:
+                                c_txt = injected_c.read_text(encoding="utf-8", errors="ignore")
+                                if "namespace CustomerApi" in c_txt or "CustomerApi" in c_txt:
+                                    injected_c.unlink()
+                                    if injected_c.parent.exists() and not any(injected_c.parent.iterdir()):
+                                        injected_c.parent.rmdir()
+                            except Exception:
+                                pass
+                        injected_r = clean_path / "reports" / "SQLI-001_report.json"
+                        if injected_r.exists():
+                            try:
+                                injected_r.unlink()
+                            except Exception:
+                                pass
+
                 ACTIVE_GIT_AGENT = GitSubAgent(config)
                 AgentRegistry.register("git", ACTIVE_GIT_AGENT)
+                # Reset previous scan & remediation results for the new repository session
+                SCANNER_AGENT.last_result = None
+                REMEDIATOR_AGENT.last_result = None
+                if SCANNER_AGENT.findings_dir.exists():
+                    for old_f in SCANNER_AGENT.findings_dir.glob("*.json"):
+                        try:
+                            old_f.unlink()
+                        except Exception:
+                            pass
+                if REMEDIATOR_AGENT.reports_dir.exists():
+                    for old_r in REMEDIATOR_AGENT.reports_dir.glob("*_report.json"):
+                        try:
+                            old_r.unlink()
+                        except Exception:
+                            pass
                 try:
                     ctx = ACTIVE_GIT_AGENT.prepare_workspace()
                 except Exception as clone_exc:
-                    # Offline / air-gapped fallback to local CustomerApi Git repository when remote clone is unreachable
+                    if config.is_local or config.provider == ProviderType.LOCAL:
+                        logger.error("Failed to prepare local repository (%s): %s", config.repo_url, clone_exc)
+                        ACTIVE_GIT_AGENT = None
+                        self._send_json({"error": f"Failed to prepare local repository: {clone_exc}"}, status=400)
+                        return
+                    # Offline / air-gapped fallback to local CustomerApi Git repository ONLY when remote clone is unreachable
                     _ensure_default_local_repo_ready(reset_files=False)
                     if DEFAULT_LOCAL_REPO.exists() and (DEFAULT_LOCAL_REPO / ".git").exists():
                         logger.info("Fallback to local CustomerApi repository (%s): %s", DEFAULT_LOCAL_REPO, clone_exc)
@@ -392,23 +437,63 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
 
             # 2. Scan Code (ScannerAgent)
             elif path == "/api/scan":
-                ws_path = _resolve_active_workspace()
-                result = SCANNER_AGENT.run({"workspace_path": str(ws_path) if ws_path else None})
+                explicit_ws = (payload.get("workspace_path") or payload.get("repo_url") or "").strip()
+                ws_path = None
+                if explicit_ws:
+                    candidate_p = Path(explicit_ws).resolve()
+                    if candidate_p.exists() and candidate_p != APP_ROOT_DIR:
+                        ws_path = candidate_p
+                if not ws_path:
+                    ws_path = _resolve_active_workspace()
+
+                if not ws_path:
+                    self._send_json({"error": "Repository not prepared yet. Complete Step 01 to initialize workspace."}, status=400)
+                    return
+
+                # If active git agent does not match the workspace being scanned, align it
+                if ws_path and (not ACTIVE_GIT_AGENT or not ACTIVE_GIT_AGENT.context or ACTIVE_GIT_AGENT.get_workspace_path().resolve() != ws_path.resolve()):
+                    if (ws_path / ".git").exists():
+                        cfg = GitAgentConfig(
+                            repo_url=str(ws_path),
+                            provider=ProviderType.LOCAL,
+                            base_branch="master",
+                            feature_branch_name="remediation/airgap-api-compliance",
+                        )
+                        ACTIVE_GIT_AGENT = GitSubAgent(cfg)
+                        AgentRegistry.register("git", ACTIVE_GIT_AGENT)
+                        try:
+                            ACTIVE_GIT_AGENT.prepare_workspace()
+                        except Exception as prep_e:
+                            logger.debug("Auto-sync workspace for %s: %s", ws_path, prep_e)
+
+                result = SCANNER_AGENT.run({"workspace_path": str(ws_path)})
                 result["mode"] = "live" if ACTIVE_GIT_AGENT else "preview"
                 self._send_json(result)
                 return
 
             # 3. Fix Code (RemediatorAgent + BugFixerAgent on scanner_agent/findings/*.json)
             elif path == "/api/fix":
-                ws_path = _resolve_active_workspace()
+                explicit_ws = (payload.get("workspace_path") or payload.get("repo_url") or "").strip()
+                ws_path = None
+                if explicit_ws:
+                    candidate_p = Path(explicit_ws).resolve()
+                    if candidate_p.exists() and candidate_p != APP_ROOT_DIR:
+                        ws_path = candidate_p
+                if not ws_path:
+                    ws_path = _resolve_active_workspace()
+
+                if not ws_path:
+                    self._send_json({"error": "Repository not prepared yet. Complete Step 01 to initialize workspace."}, status=400)
+                    return
                 result = REMEDIATOR_AGENT.run({
-                    "workspace_path": str(ws_path) if ws_path else None,
+                    "workspace_path": str(ws_path),
                     "provider": payload.get("provider"),
                     "model": payload.get("model"),
+                    "base_url": payload.get("base_url"),
                 })
                 result["mode"] = "live" if ACTIVE_GIT_AGENT else "preview"
                 # Re-run scanner on the patched workspace to reflect real post-remediation findings & posture
-                post_scan = SCANNER_AGENT.run({"workspace_path": str(ws_path) if ws_path else None})
+                post_scan = SCANNER_AGENT.run({"workspace_path": str(ws_path)})
                 result["post_scan"] = post_scan
                 if ACTIVE_GIT_AGENT:
                     result["status_summary"] = ACTIVE_GIT_AGENT.get_status()
@@ -421,6 +506,9 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
             # 3B. RemediatorAgent (BugFixerAgent) - Fix SAST/Bug Finding
             elif path == "/api/bug-fixer/fix":
                 ws_path = _resolve_active_workspace()
+                if not ws_path:
+                    self._send_json({"error": "Repository not prepared yet. Complete Step 01 to initialize workspace."}, status=400)
+                    return
                 finding_data = payload.get("finding") or dict(DEFAULT_SQLI_FINDING)
                 preview = bool(payload.get("preview", False))
                 provider = payload.get("provider") or None
@@ -442,15 +530,36 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
 
             # 3C. Reset Demo Vulnerable Repository & All Steps State
             elif path in ("/api/bug-fixer/reset", "/api/reset-all"):
-                ws_path = _resolve_active_workspace()
-                result = REMEDIATOR_AGENT.reset_demo(workspace_path=ws_path)
-                if ws_path.resolve() == DEFAULT_LOCAL_REPO:
+                ws_path = _resolve_active_workspace() or DEFAULT_LOCAL_REPO
+                if ws_path.name == "CustomerApi" or ws_path.resolve() == DEFAULT_LOCAL_REPO:
+                    result = REMEDIATOR_AGENT.reset_demo(workspace_path=ws_path)
                     _ensure_default_local_repo_ready(reset_files=True)
+                else:
+                    result = REMEDIATOR_AGENT.reset_demo(workspace_path=None)
                 SCANNER_AGENT.last_result = None
+                SCANNER_AGENT.last_bundle = None
                 SCANNER_AGENT.status = "IDLE"
                 REMEDIATOR_AGENT.last_result = None
                 REMEDIATOR_AGENT.status = "IDLE"
                 LATEST_PR = None
+                if SCANNER_AGENT.findings_dir.exists():
+                    for old_f in SCANNER_AGENT.findings_dir.glob("*.json"):
+                        try:
+                            old_f.unlink()
+                        except Exception:
+                            pass
+                if REMEDIATOR_AGENT.reports_dir.exists():
+                    for old_r in REMEDIATOR_AGENT.reports_dir.glob("*_report.json"):
+                        try:
+                            old_r.unlink()
+                        except Exception:
+                            pass
+                if REMEDIATOR_AGENT.reports_dir.exists():
+                    for old_r in REMEDIATOR_AGENT.reports_dir.glob("*_report.json"):
+                        try:
+                            old_r.unlink()
+                        except Exception:
+                            pass
                 if path == "/api/reset-all":
                     ACTIVE_GIT_AGENT = None
                 elif ACTIVE_GIT_AGENT:
@@ -468,6 +577,10 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                     return
 
                 ws_dir = _resolve_active_workspace()
+                if not ws_dir:
+                    self._send_json({"error": "No repository prepared yet. Complete Step 01 to initialize workspace."}, status=400)
+                    return
+
                 target_file = (ws_dir / rel_path).resolve()
                 if not str(target_file).startswith(str(ws_dir.resolve())):
                     self._send_json({"error": "Forbidden path outside workspace"}, status=403)
@@ -496,6 +609,9 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
             # 4. Save custom patch / write file
             elif path == "/api/write-file":
                 ws_dir = _resolve_active_workspace()
+                if not ws_dir:
+                    self._send_json({"error": "No repository prepared yet. Complete Step 01 to initialize workspace."}, status=400)
+                    return
                 rel_path = payload.get("relative_path")
                 content = payload.get("content", "")
                 if not rel_path:

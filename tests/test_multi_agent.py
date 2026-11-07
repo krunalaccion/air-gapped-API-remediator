@@ -148,6 +148,52 @@ class TestMultiAgentArchitecture(unittest.TestCase):
         self.assertIn("fix(airgap)", out)
         # Verify airgap proxy file generated
         self.assertTrue((local_repo / "config" / "airgap_proxy.json").exists())
+        # Verify CustomerApi files were NOT injected into the local repository
+        self.assertFalse((local_repo / "Controllers").exists())
+        self.assertFalse((local_repo / "Controllers" / "UsersController.cs").exists())
+        self.assertFalse((local_repo / "reports" / "SQLI-001_report.json").exists())
+
+    def test_local_llm_client_ollama_and_local(self):
+        from agents.remediator_agent.llm_client import CloudLLMClient
+        from agents.remediator_agent.models import Finding
+
+        client_ollama = CloudLLMClient(provider="ollama", model="qwen2.5-coder:3b")
+        self.assertEqual(client_ollama.provider, "ollama")
+        self.assertEqual(client_ollama.model, "qwen2.5-coder:3b")
+
+        client_local = CloudLLMClient(provider="local", model="qwen2.5-coder-7b-instruct", base_url="http://localhost:1234/v1")
+        self.assertEqual(client_local.provider, "local")
+        self.assertEqual(client_local.base_url, "http://localhost:1234/v1")
+
+        # Verify offline fallback when local endpoint is unreachable
+        finding = Finding(
+            finding_id="SQLI-001",
+            rule_id="csharp-sql-injection",
+            severity="HIGH",
+            file_path="Controllers/UsersController.cs",
+            line_number=12,
+            message="SQLi",
+            code_snippet='var query = $"SELECT * FROM Users WHERE Id = \'{userId}\'";',
+            repository="CustomerApi",
+        )
+        sample_code = (
+            'var query = $"SELECT * FROM Users WHERE Id = \'{userId}\'";\n'
+            'var cmd = new SqlCommand(query, conn);\n'
+        )
+        proposal = client_ollama.generate_fix(finding, sample_code, sample_code)
+        self.assertIsNotNone(proposal)
+        self.assertIn("Parameters.AddWithValue", proposal.fixed_file_content)
+        self.assertIn("@userId", proposal.fixed_file_content)
+
+        # Verify RemediatorAgent initialization with llm_provider, model, base_url
+        remediator = RemediatorAgent(
+            llm_provider="ollama",
+            model="qwen2.5-coder:3b",
+            base_url="http://127.0.0.1:11434",
+        )
+        self.assertEqual(remediator.llm_provider, "ollama")
+        self.assertEqual(remediator.model, "qwen2.5-coder:3b")
+        self.assertEqual(remediator.base_url, "http://127.0.0.1:11434")
 
 
 if __name__ == "__main__":

@@ -142,12 +142,19 @@ class RemediatorAgent(BaseAgent):
         repos_root: Optional[Path] = None,
         reports_dir: Optional[Path] = None,
         scanner_findings_dir: Optional[Path] = None,
+        llm_provider: Optional[str] = None,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+        base_url: Optional[str] = None,
     ):
         super().__init__(
             name=name,
             role="Air-Gap & SAST Bug Remediation Specialist",
             description="Applies automated code fixes (BugFixerAgent) from scanner_agent/findings/, configures internal gateway proxies, and produces audit manifests.",
         )
+        self.llm_provider = llm_provider or provider
+        self.model = model
+        self.base_url = base_url
         project_root = Path(__file__).resolve().parents[2]
         sibling_air_gaped = project_root.parent / "air-gaped"
 
@@ -171,7 +178,6 @@ class RemediatorAgent(BaseAgent):
             self.scanner_findings_dir = (project_root / "agents" / "scanner_agent" / "findings").resolve()
 
         self.ensure_demo_repo()
-        self.ensure_scanner_findings()
 
     def ensure_demo_repo(self) -> Path:
         """Ensures the demo CustomerApi repository exists so SQLI-001 works out-of-the-box."""
@@ -193,14 +199,14 @@ class RemediatorAgent(BaseAgent):
 
     def load_scanner_findings(self) -> List[Dict[str, Any]]:
         """Reads all finding `*.json` files from `agents/scanner_agent/findings/`."""
-        self.ensure_scanner_findings()
         findings: List[Dict[str, Any]] = []
-        for f in sorted(self.scanner_findings_dir.glob("*.json")):
-            try:
-                data = json.loads(f.read_text(encoding="utf-8"))
-                findings.append(data)
-            except Exception as exc:
-                logger.warning("Failed to parse finding JSON %s: %s", f, exc)
+        if self.scanner_findings_dir.exists():
+            for f in sorted(self.scanner_findings_dir.glob("*.json")):
+                try:
+                    data = json.loads(f.read_text(encoding="utf-8"))
+                    findings.append(data)
+                except Exception as exc:
+                    logger.warning("Failed to parse finding JSON %s: %s", f, exc)
         return findings
 
     def reset_demo(self, workspace_path: Optional[Path] = None) -> Dict[str, Any]:
@@ -219,15 +225,34 @@ class RemediatorAgent(BaseAgent):
             (repo_dir / "appsettings.json").write_text(DEMO_VULNERABLE_APPSETTINGS, encoding="utf-8")
 
         if workspace_path and workspace_path.exists():
-            ws_controller = workspace_path / "Controllers" / "UsersController.cs"
-            if ws_controller.exists():
-                ws_controller.write_text(DEMO_VULNERABLE_CONTROLLER, encoding="utf-8")
-            ws_prog = workspace_path / "Program.cs"
-            if ws_prog.exists():
-                ws_prog.write_text(DEMO_VULNERABLE_PROGRAM_CS, encoding="utf-8")
-            ws_app = workspace_path / "appsettings.json"
-            if ws_app.exists():
-                ws_app.write_text(DEMO_VULNERABLE_APPSETTINGS, encoding="utf-8")
+            if workspace_path.resolve() == repo_dir.resolve() or workspace_path.name == "CustomerApi":
+                ws_controller = workspace_path / "Controllers" / "UsersController.cs"
+                if ws_controller.exists():
+                    ws_controller.write_text(DEMO_VULNERABLE_CONTROLLER, encoding="utf-8")
+                ws_prog = workspace_path / "Program.cs"
+                if ws_prog.exists():
+                    ws_prog.write_text(DEMO_VULNERABLE_PROGRAM_CS, encoding="utf-8")
+                ws_app = workspace_path / "appsettings.json"
+                if ws_app.exists():
+                    ws_app.write_text(DEMO_VULNERABLE_APPSETTINGS, encoding="utf-8")
+            else:
+                # If an external workspace accidentally has CustomerApi's UsersController.cs or reports, clean them up
+                ws_controller = workspace_path / "Controllers" / "UsersController.cs"
+                if ws_controller.exists():
+                    try:
+                        content = ws_controller.read_text(encoding="utf-8", errors="ignore")
+                        if "namespace CustomerApi" in content or "CustomerApi" in content:
+                            ws_controller.unlink()
+                            if ws_controller.parent.exists() and not any(ws_controller.parent.iterdir()):
+                                ws_controller.parent.rmdir()
+                    except Exception:
+                        pass
+                ws_report = workspace_path / "reports" / "SQLI-001_report.json"
+                if ws_report.exists():
+                    try:
+                        ws_report.unlink()
+                    except Exception:
+                        pass
 
         self.status = "READY"
         return {
@@ -237,13 +262,20 @@ class RemediatorAgent(BaseAgent):
             "content": DEMO_VULNERABLE_CONTROLLER,
         }
 
-    def list_reports(self) -> List[Dict[str, Any]]:
-        """Lists all saved JSON remediation reports from BugFixerAgent."""
+    def list_reports(self, workspace_path: Optional[Path] = None) -> List[Dict[str, Any]]:
+        """Lists saved JSON remediation reports from BugFixerAgent."""
         reports: List[Dict[str, Any]] = []
-        if self.reports_dir.exists():
-            for f in sorted(self.reports_dir.glob("*_report.json")):
+        target_dir = (workspace_path / "reports") if (workspace_path and (workspace_path / "reports").exists()) else self.reports_dir
+        if target_dir.exists():
+            for f in sorted(target_dir.glob("*_report.json")):
                 try:
-                    reports.append(json.loads(f.read_text(encoding="utf-8")))
+                    data = json.loads(f.read_text(encoding="utf-8"))
+                    if workspace_path and workspace_path.name != "CustomerApi":
+                        f_repo = data.get("finding", {}).get("repository", "")
+                        f_tgt = data.get("target_file", "")
+                        if f_repo == "CustomerApi" or "CustomerApi" in f_tgt:
+                            continue
+                    reports.append(data)
                 except Exception:
                     continue
         return reports
@@ -255,6 +287,7 @@ class RemediatorAgent(BaseAgent):
         preview: bool = False,
         provider: Optional[str] = None,
         model: Optional[str] = None,
+        base_url: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Executes BugFixerAgent (from fixer_agent.py) against a single finding dict.
@@ -266,19 +299,50 @@ class RemediatorAgent(BaseAgent):
 
         finding = Finding.from_dict(payload)
         ws_path = Path(workspace_path).resolve() if workspace_path else None
+        target_in_ws = False
 
         effective_repos_root = self.repos_root
+        is_demo_or_test_ws = ws_path.name in ("CustomerApi", "ws", "workspace") if ws_path else False
         if ws_path and ws_path.exists():
             candidate_in_ws = ws_path / finding.file_path
             candidate_repo_in_ws = ws_path / finding.repository / finding.file_path
             if candidate_in_ws.exists() or candidate_repo_in_ws.exists():
                 effective_repos_root = ws_path
-            else:
+                target_in_ws = True
+            elif not is_demo_or_test_ws:
+                # Finding file does not exist in this external repository; skip to prevent polluting external repo with demo files
+                logger.info("Skipping finding %s: '%s' not found in workspace '%s'", finding.finding_id, finding.file_path, ws_path.name)
+                return {
+                    "agent": self.name,
+                    "subagent": "BugFixerAgent",
+                    "status": "skipped",
+                    "applied": False,
+                    "summary": f"Skipped {finding.finding_id}: target file '{finding.file_path}' does not exist in repository '{ws_path.name}'.",
+                    "explanation": f"Finding '{finding.finding_id}' belongs to another project and is not present in '{ws_path.name}'.",
+                    "provider": provider or "BugFixerAgent",
+                    "file_path": finding.file_path,
+                    "diff": "",
+                    "files_modified": [],
+                }
+            elif finding.repository == "CustomerApi" or finding.finding_id == "SQLI-001":
                 self.ensure_demo_repo()
+                effective_repos_root = self.repos_root
+                target_in_ws = True
+            else:
+                effective_repos_root = ws_path
         else:
             self.ensure_demo_repo()
+            effective_repos_root = self.repos_root
 
-        llm_client = CloudLLMClient(provider=provider, model=model)
+        effective_provider = provider or self.llm_provider
+        effective_model = model or self.model
+        effective_base_url = base_url or self.base_url
+
+        llm_client = CloudLLMClient(
+            provider=effective_provider,
+            model=effective_model,
+            base_url=effective_base_url,
+        )
         fixer = BugFixerAgent(
             repos_root=effective_repos_root,
             reports_dir=self.reports_dir,
@@ -302,7 +366,7 @@ class RemediatorAgent(BaseAgent):
             except OSError:
                 pass
 
-        if not preview and ws_path and ws_path.exists():
+        if not preview and ws_path and ws_path.exists() and (target_in_ws or is_demo_or_test_ws):
             ws_target = (ws_path / finding.file_path).resolve()
             if str(ws_target).startswith(str(ws_path)):
                 ws_target.parent.mkdir(parents=True, exist_ok=True)
@@ -343,6 +407,7 @@ class RemediatorAgent(BaseAgent):
         proxy_port: int = 8080,
         provider: Optional[str] = None,
         model: Optional[str] = None,
+        base_url: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Applies both:
@@ -352,22 +417,37 @@ class RemediatorAgent(BaseAgent):
         files_modified: List[str] = []
         bug_fixes: List[Dict[str, Any]] = []
         bug_diffs: List[str] = []
+        file_diffs: Dict[str, str] = {}
         patched_files_content: Dict[str, str] = {}
 
         # 1. Run BugFixerAgent on all JSON findings inside scanner_agent/findings/
+        effective_provider = provider or self.llm_provider
+        effective_model = model or self.model
+        effective_base_url = base_url or self.base_url
         scanner_findings = self.load_scanner_findings()
         for finding_dict in scanner_findings:
+            f_rel = finding_dict.get("file_path", "")
+            if workspace_path and workspace_path.exists():
+                candidate = workspace_path / f_rel
+                candidate_repo = workspace_path / finding_dict.get("repository", "") / f_rel
+                if not candidate.exists() and not candidate_repo.exists() and workspace_path.name != "CustomerApi":
+                    logger.info("Skipping finding %s: file %s does not exist in workspace %s", finding_dict.get("finding_id"), f_rel, workspace_path.name)
+                    continue
+
             try:
                 bf_res = self.fix_finding(
                     finding_payload=finding_dict,
                     workspace_path=workspace_path,
                     preview=False,
-                    provider=provider,
-                    model=model,
+                    provider=effective_provider,
+                    model=effective_model,
+                    base_url=effective_base_url,
                 )
                 bug_fixes.append(bf_res)
                 if bf_res.get("diff"):
                     bug_diffs.append(bf_res["diff"])
+                    if bf_res.get("file_path"):
+                        file_diffs[bf_res["file_path"]] = bf_res["diff"]
                 if bf_res.get("file_path") and bf_res.get("patched_content"):
                     patched_files_content[bf_res["file_path"]] = bf_res["patched_content"]
                 for mod_f in bf_res.get("files_modified", []):
@@ -454,6 +534,7 @@ This automated remediation replaces external outbound network API calls with com
             proxy_json_str = json.dumps(proxy_config, indent=2)
             proxy_file.write_text(proxy_json_str, encoding="utf-8")
             patched_files_content["config/airgap_proxy.json"] = proxy_json_str
+            file_diffs["config/airgap_proxy.json"] = "+++ b/config/airgap_proxy.json\n@@ -0,0 +1,15 @@\n" + "\n".join("+" + l for l in proxy_json_str.splitlines()[:15])
             if "config/airgap_proxy.json" not in files_modified:
                 files_modified.append("config/airgap_proxy.json")
 
@@ -461,11 +542,14 @@ This automated remediation replaces external outbound network API calls with com
             audit_file = workspace_path / "AIRGAP_SECURITY_AUDIT.md"
             audit_file.write_text(audit_content, encoding="utf-8")
             patched_files_content["AIRGAP_SECURITY_AUDIT.md"] = audit_content
+            file_diffs["AIRGAP_SECURITY_AUDIT.md"] = "+++ b/AIRGAP_SECURITY_AUDIT.md\n@@ -0,0 +1,25 @@\n" + "\n".join("+" + l for l in audit_content.splitlines()[:25])
             if "AIRGAP_SECURITY_AUDIT.md" not in files_modified:
                 files_modified.append("AIRGAP_SECURITY_AUDIT.md")
         else:
             patched_files_content["config/airgap_proxy.json"] = json.dumps(proxy_config, indent=2)
             patched_files_content["AIRGAP_SECURITY_AUDIT.md"] = audit_content
+            file_diffs["config/airgap_proxy.json"] = "+++ b/config/airgap_proxy.json\n@@ -0,0 +1,15 @@\n" + "\n".join("+" + l for l in json.dumps(proxy_config, indent=2).splitlines()[:15])
+            file_diffs["AIRGAP_SECURITY_AUDIT.md"] = "+++ b/AIRGAP_SECURITY_AUDIT.md\n@@ -0,0 +1,25 @@\n" + "\n".join("+" + l for l in audit_content.splitlines()[:25])
             for std_f in ("config/airgap_proxy.json", "AIRGAP_SECURITY_AUDIT.md"):
                 if std_f not in files_modified:
                     files_modified.append(std_f)
@@ -482,6 +566,7 @@ This automated remediation replaces external outbound network API calls with com
             "audit_report": audit_content,
             "bug_fixes": bug_fixes,
             "bug_diff": "\n\n".join(bug_diffs),
+            "file_diffs": file_diffs,
             "patched_files": patched_files_content,
             "summary": f"Configured internal airgap gateway proxy, generated audit report,{bug_summary}",
         }
@@ -500,12 +585,14 @@ This automated remediation replaces external outbound network API calls with com
                 preview=bool(context.get("preview", False)),
                 provider=context.get("provider"),
                 model=context.get("model"),
+                base_url=context.get("base_url"),
             )
 
         res = self.remediate(
             ws_path,
             provider=context.get("provider"),
             model=context.get("model"),
+            base_url=context.get("base_url"),
         )
         result = {
             "agent": self.name,
@@ -515,6 +602,7 @@ This automated remediation replaces external outbound network API calls with com
             "report_summary": res["audit_report"],
             "bug_fixes": res["bug_fixes"],
             "bug_diff": res["bug_diff"],
+            "file_diffs": res.get("file_diffs", {}),
             "patched_files": res["patched_files"],
         }
         self.last_result = result

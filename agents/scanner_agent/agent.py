@@ -89,23 +89,15 @@ class ScannerAgent(BaseAgent):
     def run_securescan_ai(self, workspace_path: Optional[Path] = None) -> Dict[str, Any]:
         """
         Runs the SecureScanPipeline against the repository initiated by `git_agent`
-        (or fallback `repos/CustomerApi`) and writes actionable bug finding JSONs
-        into `agents/scanner_agent/findings/` for `remediator_agent`.
+        (or fallback `repos/CustomerApi` only if no workspace_path is given)
+        and writes actionable bug finding JSONs into `agents/scanner_agent/findings/` for `remediator_agent`.
         """
         target_dir: Optional[Path] = None
         if workspace_path and workspace_path.exists():
-            has_dotnet_or_config = any(
-                list(workspace_path.rglob(pattern))
-                for pattern in ("*.cs", "*.csproj", "appsettings*.json", "web.config")
-            )
-            if has_dotnet_or_config:
+            is_customer_api = workspace_path.name == "CustomerApi"
+            has_csproj = any(workspace_path.rglob("*.csproj"))
+            if is_customer_api or has_csproj:
                 target_dir = workspace_path
-
-        if target_dir is None:
-            if DEFAULT_CUSTOMER_API_DIR.exists():
-                target_dir = DEFAULT_CUSTOMER_API_DIR
-            elif FALLBACK_CUSTOMER_API_DIR.exists():
-                target_dir = FALLBACK_CUSTOMER_API_DIR
 
         if target_dir is None or not target_dir.exists():
             return {
@@ -150,25 +142,6 @@ class ScannerAgent(BaseAgent):
                 "description": rf.raw_evidence,
                 "recommendation": rec,
             })
-
-            # Write detected SQLi finding to agents/scanner_agent/findings/sqli_001.json for RemediatorAgent
-            if "sqli" in rf.rule_id.lower() or rf.cwe_id == "CWE-89":
-                sqli_json_path = self.findings_dir / "sqli_001.json"
-                sqli_payload = {
-                    "finding_id": "SQLI-001",
-                    "rule_id": "csharp-sql-injection",
-                    "severity": "HIGH",
-                    "file_path": rf.file_path,
-                    "line_number": rf.metadata.get("assignment_line", rf.line_start) if rf.metadata else rf.line_start,
-                    "message": "Potential SQL injection detected by ScannerAgent (C# Lexical Analyzer)",
-                    "code_snippet": rf.code_snippet or "var query = $\"SELECT * FROM Users WHERE Id = '{userId}'\"",
-                    "repository": target_dir.name if target_dir.name != "workspace" else "CustomerApi",
-                    "status": "NEW",
-                }
-                try:
-                    sqli_json_path.write_text(json.dumps(sqli_payload, indent=2), encoding="utf-8")
-                except Exception as exc:
-                    logger.debug("Could not update sqli_001.json: %s", exc)
 
         scanner_statuses = [
             {
@@ -258,19 +231,21 @@ class ScannerAgent(BaseAgent):
         url_regex = re.compile(r'https?://([a-zA-Z0-9\.\-_:]+)(/[^\s"\'<>)]*)?')
         extensions = {".cs", ".py", ".js", ".ts", ".json", ".yaml", ".yml", ".html", ".sh", ".config"}
         finding_id = 1
+        excluded_dirs = {"bin", "obj", ".git", ".vs", ".idea", ".vscode", "node_modules", "__pycache__", "reports"}
 
         for p in workspace_path.rglob("*"):
-            if p.is_file() and not any(part.startswith(".") for part in p.parts if part != p.name):
+            if p.is_file() and not any(part.lower() in excluded_dirs or (part.startswith(".") and part != p.name) for part in p.parts):
                 if p.suffix in extensions or p.name.startswith(".env"):
                     try:
                         rel = p.relative_to(workspace_path).as_posix()
                         lines = p.read_text(encoding="utf-8", errors="ignore").splitlines()
                         for idx, line in enumerate(lines, start=1):
                             for match in url_regex.finditer(line):
-                                domain = match.group(1).lower()
+                                domain = match.group(1).lower().split(":")[0]
                                 if (
                                     domain in ("localhost", "127.0.0.1")
                                     or domain.endswith(".airgap.internal")
+                                    or domain == "proxy.airgap.internal"
                                     or "schemastore.org" in domain
                                     or "microsoft.com" in domain
                                     or "w3.org" in domain
@@ -405,13 +380,44 @@ class ScannerAgent(BaseAgent):
         if effective_scan_dir is None and securescan_data.get("target_project"):
             effective_scan_dir = Path(securescan_data["target_project"])
 
-        real_egress_findings = self.scan_real_egress(effective_scan_dir)
+        real_egress_findings = self.scan_real_egress(effective_scan_dir) if effective_scan_dir else []
         combined_findings = securescan_findings + real_egress_findings
 
-        # Only fall back to scan_workspace defaults if neither SecureScanAI nor real egress found anything
-        # on a non-dotnet synthetic test directory
-        if not combined_findings and not securescan_data.get("executed"):
-            combined_findings = self.scan_workspace(ws_path)
+        # Only fall back to synthetic scan_workspace defaults if no workspace_path was provided at all
+        if not combined_findings and not securescan_data.get("executed") and ws_path is None:
+            combined_findings = self.scan_workspace(None)
+
+        # Clean old findings from previous scans so findings from other repositories don't linger
+        if self.findings_dir.exists():
+            for old_json in self.findings_dir.glob("*.json"):
+                try:
+                    old_json.unlink()
+                except Exception as exc:
+                    logger.debug("Could not remove old finding %s: %s", old_json, exc)
+
+        # Persist all detected findings into agents/scanner_agent/findings/*.json for RemediatorAgent
+        repo_name = effective_scan_dir.name if (effective_scan_dir and effective_scan_dir.name != "workspace") else "CustomerApi"
+        for idx, f in enumerate(combined_findings, 1):
+            fid = f.get("finding_id") or f.get("id") or f"FINDING-{idx:03d}"
+            rule_id = f.get("rule_id") or f.get("rule") or "security-violation"
+            sev = f.get("severity", "MEDIUM")
+            fname = re.sub(r'[^a-zA-Z0-9_\-]', '_', fid.lower()) + ".json"
+            f_path = f.get("file_path") or f.get("file", "")
+            finding_payload = {
+                "finding_id": fid,
+                "rule_id": rule_id,
+                "severity": sev,
+                "file_path": f_path,
+                "line_number": f.get("line_number") or f.get("line") or f.get("line_start", 1),
+                "message": f.get("description") or f.get("message") or f.get("raw_evidence", "Security finding detected by ScannerAgent"),
+                "code_snippet": f.get("code_snippet", ""),
+                "repository": repo_name,
+                "status": "NEW",
+            }
+            try:
+                (self.findings_dir / fname).write_text(json.dumps(finding_payload, indent=2), encoding="utf-8")
+            except Exception as exc:
+                logger.debug("Could not write finding JSON %s: %s", fname, exc)
 
         bug_findings = self.load_bug_findings()
 
