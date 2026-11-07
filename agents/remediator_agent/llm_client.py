@@ -306,14 +306,20 @@ Return the JSON object containing `explanation`, `remediation_summary`, `confide
     @staticmethod
     def _parse_response(raw_text: str) -> FixProposal:
         cleaned = raw_text.strip()
-        if cleaned.startswith("```"):
-            cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
-            cleaned = re.sub(r"\s*```$", "", cleaned)
+        # Robust JSON extraction: check for markdown code blocks or outermost braces
+        fence_match = re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", cleaned)
+        if fence_match:
+            cleaned = fence_match.group(1).strip()
+        elif not (cleaned.startswith("{") and cleaned.endswith("}")):
+            first_brace = cleaned.find("{")
+            last_brace = cleaned.rfind("}")
+            if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+                cleaned = cleaned[first_brace : last_brace + 1].strip()
 
         data = json.loads(cleaned)
         return FixProposal(
             explanation=data.get("explanation", "Remediated security finding."),
-            fixed_file_content=data["fixed_file_content"],
+            fixed_file_content=data.get("fixed_file_content", ""),
             remediation_summary=data.get(
                 "remediation_summary", "Applied automated security fix."
             ),

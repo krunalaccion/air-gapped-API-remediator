@@ -13,19 +13,36 @@ class RepositoryTools:
 
     def resolve_target_file(self, repository: str, file_path: str) -> Path:
         """Resolves the target file path inside the repository directory."""
-        repo_dir = (self.repos_root / repository).resolve()
-        target_path = (repo_dir / file_path).resolve()
+        clean_path = file_path.lstrip("/\\")
+        stripped_path = clean_path
+        if repository and clean_path.startswith(f"{repository}/"):
+            stripped_path = clean_path[len(repository) + 1:]
+        elif clean_path.startswith(f"{self.repos_root.name}/"):
+            stripped_path = clean_path[len(self.repos_root.name) + 1:]
 
-        # Prevent path traversal outside the repository root
-        if not str(target_path).startswith(str(repo_dir)):
+        candidates = [
+            (self.repos_root / clean_path).resolve(),
+            (self.repos_root / stripped_path).resolve(),
+            (self.repos_root / repository / clean_path).resolve(),
+            (self.repos_root / repository / stripped_path).resolve(),
+        ]
+        for cand in candidates:
+            if cand.exists():
+                # Prevent path traversal outside the repository root
+                if str(cand).startswith(str(self.repos_root)):
+                    return cand
+
+        # Fallback check
+        repo_dir = (self.repos_root / repository).resolve() if self.repos_root.name != repository else self.repos_root
+        target_path = (repo_dir / stripped_path).resolve()
+        if not str(target_path).startswith(str(self.repos_root)):
             raise ValueError(
                 f"Security error: file_path '{file_path}' escapes repository '{repository}'"
             )
 
         if not target_path.exists():
-            # Also check directly inside repos_root if repos_root is already the repository root
-            direct_target = (self.repos_root / file_path).resolve()
-            if str(direct_target).startswith(str(self.repos_root)) and direct_target.exists():
+            direct_target = (self.repos_root / clean_path).resolve()
+            if direct_target.exists() and str(direct_target).startswith(str(self.repos_root)):
                 return direct_target
 
             raise FileNotFoundError(

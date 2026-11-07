@@ -304,9 +304,21 @@ class RemediatorAgent(BaseAgent):
         effective_repos_root = self.repos_root
         is_demo_or_test_ws = ws_path.name in ("CustomerApi", "ws", "workspace") if ws_path else False
         if ws_path and ws_path.exists():
-            candidate_in_ws = ws_path / finding.file_path
-            candidate_repo_in_ws = ws_path / finding.repository / finding.file_path
-            if candidate_in_ws.exists() or candidate_repo_in_ws.exists():
+            clean_f = finding.file_path.lstrip("/\\")
+            stripped_f = clean_f
+            if finding.repository and clean_f.startswith(f"{finding.repository}/"):
+                stripped_f = clean_f[len(finding.repository) + 1:]
+            elif clean_f.startswith(f"{ws_path.name}/"):
+                stripped_f = clean_f[len(ws_path.name) + 1:]
+
+            candidates = [
+                ws_path / finding.file_path,
+                ws_path / clean_f,
+                ws_path / stripped_f,
+                ws_path / finding.repository / finding.file_path,
+                ws_path / finding.repository / stripped_f,
+            ]
+            if any(c.exists() for c in candidates):
                 effective_repos_root = ws_path
                 target_in_ws = True
             elif not is_demo_or_test_ws:
@@ -428,9 +440,22 @@ class RemediatorAgent(BaseAgent):
         for finding_dict in scanner_findings:
             f_rel = finding_dict.get("file_path", "")
             if workspace_path and workspace_path.exists():
-                candidate = workspace_path / f_rel
-                candidate_repo = workspace_path / finding_dict.get("repository", "") / f_rel
-                if not candidate.exists() and not candidate_repo.exists() and workspace_path.name != "CustomerApi":
+                clean_f = f_rel.lstrip("/\\")
+                stripped_f = clean_f
+                repo_name = finding_dict.get("repository", "")
+                if repo_name and clean_f.startswith(f"{repo_name}/"):
+                    stripped_f = clean_f[len(repo_name) + 1:]
+                elif clean_f.startswith(f"{workspace_path.name}/"):
+                    stripped_f = clean_f[len(workspace_path.name) + 1:]
+
+                candidates = [
+                    workspace_path / f_rel,
+                    workspace_path / clean_f,
+                    workspace_path / stripped_f,
+                    workspace_path / repo_name / f_rel,
+                    workspace_path / repo_name / stripped_f,
+                ]
+                if not any(c.exists() for c in candidates) and workspace_path.name != "CustomerApi":
                     logger.info("Skipping finding %s: file %s does not exist in workspace %s", finding_dict.get("finding_id"), f_rel, workspace_path.name)
                     continue
 

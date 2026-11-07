@@ -317,6 +317,9 @@ class CSharpLexicalAnalyzer:
             (re.compile(r'\b(MD5\.Create|MD5CryptoServiceProvider|SHA1\.Create|SHA1Managed)\b'), "CWE-328", FindingSeverity.MEDIUM),
         ]
         for line_idx, line in enumerate(lines, 1):
+            clean = line.strip()
+            if clean.startswith("//") or clean.startswith("/*") or clean.startswith("*"):
+                continue
             for pattern, cwe, sev in weak_algos:
                 m = pattern.search(line)
                 if m:
@@ -342,6 +345,9 @@ class CSharpLexicalAnalyzer:
         findings: List[RawSecurityFinding] = []
         has_bf = "BinaryFormatter" in full_content
         for line_idx, line in enumerate(lines, 1):
+            clean = line.strip()
+            if clean.startswith("//") or clean.startswith("/*") or clean.startswith("*"):
+                continue
             if (has_bf and ".Deserialize(" in line) or "TypeNameHandling.All" in line or "TypeNameHandling.Auto" in line:
                 findings.append(
                     RawSecurityFinding(

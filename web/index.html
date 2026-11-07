@@ -152,7 +152,7 @@
   </div>
 
   <!-- Main Security Portal Container -->
-  <div id="portalMainContainer" class="max-w-7xl w-full mx-auto p-4 md:p-5 space-y-4 flex-1 transition-all duration-300">
+  <div id="portalMainContainer" class="max-w-[1680px] w-full mx-auto p-4 md:p-6 space-y-5 flex-1 transition-all duration-300">
 
     <!-- Unified Command Header + Live KPI Strip (Compact & Clean) -->
     <header class="soc-panel rounded-xl p-4 space-y-3.5">
@@ -385,12 +385,12 @@
     </section>
 
     <!-- ===================================================================== -->
-    <!-- MAIN WORKSPACE GRID: Left Active Step Controls + Right Telemetry -->
+    <!-- MAIN WORKSPACE CONTAINER: Full-Width Pipeline Steps & Bottom Telemetry -->
     <!-- ===================================================================== -->
-    <div id="mainWorkspaceGrid" class="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+    <div id="mainWorkspaceGrid" class="w-full space-y-6">
 
-      <!-- Left Column: Step Execution Modules -->
-      <div id="stepPanelsCol" class="lg:col-span-7 space-y-4 transition-all duration-200">
+      <!-- Full-Width Pipeline Execution Steps (Steps 1 to 5) -->
+      <div id="stepPanelsCol" class="w-full space-y-5 transition-all duration-200">
 
         <!-- STEP 1 CARD: Repository & Isolation Branch Setup (GitSubAgent) -->
         <div id="step-panel-1" class="soc-panel rounded-xl p-5 space-y-4 border-t-4 border-t-blue-600">
@@ -900,8 +900,8 @@
 
       </div>
 
-      <!-- Right Column: Live Event Stream & Compliance Cards -->
-      <div id="sideTelemetryCol" class="lg:col-span-5 space-y-4 lg:sticky lg:top-4 transition-all duration-200">
+      <!-- Bottom Section: Telemetry, Activity Stream & Git Working Tree Status -->
+      <section id="sideTelemetryCol" class="w-full space-y-4 pt-4 border-t border-slate-200 transition-all duration-200">
 
         <!-- Active Pull Request Dispatch Card (Shown when PR is created) -->
         <div id="prCard" class="soc-panel rounded-xl p-4 border-l-4 border-l-indigo-600 space-y-2.5 hidden">
@@ -934,19 +934,43 @@
           </div>
         </div>
 
-        <!-- SIEM Real-Time Multi-Agent Event Stream -->
-        <div class="soc-panel rounded-xl p-4 flex flex-col h-72">
-          <div class="flex items-center justify-between pb-2 border-b border-slate-200 mb-2">
-            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-800 font-mono flex items-center gap-2">
-              <span class="w-2 h-2 rounded-full bg-blue-600 animate-ping"></span>
-              <span>Live Multi-Agent Activity Stream</span>
-            </h3>
-            <button onclick="clearLogs()" class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300 font-semibold cursor-pointer">CLEAR</button>
+        <!-- Telemetry Deck Grid: Left Stream + Right Working Tree & Diff -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
+
+          <!-- SIEM Real-Time Multi-Agent Event Stream (Col 1-6) -->
+          <div class="lg:col-span-6 soc-panel rounded-xl p-4 flex flex-col h-80">
+            <div class="flex items-center justify-between pb-2 border-b border-slate-200 mb-2">
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-800 font-mono flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-blue-600 animate-ping"></span>
+                <span>Live Multi-Agent Activity Stream</span>
+              </h3>
+              <div class="flex items-center gap-2">
+                <span class="text-[10px] text-slate-500 font-mono">SIEM Telemetry</span>
+                <button onclick="clearLogs()" class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300 font-semibold cursor-pointer">CLEAR</button>
+              </div>
+            </div>
+            <div id="logConsole" class="flex-1 bg-slate-50 p-2.5 rounded-lg border border-slate-200 font-mono text-[11px] text-slate-700 overflow-y-auto custom-scroll space-y-1.5"></div>
           </div>
-          <div id="logConsole" class="flex-1 bg-slate-50 p-2.5 rounded-lg border border-slate-200 font-mono text-[11px] text-slate-700 overflow-y-auto custom-scroll space-y-1.5"></div>
+
+          <!-- Git Working Tree Status & Diff Inspector (Col 7-12) -->
+          <div class="lg:col-span-6 soc-panel rounded-xl p-4 flex flex-col h-80">
+            <div class="flex items-center justify-between pb-2 border-b border-slate-200 mb-2">
+              <div class="flex items-center gap-2">
+                <span class="text-xs">🌿</span>
+                <h3 class="text-xs font-bold uppercase tracking-wider text-slate-800 font-mono">Git Working Tree &amp; Patch Diff</h3>
+              </div>
+              <div class="flex items-center gap-3 text-[11px] font-mono">
+                <span class="text-emerald-700 font-semibold">Staged: <b id="statStaged">0</b></span>
+                <span class="text-amber-700 font-semibold">Modified: <b id="statModified">0</b></span>
+                <span class="text-slate-600 font-semibold">Untracked: <b id="statUntracked">0</b></span>
+              </div>
+            </div>
+            <pre id="diffOutput" class="flex-1 bg-slate-900 text-emerald-400 p-3 rounded-lg border border-slate-700 font-mono text-[11px] overflow-auto custom-scroll whitespace-pre leading-relaxed select-text">No active working tree diff. Workspace clean.</pre>
+          </div>
+
         </div>
 
-      </div>
+      </section>
 
     </div>
 
@@ -1315,9 +1339,9 @@
     let currentRemediationData = null;
 
     function toggleStep3FullWidth() {
-      step3FullWidth = !step3FullWidth;
+      // All steps are full width by default with bottom telemetry
       applyStep3WidthMode();
-      log(`Toggled Step 3 workspace width: ${step3FullWidth ? 'FULL-WIDTH (100%)' : 'STANDARD (7/12)'}`, "info", "UI");
+      log("Workspace view: Full width active across all steps with bottom telemetry deck", "info", "UI");
     }
 
     function applyStep3WidthMode() {
@@ -1328,40 +1352,20 @@
       const widthLabel = document.getElementById("step3WidthLabel");
       const widthIcon = document.getElementById("step3WidthIcon");
 
-      const isFull = (activeStepNum === 3 && step3FullWidth);
-
-      if (isFull) {
-        if (portalContainer) {
-          portalContainer.classList.remove("max-w-7xl");
-          portalContainer.classList.add("max-w-[1650px]");
-        }
-        if (stepPanelsCol) {
-          stepPanelsCol.className = "lg:col-span-12 w-full space-y-4 transition-all duration-200";
-        }
-        if (sideTelemetryCol) {
-          sideTelemetryCol.className = "lg:col-span-12 w-full space-y-4 mt-2 transition-all duration-200";
-        }
-        if (widthLabel) widthLabel.textContent = "Exit Full Width";
-        if (widthIcon) widthIcon.textContent = "◫";
-        if (btnWidthToggle) {
-          btnWidthToggle.className = "px-2.5 py-1 rounded-lg bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-300 text-xs font-mono font-semibold transition flex items-center gap-1.5 cursor-pointer shadow-sm";
-        }
-      } else {
-        if (portalContainer) {
-          portalContainer.classList.add("max-w-7xl");
-          portalContainer.classList.remove("max-w-[1650px]");
-        }
-        if (stepPanelsCol) {
-          stepPanelsCol.className = "lg:col-span-7 space-y-4 transition-all duration-200";
-        }
-        if (sideTelemetryCol) {
-          sideTelemetryCol.className = "lg:col-span-5 space-y-4 lg:sticky lg:top-4 transition-all duration-200";
-        }
-        if (widthLabel) widthLabel.textContent = "Full Width View";
-        if (widthIcon) widthIcon.textContent = "⛶";
-        if (btnWidthToggle) {
-          btnWidthToggle.className = "px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 text-xs font-mono font-semibold transition flex items-center gap-1.5 cursor-pointer shadow-sm";
-        }
+      if (portalContainer) {
+        portalContainer.classList.add("max-w-[1680px]", "w-full");
+        portalContainer.classList.remove("max-w-7xl");
+      }
+      if (stepPanelsCol) {
+        stepPanelsCol.className = "w-full space-y-5 transition-all duration-200";
+      }
+      if (sideTelemetryCol) {
+        sideTelemetryCol.className = "w-full space-y-4 pt-4 border-t border-slate-200 transition-all duration-200";
+      }
+      if (widthLabel) widthLabel.textContent = "Full Width Active";
+      if (widthIcon) widthIcon.textContent = "⛶";
+      if (btnWidthToggle) {
+        btnWidthToggle.className = "px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-mono font-semibold transition flex items-center gap-1.5 shadow-sm";
       }
     }
 

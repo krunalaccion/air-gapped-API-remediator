@@ -117,7 +117,15 @@ class BugFixerAgent:
 
         # Step 4: Validate generated fix
         logger.info("[Step 4/5] Validating proposed fix...")
-        self._validate_fix(finding, original_content, proposal.fixed_file_content)
+        try:
+            self._validate_fix(finding, original_content, proposal.fixed_file_content)
+        except ValueError as val_err:
+            if self.llm.provider not in ("mock", "offline", "auto-fallback"):
+                logger.warning("LLM proposal validation failed (%s). Attempting deterministic fallback...", val_err)
+                proposal = self.llm._generate_deterministic_fix(finding, original_content)
+                self._validate_fix(finding, original_content, proposal.fixed_file_content)
+            else:
+                raise
 
         diff = self.tools.compute_unified_diff(
             original_content,
