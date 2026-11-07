@@ -3,11 +3,11 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "configurable-git-agent"
+name = "airgap-remediator"
 version = "0.1.0"
-description = "Configurable Git Subagent & MCP Server for multi-agent vulnerability scanning and automated PR/MR creation"
+description = "Autonomous Air-Gapped Security Scanner & Remediation Agent"
 readme = "README.md"
-authors = [{ name = "GitAgent Developer" }]
+authors = [{ name = "AirGap Remediator Developer" }]
 requires-python = ">=3.9"
 dependencies = [
     # Zero mandatory third-party dependencies required; operates cleanly with Python standard library!
@@ -25,9 +25,12 @@ extras = [
 ]
 
 [project.scripts]
-git-agent = "git_agent.cli:main"
-git-agent-mcp = "git_agent.mcp_server:main"
-multi-agent-server = "web_server:run_server"
+airgap-remediator = "agents.git_agent.cli:main"
+airgapped-remediator = "agents.git_agent.cli:main"
+airgap-agent = "agents.git_agent.cli:main"
+airgap-mcp = "agents.git_agent.mcp_server:main"
+airgap-server = "web_server:run_server"
+git-agent = "agents.git_agent.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

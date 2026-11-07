@@ -183,11 +183,16 @@ class GitSubAgent(BaseAgent):
         self.workspace.create_feature_branch(target_feature)
 
         # 5. Build WorkspaceContext
+        provider_name = (
+            self.config.provider.value
+            if (self.config.provider and hasattr(self.config.provider, "value"))
+            else str(self.config.provider or "generic")
+        )
         self.context = WorkspaceContext(
             repo_path=self.workspace.workspace_dir,
             base_branch=resolved_base,
             feature_branch=target_feature,
-            provider=self.config.provider.value,
+            provider=provider_name,
             repo_url=self.config.sanitized_repo_url,
             metadata={
                 "author_name": self.config.author_name,
@@ -264,9 +269,14 @@ class GitSubAgent(BaseAgent):
         body = pr_body or self.config.default_pr_body
         is_draft = draft if draft is not None else self.config.draft_pr
 
+        provider_name = (
+            self.config.provider.value
+            if (self.config.provider and hasattr(self.config.provider, "value"))
+            else str(self.config.provider or "generic")
+        )
         logger.info(
             "Creating %s PR/MR: head='%s', base='%s', title='%s'",
-            self.config.provider.value,
+            provider_name,
             self.context.feature_branch,
             self.context.base_branch,
             title,

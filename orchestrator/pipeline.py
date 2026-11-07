@@ -42,7 +42,12 @@ class MultiAgentPipeline:
         AgentRegistry.register("scanner", self.scanner)
         AgentRegistry.register("remediator", self.remediator)
 
-    def run_remediation_pipeline(self) -> Dict[str, Any]:
+    def run_remediation_pipeline(
+        self,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+        base_url: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Executes end-to-end Air-Gapped API & Bug Remediator pipeline:
         1. Setup: GitSubAgent prepares repository & creates feature branch.
@@ -60,10 +65,20 @@ class MultiAgentPipeline:
         logger.info("Scan completed. Detected %d airgap policy findings.", len(findings))
 
         logger.info("=== STEP 3: RemediatorAgent Applies Air-Gap & BugFixer Remediations ===")
-        fix_result = self.remediator.run({"workspace_path": str(ctx.repo_path)})
+        fix_result = self.remediator.run({
+            "workspace_path": str(ctx.repo_path),
+            "provider": provider,
+            "model": model,
+            "base_url": base_url,
+        })
         files_modified = list(fix_result.get("files_modified", []))
 
-        bug_fix_result = self.remediator.fix_finding(workspace_path=ctx.repo_path)
+        bug_fix_result = self.remediator.fix_finding(
+            workspace_path=ctx.repo_path,
+            provider=provider,
+            model=model,
+            base_url=base_url,
+        )
         for bf_file in bug_fix_result.get("files_modified", []):
             if bf_file not in files_modified:
                 files_modified.append(bf_file)

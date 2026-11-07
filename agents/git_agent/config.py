@@ -82,6 +82,15 @@ class GitAgentConfig:
         return False
 
     def __post_init__(self):
+        # Normalize provider if None or string
+        if self.provider is None:
+            self.provider = ProviderType.GENERIC
+        elif isinstance(self.provider, str):
+            try:
+                self.provider = ProviderType(self.provider.lower())
+            except ValueError:
+                self.provider = ProviderType.GENERIC
+
         # Auto-detect provider if generic or not explicitly provided
         if self.provider == ProviderType.GENERIC:
             self.provider = self._detect_provider_from_url(self.repo_url)
