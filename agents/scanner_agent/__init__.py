@@ -9,6 +9,7 @@ Scanner Agent Package (Process 2 of 3):
 
 from .agent import ScannerAgent
 from .inspectors import AspNetContextInspector, CSharpLexicalAnalyzer, ProjectInspector, ProjectProfile
+from .external_scanners import SemgrepScanner, TrivyScanner, get_scanner_tools_status
 from .models import (
     DependencyManifestAudit,
     DependencyRecord,
@@ -23,6 +24,9 @@ from .pipeline import SecureScanPipeline
 __all__ = [
     "ScannerAgent",
     "SecureScanPipeline",
+    "SemgrepScanner",
+    "TrivyScanner",
+    "get_scanner_tools_status",
     "ProjectInspector",
     "ProjectProfile",
     "CSharpLexicalAnalyzer",

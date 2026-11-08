@@ -270,6 +270,26 @@ class GitAgentConfig:
             return parsed._replace(netloc=host).geturl()
         return url
 
+    @property
+    def repo_name(self) -> str:
+        """Extract the main human-readable repository name from repo_url, avoiding temporary clone directory names."""
+        url = (self.repo_url or "").strip().rstrip("/\\")
+        if url.endswith(".git"):
+            url = url[:-4]
+        if self.is_local:
+            if url.startswith("file://"):
+                url = url[7:]
+            p = Path(os.path.expanduser(url))
+            if p.name and not p.name.startswith("git_agent_workspace_"):
+                return p.name
+        # Remote URL (https://..., git@...) or path segments
+        parts = [p for p in re.split(r"[/\\:]", url) if p]
+        if parts:
+            name = parts[-1]
+            if not name.startswith("git_agent_workspace_"):
+                return name
+        return "repository"
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> GitAgentConfig:
         """Instantiate config from dictionary (e.g. parsed JSON or YAML)."""

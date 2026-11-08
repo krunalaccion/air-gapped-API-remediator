@@ -17,6 +17,7 @@ from agents.base import BaseAgent
 from .fixer_agent import BugFixerAgent
 from .llm_client import CloudLLMClient
 from .models import Finding, FixProposal, FixReport
+from .reporter import RemediationReporter
 from .tools import RepositoryTools
 
 logger = logging.getLogger("agents.remediator")
@@ -279,6 +280,28 @@ class RemediatorAgent(BaseAgent):
                 except Exception:
                     continue
         return reports
+
+    def render_html_report(self, workspace_path: Optional[str] = None) -> str:
+        """Renders the executive post-remediation HTML audit report."""
+        ws = workspace_path or getattr(self, "last_workspace_path", None)
+        return RemediationReporter.render_html_report(
+            result=self.last_result,
+            workspace_path=str(ws) if ws else None,
+            post_scan=getattr(self, "last_post_scan", None),
+        )
+
+    def get_report_content(self, fmt: str = "html", workspace_path: Optional[str] = None) -> tuple[str, str]:
+        """Generates HTML or JSON remediation report content on demand."""
+        fmt = (fmt or "html").lower()
+        if fmt == "html":
+            return self.render_html_report(workspace_path=workspace_path), "text/html; charset=utf-8"
+        json_data = {
+            "status": "completed" if self.last_result else "idle",
+            "last_result": self.last_result,
+            "post_scan": getattr(self, "last_post_scan", None),
+            "workspace_path": str(workspace_path or getattr(self, "last_workspace_path", "")),
+        }
+        return json.dumps(json_data, indent=2), "application/json; charset=utf-8"
 
     def fix_finding(
         self,
@@ -631,5 +654,15 @@ This automated remediation replaces external outbound network API calls with com
             "patched_files": res["patched_files"],
         }
         self.last_result = result
+        self.last_workspace_path = str(ws_path) if ws_path else None
         self.status = "COMPLETED"
+
+        # Archive the HTML audit report locally
+        try:
+            html_rep = self.render_html_report(workspace_path=self.last_workspace_path)
+            self.reports_dir.mkdir(parents=True, exist_ok=True)
+            (self.reports_dir / "REMEDIATION_AUDIT_REPORT.html").write_text(html_rep, encoding="utf-8")
+        except Exception as exc:
+            logger.warning("Could not write REMEDIATION_AUDIT_REPORT.html: %s", exc)
+
         return result

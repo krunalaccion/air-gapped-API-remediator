@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 from agents.base import BaseAgent
+from .external_scanners import get_scanner_tools_status
 from .models import RawSecurityFinding, ScanReportBundle
 from .pipeline import SecureScanPipeline
 
@@ -53,6 +54,7 @@ class ScannerAgent(BaseAgent):
         self.findings_dir.mkdir(parents=True, exist_ok=True)
         self.securescan_pipeline = SecureScanPipeline(findings_dir=self.findings_dir)
         self.last_bundle: Optional[ScanReportBundle] = None
+        self.last_engine: str = "all"
 
     def load_bug_findings(self) -> List[Dict[str, Any]]:
         """
@@ -86,18 +88,31 @@ class ScannerAgent(BaseAgent):
             return "Remediation: Restrict AllowedHosts in appsettings.json to internal air-gap domains."
         return "Remediation: Apply SecureScanAI security hardening via RemediatorAgent."
 
-    def run_securescan_ai(self, workspace_path: Optional[Path] = None) -> Dict[str, Any]:
+    def get_scanner_tools(self) -> Dict[str, Any]:
+        """Returns availability and installation status for Semgrep and Trivy."""
+        return get_scanner_tools_status()
+
+    def run_securescan_ai(
+        self,
+        workspace_path: Optional[Path] = None,
+        scanner_engine: str = "all",
+    ) -> Dict[str, Any]:
         """
-        Runs the SecureScanPipeline against the repository initiated by `git_agent`
-        (or fallback `repos/CustomerApi` only if no workspace_path is given)
+        Runs the SecureScanPipeline (including Semgrep and Trivy if requested/available)
+        against the repository initiated by `git_agent`
         and writes actionable bug finding JSONs into `agents/scanner_agent/findings/` for `remediator_agent`.
         """
         target_dir: Optional[Path] = None
         if workspace_path and workspace_path.exists():
             is_customer_api = workspace_path.name == "CustomerApi"
             has_csproj = any(workspace_path.rglob("*.csproj"))
-            if is_customer_api or has_csproj:
+            if scanner_engine in ("semgrep", "trivy") or is_customer_api or has_csproj:
                 target_dir = workspace_path
+        elif workspace_path is None:
+            if DEFAULT_CUSTOMER_API_DIR.exists():
+                target_dir = DEFAULT_CUSTOMER_API_DIR
+            elif FALLBACK_CUSTOMER_API_DIR.exists():
+                target_dir = FALLBACK_CUSTOMER_API_DIR
 
         if target_dir is None or not target_dir.exists():
             return {
@@ -107,7 +122,7 @@ class ScannerAgent(BaseAgent):
             }
 
         try:
-            bundle = self.securescan_pipeline.run_scan(target_project_dir=target_dir)
+            bundle = self.securescan_pipeline.run_scan(target_project_dir=target_dir, scanner_engine=scanner_engine)
             self.last_bundle = bundle
         except Exception as exc:
             logger.warning("SecureScanPipeline error on %s: %s", target_dir, exc)
@@ -372,19 +387,34 @@ class ScannerAgent(BaseAgent):
         self.status = "RUNNING"
         ws_path_str = context.get("workspace_path") or context.get("repo_path")
         ws_path = Path(ws_path_str) if ws_path_str else None
+        scanner_engine = (context.get("scanner_engine") or context.get("engine") or "all").lower().strip()
+        self.last_engine = scanner_engine
 
-        securescan_data = self.run_securescan_ai(ws_path)
+        securescan_data = self.run_securescan_ai(ws_path, scanner_engine=scanner_engine)
         securescan_findings = securescan_data.get("securescan_findings", [])
 
         effective_scan_dir = ws_path
         if effective_scan_dir is None and securescan_data.get("target_project"):
             effective_scan_dir = Path(securescan_data["target_project"])
 
-        real_egress_findings = self.scan_real_egress(effective_scan_dir) if effective_scan_dir else []
-        combined_findings = securescan_findings + real_egress_findings
+        if scanner_engine == "semgrep":
+            # Strict Semgrep mode: return exclusively Semgrep SAST findings
+            combined_findings = securescan_findings
+            real_egress_findings = []
+        elif scanner_engine == "trivy":
+            # Strict Trivy mode: return exclusively Trivy findings
+            combined_findings = securescan_findings
+            real_egress_findings = []
+        elif scanner_engine in ("securescan", "builtin"):
+            real_egress_findings = self.scan_real_egress(effective_scan_dir) if effective_scan_dir else []
+            combined_findings = securescan_findings + real_egress_findings
+        else:
+            # "all" or "auto": combine SecureScanAI, Semgrep/Trivy and real egress checks
+            real_egress_findings = self.scan_real_egress(effective_scan_dir) if effective_scan_dir else []
+            combined_findings = securescan_findings + real_egress_findings
 
-        # Only fall back to synthetic scan_workspace defaults if no workspace_path was provided at all
-        if not combined_findings and not securescan_data.get("executed") and ws_path is None:
+        # Only fall back to synthetic scan_workspace defaults if no workspace_path was provided and engine is "all"
+        if not combined_findings and not securescan_data.get("executed") and ws_path is None and scanner_engine in ("all", "auto"):
             combined_findings = self.scan_workspace(None)
 
         # Clean old findings from previous scans so findings from other repositories don't linger
@@ -444,6 +474,7 @@ class ScannerAgent(BaseAgent):
             "securescan": securescan_data,
             "bug_findings": bug_findings,
             "findings_dir": str(self.findings_dir),
+            "scanner_tools": get_scanner_tools_status(),
             "summary": (
                 f"ScannerAgent scanned {effective_scan_dir.name if effective_scan_dir else 'repository'}: "
                 f"{len(combined_findings)} real finding(s) detected "

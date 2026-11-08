@@ -33,6 +33,8 @@ EXCLUDED_DIRECTORIES: Set[str] = {
     ".vscode",
     "node_modules",
     "__pycache__",
+    "reports",
+    "findings",
 }
 
 SECURITY_KEYWORDS = ("token", "password", "pwd", "secret", "key", "salt", "auth", "nonce", "otp", "credential")
