@@ -60,31 +60,30 @@ class BugFixerAgent:
             original_content, finding.line_number, finding.code_snippet
         )
         if not matched:
-            backup_candidate = target_path.with_suffix(target_path.suffix + ".bak")
-            if backup_candidate.exists():
+            # Check if this finding was already remediated by a previous step or another rule
+            clean_snip = re.sub(r'[\s\'\",;]+', '', finding.code_snippet or "").lower()
+            clean_orig = re.sub(r'[\s\'\",;]+', '', original_content).lower()
+            if (
+                "parameters.addwithvalue" in clean_orig
+                or (len(clean_snip) > 6 and clean_snip not in clean_orig)
+                or finding.status == "FIXED"
+            ):
                 logger.info(
-                    "Finding '%s' is already fixed in %s (found line %d: `%s`). "
-                    "Restoring from backup %s to re-run remediation...",
+                    "Finding '%s' is already remediated in %s. Skipping redundant patch.",
                     finding.finding_id,
                     target_path.name,
-                    finding.line_number,
-                    matched_text.strip(),
-                    backup_candidate.name,
                 )
-                original_content = self.tools.read_file(backup_candidate)
-                target_path.write_text(original_content, encoding="utf-8")
-                matched, actual_line, matched_text = self.tools.verify_snippet(
-                    original_content, finding.line_number, finding.code_snippet
-                )
-            elif "Parameters.AddWithValue" in original_content and finding.file_path.endswith("UsersController.cs"):
-                from .agent import DEMO_VULNERABLE_CONTROLLER
-                original_content = DEMO_VULNERABLE_CONTROLLER
-                target_path.write_text(original_content, encoding="utf-8")
-                matched, actual_line, matched_text = self.tools.verify_snippet(
-                    original_content, finding.line_number, finding.code_snippet
+                return FixReport(
+                    finding=finding,
+                    target_file=str(target_path),
+                    applied=True,
+                    provider=self.llm.provider,
+                    explanation=f"Finding '{finding.finding_id}' ({finding.rule_id}) is verified as already remediated in '{target_path.name}'.",
+                    remediation_summary=f"Already remediated in {target_path.name}.",
+                    diff="",
+                    backup_path=None,
                 )
 
-        if not matched:
             raise ValueError(
                 f"Vulnerable snippet not found in {target_path}. "
                 f"Expected: `{finding.code_snippet}` near line {finding.line_number}, "

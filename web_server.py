@@ -117,6 +117,7 @@ def _build_telemetry_payload() -> Dict[str, Any]:
     git_context = None
     git_diff = ""
     git_author = "Git SubAgent <git-agent@subagent.local>"
+    git_repo_name = ""
 
     if git_prepared and ACTIVE_GIT_AGENT:
         try:
@@ -124,11 +125,14 @@ def _build_telemetry_payload() -> Dict[str, Any]:
             git_context = ACTIVE_GIT_AGENT.context.to_dict() if ACTIVE_GIT_AGENT.context else None
             git_diff = ACTIVE_GIT_AGENT.get_diff()
             git_author = f"{ACTIVE_GIT_AGENT.config.author_name} <{ACTIVE_GIT_AGENT.config.author_email}>"
+            git_repo_name = ACTIVE_GIT_AGENT.config.repo_name
         except Exception as exc:
             logger.debug("Telemetry git status check error: %s", exc)
+        if not git_repo_name and ACTIVE_GIT_AGENT.context:
+            git_repo_name = getattr(ACTIVE_GIT_AGENT.context, "repo_name", "")
 
     agents_list = AgentRegistry.list_agents()
-    if git_prepared and SCANNER_AGENT.last_result:
+    if SCANNER_AGENT.last_result or git_prepared:
         bug_findings = SCANNER_AGENT.load_bug_findings()
     else:
         bug_findings = []
@@ -161,16 +165,18 @@ def _build_telemetry_payload() -> Dict[str, Any]:
         "agents_total": len(agents_list),
         "git": {
             "prepared": git_prepared,
+            "repo_name": git_repo_name,
             "context": git_context,
             "status": git_status,
             "diff": git_diff,
             "author": git_author,
         },
         "scanner": {
-            "status": SCANNER_AGENT.status if git_prepared else "IDLE",
-            "last_result": SCANNER_AGENT.last_result if git_prepared else None,
+            "status": SCANNER_AGENT.status if (git_prepared or SCANNER_AGENT.last_result) else "IDLE",
+            "last_result": SCANNER_AGENT.last_result,
             "bug_findings": bug_findings,
             "findings_dir": str(SCANNER_AGENT.findings_dir),
+            "tools": SCANNER_AGENT.get_scanner_tools(),
         },
         "remediator": {
             "status": REMEDIATOR_AGENT.status if git_prepared else "IDLE",
@@ -179,6 +185,7 @@ def _build_telemetry_payload() -> Dict[str, Any]:
         },
         "workspace_files": workspace_files,
         "latest_pr": LATEST_PR,
+        "build_and_test": ACTIVE_GIT_AGENT.last_build_test_result if (git_prepared and ACTIVE_GIT_AGENT and hasattr(ACTIVE_GIT_AGENT, "last_build_test_result")) else None,
     }
 
 
@@ -255,6 +262,24 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(content)
             return
 
+        elif path in ("/api/remediator/report", "/reports/REMEDIATION_AUDIT_REPORT.html", "/REMEDIATION_AUDIT_REPORT.html"):
+            """Serve the latest RemediatorAgent Post-Remediation HTML or JSON report."""
+            parsed_query = urllib.parse.parse_qs(parsed.query)
+            fmt = (parsed_query.get("format", ["html"])[0] or "html").lower()
+            ws_path = _resolve_active_workspace()
+            content_str, content_type = REMEDIATOR_AGENT.get_report_content(fmt=fmt, workspace_path=str(ws_path) if ws_path else None)
+            content = content_str.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(content)))
+            self.end_headers()
+            self.wfile.write(content)
+            return
+
+        elif path == "/api/scanner/tools":
+            self._send_json(SCANNER_AGENT.get_scanner_tools())
+            return
+
         elif path == "/api/status":
             if not ACTIVE_GIT_AGENT:
                 self._send_json({"error": "No active repository prepared"}, status=400)
@@ -310,6 +335,41 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(content)))
+                self.end_headers()
+                self.wfile.write(content)
+                return
+
+        # Static Web Assets (Favicons & Apple Touch Icons for Safari, Chrome, Firefox, Edge)
+        elif (
+            path.startswith("/favicon")
+            or path.startswith("/apple-touch-icon")
+            or path.startswith("/safari-pinned-tab")
+        ):
+            target_name = path.lstrip("/").split("?")[0]
+            asset_file = get_web_dir() / target_name
+            if not asset_file.exists():
+                asset_file = Path(__file__).parent / target_name
+            if not asset_file.exists():
+                if "apple-touch-icon" in target_name:
+                    asset_file = get_web_dir() / "apple-touch-icon.png"
+                elif target_name.endswith(".ico"):
+                    asset_file = get_web_dir() / "favicon.ico"
+                elif target_name.endswith(".svg"):
+                    asset_file = get_web_dir() / "favicon.svg"
+                else:
+                    asset_file = get_web_dir() / "favicon.png"
+
+            if asset_file.exists():
+                content = asset_file.read_bytes()
+                mime = "image/png"
+                if target_name.endswith(".ico"):
+                    mime = "image/x-icon"
+                elif target_name.endswith(".svg"):
+                    mime = "image/svg+xml"
+                self.send_response(200)
+                self.send_header("Content-Type", mime)
+                self.send_header("Content-Length", str(len(content)))
+                self.send_header("Cache-Control", "no-cache, must-revalidate")
                 self.end_headers()
                 self.wfile.write(content)
                 return
@@ -422,7 +482,10 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                 AgentRegistry.register("git", ACTIVE_GIT_AGENT)
                 # Reset previous scan & remediation results for the new repository session
                 SCANNER_AGENT.last_result = None
+                SCANNER_AGENT.status = "IDLE"
                 REMEDIATOR_AGENT.last_result = None
+                REMEDIATOR_AGENT.status = "IDLE"
+                LATEST_PR = None
                 if SCANNER_AGENT.findings_dir.exists():
                     for old_f in SCANNER_AGENT.findings_dir.glob("*.json"):
                         try:
@@ -443,10 +506,27 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                     self._send_json({"error": f"Failed to prepare repository: {clone_exc}"}, status=400)
                     return
 
+                # Build the code and run unit tests if any
+                build_test_res = {}
+                try:
+                    build_test_res = ACTIVE_GIT_AGENT.build_and_test()
+                except Exception as bt_exc:
+                    logger.warning("Build/test runner failed: %s", bt_exc)
+                    build_test_res = {
+                        "executed": False,
+                        "error": str(bt_exc),
+                        "ecosystem": "unknown",
+                        "ecosystem_name": "Unknown",
+                        "build": {"status": "skipped", "summary": f"Build runner error: {bt_exc}"},
+                        "tests": {"status": "skipped", "tests_found": False, "summary": "Tests not run"},
+                        "summary": f"Build runner error: {bt_exc}",
+                    }
+
                 self._send_json({
                     "message": "Repository prepared successfully",
                     "context": ctx.to_dict(),
                     "status": ACTIVE_GIT_AGENT.get_status(),
+                    "build_and_test": build_test_res,
                 })
                 return
 
@@ -488,7 +568,10 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                         except Exception as prep_e:
                             logger.debug("Auto-sync workspace for %s: %s", ws_path, prep_e)
 
-                result = SCANNER_AGENT.run({"workspace_path": str(ws_path)})
+                REMEDIATOR_AGENT.last_result = None
+                REMEDIATOR_AGENT.status = "IDLE"
+                engine = payload.get("scanner_engine") or payload.get("engine") or "all"
+                result = SCANNER_AGENT.run({"workspace_path": str(ws_path), "scanner_engine": engine})
                 result["mode"] = "live" if ACTIVE_GIT_AGENT else "preview"
                 self._send_json(result)
                 return
@@ -519,9 +602,21 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                     "base_url": payload.get("base_url"),
                 })
                 result["mode"] = "live" if ACTIVE_GIT_AGENT else "preview"
-                # Re-run scanner on the patched workspace to reflect real post-remediation findings & posture
-                post_scan = SCANNER_AGENT.run({"workspace_path": str(ws_path)})
+                # Re-run scanner on the patched workspace using the active scanner engine to reflect real post-remediation findings & posture
+                scan_engine = payload.get("scanner_engine") or getattr(SCANNER_AGENT, "last_engine", "all")
+                post_scan = SCANNER_AGENT.run({"workspace_path": str(ws_path), "scanner_engine": scan_engine})
                 result["post_scan"] = post_scan
+                REMEDIATOR_AGENT.last_post_scan = post_scan
+                REMEDIATOR_AGENT.last_workspace_path = str(ws_path)
+
+                # Refresh the saved HTML audit report with post_scan posture
+                try:
+                    html_rep = REMEDIATOR_AGENT.render_html_report(workspace_path=str(ws_path))
+                    REMEDIATOR_AGENT.reports_dir.mkdir(parents=True, exist_ok=True)
+                    (REMEDIATOR_AGENT.reports_dir / "REMEDIATION_AUDIT_REPORT.html").write_text(html_rep, encoding="utf-8")
+                except Exception:
+                    pass
+
                 if ACTIVE_GIT_AGENT:
                     result["status_summary"] = ACTIVE_GIT_AGENT.get_status()
                     result["diff"] = ACTIVE_GIT_AGENT.get_diff() or result.get("bug_diff", "")
@@ -752,6 +847,27 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                 )
                 res = pipeline.run_remediation_pipeline()
                 self._send_json(res)
+                return
+
+            # 7b. Run Workspace Build and Unit Tests
+            elif path == "/api/build-test":
+                if not ACTIVE_GIT_AGENT:
+                    self._send_json({"error": "Please call /api/prepare first"}, status=400)
+                    return
+                try:
+                    build_test_res = ACTIVE_GIT_AGENT.build_and_test()
+                except Exception as bt_exc:
+                    logger.warning("Build/test runner failed: %s", bt_exc)
+                    build_test_res = {
+                        "executed": False,
+                        "error": str(bt_exc),
+                        "ecosystem": "unknown",
+                        "ecosystem_name": "Unknown",
+                        "build": {"status": "skipped", "summary": f"Build runner error: {bt_exc}"},
+                        "tests": {"status": "skipped", "tests_found": False, "summary": "Tests not run"},
+                        "summary": f"Build runner error: {bt_exc}",
+                    }
+                self._send_json(build_test_res)
                 return
 
             # 8. Validate Local Repository Path (Check if directory has .git)

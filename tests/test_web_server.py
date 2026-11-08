@@ -144,17 +144,17 @@ class TestAirGappedScannerAndRemediator(unittest.TestCase):
         self.assertTrue(html_path.exists())
         content = html_path.read_text(encoding="utf-8")
 
-        # Verify key elements
-        self.assertIn('id="folderModal"', content)
-        self.assertIn('id="modalStatusAlert"', content)
-        self.assertIn('id="quickAccessContainer"', content)
-        self.assertIn('id="modalCurrentPath"', content)
+        # Verify key elements for remote repository URL pipeline & security theme
+        self.assertIn('id="repoUrl"', content)
+        self.assertIn('id="threatLevelBadge"', content)
+        self.assertIn('id="kpiVulnCard"', content)
+        self.assertIn('setPortalTheme', content)
+        self.assertIn('id="buildTestResultsContainer"', content)
+        self.assertIn('handleRerunBuildTest', content)
+        self.assertIn('renderBuildAndTestUI', content)
         self.assertIn('.hidden {', content)
         self.assertIn('display: none !important;', content)
         self.assertIn('div.textContent = `[${time}] [${agentName}] ${msg}`;', content)
-        self.assertIn('openFolderPickerModal', content)
-        self.assertIn('selectFolder', content)
-        self.assertIn('validate-path', content)
 
 
     def _call_get(self, path: str) -> tuple[int, dict]:
@@ -224,6 +224,59 @@ class TestAirGappedScannerAndRemediator(unittest.TestCase):
         self.assertFalse((ext_repo / "Controllers").exists())
         self.assertFalse((ext_repo / "Controllers" / "UsersController.cs").exists())
         self.assertFalse((ext_repo / "reports" / "SQLI-001_report.json").exists())
+
+    def test_build_tester_engine_python_with_tests(self):
+        from agents.git_agent.build_tester import run_build_and_tests
+        py_repo = self.temp_dir / "py_math_project"
+        py_repo.mkdir()
+        (py_repo / "calculator.py").write_text("def mul(a, b):\n    return a * b\n")
+        tests_dir = py_repo / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_calc.py").write_text(
+            "import unittest\nfrom calculator import mul\n\n"
+            "class TestCalc(unittest.TestCase):\n"
+            "    def test_mul(self):\n"
+            "        self.assertEqual(mul(3, 4), 12)\n"
+        )
+
+        res = run_build_and_tests(py_repo)
+        self.assertTrue(res["executed"])
+        self.assertEqual(res["ecosystem"], "python")
+        self.assertEqual(res["build"]["status"], "passed")
+        self.assertEqual(res["tests"]["status"], "passed")
+        self.assertTrue(res["tests"]["tests_found"])
+        self.assertEqual(res["tests"]["passed"], 1)
+        self.assertEqual(res["tests"]["failed"], 0)
+
+    def test_api_prepare_runs_build_and_tests(self):
+        # Prepare workspace on a python repo and ensure build_and_test is returned
+        test_repo = self.temp_dir / "my_py_repo"
+        test_repo.mkdir()
+        subprocess.run(["git", "init", "-b", "main"], cwd=str(test_repo), check=True, capture_output=True)
+        (test_repo / "app.py").write_text("x = 42\n")
+        subprocess.run(["git", "add", "."], cwd=str(test_repo), check=True, capture_output=True)
+        subprocess.run(["git", "-c", "commit.gpgsign=false", "-c", "user.name=Test", "-c", "user.email=test@test.local", "commit", "-m", "init"], cwd=str(test_repo), check=True, capture_output=True)
+
+        status, prep_data = self._call_post("/api/prepare", {"repo_url": str(test_repo)})
+        self.assertEqual(status, 200)
+        self.assertEqual(prep_data["context"]["repo_name"], "my_py_repo")
+        self.assertIn("build_and_test", prep_data)
+        bt = prep_data["build_and_test"]
+        self.assertTrue(bt["executed"])
+        self.assertEqual(bt["ecosystem"], "python")
+        self.assertEqual(bt["build"]["status"], "passed")
+
+        # Telemetry should also report repo_name
+        t_status, telem_data = self._call_get("/api/telemetry")
+        self.assertEqual(t_status, 200)
+        self.assertEqual(telem_data["git"]["repo_name"], "my_py_repo")
+
+        # Test manual POST /api/build-test endpoint
+        b_status, b_data = self._call_post("/api/build-test", {})
+        self.assertEqual(b_status, 200)
+        self.assertTrue(b_data["executed"])
+        self.assertEqual(b_data["ecosystem"], "python")
+
 
 
 if __name__ == "__main__":

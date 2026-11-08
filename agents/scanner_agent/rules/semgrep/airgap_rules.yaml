@@ -1,0 +1,84 @@
+# =============================================================================
+# Offline / Air-Gapped Semgrep Rule Suite for ScannerAgent
+# These rules execute locally without any external registry or network access.
+# Run command:
+#   semgrep scan --config agents/scanner_agent/rules/semgrep/ --metrics=off --disable-version-check <target>
+# =============================================================================
+
+rules:
+  # 1. SQL Injection (C# - CWE-89)
+  - id: airgap.csharp.sqli.tainted-concatenation
+    languages: [csharp]
+    severity: ERROR
+    message: "Dynamic SQL query formed via unescaped string interpolation or concatenation. Vulnerable to SQL Injection (CWE-89)."
+    metadata:
+      cwe: "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+      owasp: "A03:2021-Injection"
+      confidence: "HIGH"
+    patterns:
+      - pattern-either:
+          - pattern: $CMD = $"... {$PARAM} ...";
+          - pattern: $CMD = "... " + $PARAM;
+          - pattern: new SqlCommand("... " + $PARAM, ...);
+          - pattern: new SqlCommand($"... {$PARAM} ...", ...);
+          - pattern: $CTX.FromSqlRaw("... " + $PARAM);
+          - pattern: $CTX.FromSqlRaw($"... {$PARAM} ...");
+          - pattern: $CTX.ExecuteSqlRaw("... " + $PARAM);
+          - pattern: $CTX.ExecuteSqlRaw($"... {$PARAM} ...");
+          - pattern-regex: '(?i)\$"SELECT\s+.*\{'
+          - pattern-regex: '(?i)"SELECT\s+.*"\s*\+'
+          - pattern-regex: '(?i)\$"(INSERT|UPDATE|DELETE)\s+.*\{'
+          - pattern-regex: '(?i)"(INSERT|UPDATE|DELETE)\s+.*"\s*\+'
+
+  # 2. Hardcoded Passwords & API Tokens (CWE-798)
+  - id: airgap.generic.secrets.hardcoded-credentials
+    languages: [csharp, python, javascript, typescript]
+    severity: ERROR
+    message: "Hardcoded secret, password, or private key detected in source code. (CWE-798)"
+    metadata:
+      cwe: "CWE-798: Use of Hard-coded Credentials"
+      owasp: "A07:2021-Identification and Authentication Failures"
+      confidence: "HIGH"
+    patterns:
+      - pattern-regex: '(?i)\b(password|pwd|secret|apiKey|api_key|token|auth_token|bearer)\s*[:=]\s*["''][^"'']{8,}["'']'
+
+  # 3. Weak Cryptography Algorithms (CWE-327, CWE-328)
+  - id: airgap.generic.crypto.weak-algorithm
+    languages: [csharp, python]
+    severity: WARNING
+    message: "Deprecated or broken cryptographic algorithm used (DES, MD5, SHA1). Use AES-GCM or SHA-256 instead. (CWE-327/328)"
+    metadata:
+      cwe: "CWE-327: Use of a Broken or Risky Cryptographic Algorithm"
+      owasp: "A02:2021-Cryptographic Failures"
+    patterns:
+      - pattern-either:
+          - pattern: DES.Create(...)
+          - pattern: new DESCryptoServiceProvider(...)
+          - pattern: MD5.Create(...)
+          - pattern: new MD5CryptoServiceProvider(...)
+          - pattern: SHA1.Create(...)
+          - pattern: hashlib.md5(...)
+          - pattern: hashlib.sha1(...)
+
+  # 4. Insecure Deserialization (CWE-502)
+  - id: airgap.csharp.deserialization.binary-formatter
+    languages: [csharp]
+    severity: ERROR
+    message: "BinaryFormatter is fundamentally dangerous and vulnerable to remote code execution. (CWE-502)"
+    metadata:
+      cwe: "CWE-502: Deserialization of Untrusted Data"
+      owasp: "A08:2021-Software and Data Integrity Failures"
+    patterns:
+      - pattern: new BinaryFormatter().Deserialize(...)
+
+  # 5. External Egress API Calls (CWE-918 / Air-Gap Policy)
+  - id: airgap.network.unwhitelisted-external-egress
+    languages: [csharp, python, javascript, typescript, yaml, json]
+    severity: ERROR
+    message: "Direct outbound internet connection detected in isolated perimeter. Must route through internal proxy. (CWE-918)"
+    metadata:
+      cwe: "CWE-918: Server-Side Request Forgery"
+      owasp: "Air-Gap Zero-Egress Policy"
+    patterns:
+      - pattern-regex: 'https?://(?!localhost|127\.0\.0\.1|[a-zA-Z0-9_\-]+\.airgap\.internal)[a-zA-Z0-9\.\-_:]+/[^\s"''<>)]*'
+

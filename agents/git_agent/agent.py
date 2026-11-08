@@ -6,6 +6,7 @@ Manages repository lifecycle: cloning, branching for audits, committing fixes, a
 from __future__ import annotations
 import datetime
 import logging
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, List, Dict, Any
@@ -42,9 +43,27 @@ class WorkspaceContext:
     repo_url: str
     metadata: Dict[str, Any] = field(default_factory=dict)
 
+    @property
+    def repo_name(self) -> str:
+        """Extract the main human-readable repository name, avoiding temp directory names."""
+        url = (self.repo_url or "").strip().rstrip("/\\")
+        if url.endswith(".git"):
+            url = url[:-4]
+        if url.startswith("file://"):
+            url = url[7:]
+        parts = [p for p in re.split(r"[/\\:]", url) if p]
+        if parts:
+            name = parts[-1]
+            if not name.startswith("git_agent_workspace_"):
+                return name
+        if self.repo_path and not self.repo_path.name.startswith("git_agent_workspace_"):
+            return self.repo_path.name
+        return parts[-1] if parts else "repository"
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "repo_path": str(self.repo_path),
+            "repo_name": self.repo_name,
             "base_branch": self.base_branch,
             "feature_branch": self.feature_branch,
             "provider": self.provider,
@@ -103,6 +122,7 @@ class GitSubAgent(BaseAgent):
             token_to_scrub=config.token,
         )
         self.context: Optional[WorkspaceContext] = None
+        self.last_build_test_result: Optional[Dict[str, Any]] = None
 
     def _init_provider(self) -> None:
         """Initialize repository provider (GitHub / GitLab)."""
@@ -212,6 +232,18 @@ class GitSubAgent(BaseAgent):
     def get_diff(self, staged: bool = False) -> str:
         """Returns git diff of changes made by other agents."""
         return self.workspace.diff(staged=staged)
+
+    def build_and_test(self, timeout: int = 60) -> Dict[str, Any]:
+        """
+        Builds repository code and executes unit test cases in the workspace.
+        Detects .NET, Node.js, Python, etc., compiles project, and runs test suites.
+        """
+        from .build_tester import run_build_and_tests
+        ws_dir = self.workspace.workspace_dir
+        logger.info("Executing build and unit test suite for workspace at %s", ws_dir)
+        res = run_build_and_tests(ws_dir, timeout=timeout)
+        self.last_build_test_result = res
+        return res
 
     def finalize_workspace(
         self,

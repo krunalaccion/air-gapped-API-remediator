@@ -59,6 +59,14 @@ class MultiAgentPipeline:
         ctx: WorkspaceContext = self.git_agent.prepare_workspace()
         logger.info("Workspace ready at %s on branch '%s'", ctx.repo_path, ctx.feature_branch)
 
+        build_test_result = {}
+        try:
+            build_test_result = self.git_agent.build_and_test()
+            logger.info("Build & Unit Test Verification completed: %s", build_test_result.get("summary"))
+        except Exception as bt_exc:
+            logger.warning("Build & test execution failed: %s", bt_exc)
+            build_test_result = {"executed": False, "error": str(bt_exc)}
+
         logger.info("=== STEP 2: ScannerAgent Scans for Egress Violations ===")
         scan_result = self.scanner.run({"workspace_path": str(ctx.repo_path)})
         findings = scan_result.get("findings", [])
@@ -105,6 +113,7 @@ class MultiAgentPipeline:
         return {
             "status": "success",
             "context": ctx.to_dict(),
+            "build_and_test": build_test_result,
             "scan": scan_result,
             "remediation": fix_result,
             "bug_fixer": bug_fix_result,
