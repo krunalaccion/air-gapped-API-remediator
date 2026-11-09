@@ -813,6 +813,76 @@ class TestAirGappedScannerAndRemediator(unittest.TestCase):
         ]
         self.assertEqual(len(target_residual), 0)
 
+    def test_validate_path_allow_non_git(self):
+        non_git = self.temp_dir / "plain_project_1"
+        non_git.mkdir()
+        status, data = self._call_post("/api/validate-path", {"path": str(non_git), "allow_non_git": True})
+        self.assertEqual(status, 200)
+        self.assertTrue(data.get("valid"))
+        self.assertFalse(data.get("has_git"))
+        self.assertTrue(data.get("can_auto_init"))
+
+    def test_validate_path_auto_init(self):
+        non_git = self.temp_dir / "plain_project_2"
+        non_git.mkdir()
+        status, data = self._call_post("/api/validate-path", {"path": str(non_git), "auto_init": True})
+        self.assertEqual(status, 200)
+        self.assertTrue(data.get("valid"))
+        self.assertTrue(data.get("has_git"))
+        self.assertTrue((non_git / ".git").exists())
+
+    def test_prepare_and_fix_unlinked_local_project(self):
+        # Create a plain local project without git or remote
+        proj_dir = self.temp_dir / "unlinked_local_app"
+        proj_dir.mkdir()
+        (proj_dir / "telemetry.py").write_text(
+            'import requests\n\ndef send():\n    return requests.post("https://api.mixpanel.com/track", data={})\n',
+            encoding="utf-8",
+        )
+
+        # 1. Prepare with auto_init: True
+        status, prep_data = self._call_post("/api/prepare", {
+            "repo_url": str(proj_dir),
+            "feature_branch": "remediation/local-fix-test",
+            "auto_init": True,
+            "skip_build_test": True,
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(prep_data["context"]["provider"], "local")
+        self.assertTrue((proj_dir / ".git").exists())
+
+        # 2. Scan workspace
+        status, scan_data = self._call_post("/api/scan", {
+            "workspace_path": str(proj_dir),
+            "scanner_engine": "all",
+        })
+        self.assertEqual(status, 200)
+        self.assertGreater(scan_data.get("total_findings", 0), 0)
+
+        # 3. Fix issues
+        status, fix_data = self._call_post("/api/fix", {
+            "workspace_path": str(proj_dir),
+        })
+        self.assertEqual(status, 200)
+        self.assertGreater(len(fix_data.get("files_modified", [])), 0)
+
+        # 4. Commit and push (remains safely local for unlinked repo)
+        status, commit_data = self._call_post("/api/commit-push", {
+            "commit_message": "fix(airgap): remediate mixpanel telemetry in unlinked project",
+        })
+        self.assertEqual(status, 200)
+        self.assertIn("commit_hash", commit_data)
+
+        # 5. Create local PR manifest
+        status, pr_data = self._call_post("/api/create-pr", {
+            "title": "Remediate Mixpanel Telemetry",
+            "description": "Auto-remediation for unlinked project",
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(pr_data.get("provider"), "local")
+        self.assertTrue(Path(pr_data["pr_file_path"]).exists())
+        self.assertIn("Remediate Mixpanel Telemetry", pr_data.get("title", ""))
+
 
 
 if __name__ == "__main__":

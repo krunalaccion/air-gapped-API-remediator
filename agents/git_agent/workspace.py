@@ -210,8 +210,13 @@ class GitWorkspace:
 
     def get_current_branch(self) -> str:
         """Return the currently checked-out branch name."""
-        _, out, _ = self.run_git(["rev-parse", "--abbrev-ref", "HEAD"])
-        return out.strip()
+        code, out, _ = self.run_git(["rev-parse", "--abbrev-ref", "HEAD"], check=False)
+        if code == 0 and out.strip() and out.strip() != "HEAD":
+            return out.strip()
+        code, out, _ = self.run_git(["symbolic-ref", "--short", "HEAD"], check=False)
+        if code == 0 and out.strip():
+            return out.strip()
+        return self.current_feature_branch or self.base_branch or "main"
 
     def status(self) -> Dict[str, List[str]]:
         """

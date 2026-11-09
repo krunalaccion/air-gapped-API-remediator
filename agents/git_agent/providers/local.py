@@ -72,14 +72,44 @@ class LocalProvider(GitProvider):
             return True
         return False
 
-    def check_is_git_repository(self) -> None:
-        """Verify repository path exists and has git; raise error if not."""
+    def init_repository(self, default_branch: str = "main") -> None:
+        """Initializes a local directory as a Git repository with baseline commit and main/master branches."""
+        if not self.repo_path.exists():
+            self.repo_path.mkdir(parents=True, exist_ok=True)
+        init_branch = default_branch if default_branch and default_branch.lower() != "auto" else "main"
+        author_name = getattr(self.config, "author_name", "Git SubAgent") or "Git SubAgent"
+        author_email = getattr(self.config, "author_email", "git-agent@subagent.local") or "git-agent@subagent.local"
+
+        self._run_git(["init", "-b", init_branch])
+        self._run_git(["config", "user.name", author_name])
+        self._run_git(["config", "user.email", author_email])
+        self._run_git(["config", "commit.gpgsign", "false"])
+        self._run_git(["add", "-A"])
+
+        cmd = ["git", "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "chore: initial baseline repository snapshot"]
+        env = os.environ.copy()
+        env["GIT_AUTHOR_NAME"] = author_name
+        env["GIT_COMMITTER_NAME"] = author_name
+        env["GIT_AUTHOR_EMAIL"] = author_email
+        env["GIT_COMMITTER_EMAIL"] = author_email
+        env["GIT_TERMINAL_PROMPT"] = "0"
+        subprocess.run(cmd, cwd=str(self.repo_path), capture_output=True, env=env)
+
+        self._run_git(["branch", "-f", "master", "HEAD"])
+        self._run_git(["branch", "-f", "main", "HEAD"])
+
+    def check_is_git_repository(self, auto_init: bool = False) -> None:
+        """Verify repository path exists and has git; auto-initialize if enabled or raise error if not."""
         if not self.repo_path.exists():
             raise FileNotFoundError(f"Selected repository path does not exist: {self.repo_path}")
         if not self.verify_access():
-            raise ValueError(
-                f"Selected path '{self.repo_path}' is not a Git repository (missing '.git' directory)."
-            )
+            if auto_init and self.repo_path.is_dir():
+                logger.info("Auto-initializing local git repository at %s", self.repo_path)
+                self.init_repository(default_branch=self.config.base_branch or "main")
+            else:
+                raise ValueError(
+                    f"Selected path '{self.repo_path}' is not a Git repository (missing '.git' directory)."
+                )
 
     def get_default_branch(self) -> str:
         """

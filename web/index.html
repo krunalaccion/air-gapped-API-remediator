@@ -909,14 +909,29 @@
             <div>
               <label
                 class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center justify-between">
-                <span>Git Repository URL</span>
-                <span class="text-[10px] text-blue-600 dark:text-blue-400 font-mono font-semibold">GitHub • GitLab •
-                  Bitbucket • Remote Git (HTTPS / SSH)</span>
+                <span>Repository / Local Project Path</span>
+                <span class="text-[10px] text-blue-600 dark:text-blue-400 font-mono font-semibold">Remote Git (GitHub • GitLab •
+                  Bitbucket) • Local Project / Repository (Offline &amp; Unlinked)</span>
               </label>
               <div>
-                <input type="text" id="repoUrl" value="" placeholder="https://github.com/organization/repository.git"
+                <input type="text" id="repoUrl" value="" placeholder="https://github.com/organization/repository.git or /path/to/local/project"
                   oninput="handlePathInput(this.value)"
                   class="soc-input w-full text-xs font-mono px-3 py-2.5 rounded-lg">
+              </div>
+              <div class="flex items-center justify-between gap-2 mt-2">
+                <div class="flex items-center gap-1.5 flex-wrap">
+                  <button type="button" onclick="selectDefaultDemoProject()"
+                    class="px-2.5 py-1 rounded bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-[11px] font-mono font-semibold transition cursor-pointer flex items-center gap-1">
+                    <span>💻</span> <span>Use Demo Project (repos/CustomerApi)</span>
+                  </button>
+                  <button type="button" onclick="openFolderPickerModal()"
+                    class="px-2.5 py-1 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 text-[11px] font-mono font-semibold transition cursor-pointer flex items-center gap-1">
+                    <span>📂</span> <span>Browse Local Folders...</span>
+                  </button>
+                </div>
+                <div id="targetModeBadge" class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-semibold border border-slate-200 dark:border-slate-700">
+                  Ready
+                </div>
               </div>
               <div id="pathValidationStatus"
                 class="hidden mt-1.5 p-2 rounded-lg text-[11px] font-mono flex items-center gap-1.5"></div>
@@ -936,7 +951,7 @@
               </div>
               <div>
                 <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Personal Access Token
-                  (PAT) <span class="text-[10px] text-slate-400">(Required for private repos)</span></label>
+                  (PAT) <span class="text-[10px] text-slate-400">(Optional for local projects)</span></label>
                 <input type="password" id="gitToken" placeholder="ghp_... or glpat-..."
                   class="soc-input w-full text-xs font-mono px-3 py-2 rounded-lg">
               </div>
@@ -1783,6 +1798,66 @@
             Path</button>
           <button onclick="closeLocalPrModal()"
             class="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs text-white font-mono font-medium cursor-pointer">Done</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Interactive Folder Explorer Modal -->
+  <div id="folderPickerModal" style="display: none;"
+    class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+    onclick="if(event.target === this) closeFolderPickerModal()">
+    <div class="soc-panel rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden"
+      onclick="event.stopPropagation()">
+      <div class="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900">
+        <div class="flex items-center gap-2.5 min-w-0">
+          <span class="text-xl">📁</span>
+          <div class="min-w-0">
+            <h3 class="text-sm font-bold text-slate-900 dark:text-slate-100 truncate font-mono">Select Local Project Directory</h3>
+            <p class="text-[11px] text-slate-500 font-mono truncate">Use any local folder or unlinked Git repository</p>
+          </div>
+        </div>
+        <button onclick="closeFolderPickerModal()"
+          class="text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 p-1 rounded-lg text-lg flex-shrink-0 cursor-pointer">✕</button>
+      </div>
+
+      <!-- Quick Access Bookmarks -->
+      <div class="px-4 py-2.5 bg-slate-100/70 dark:bg-slate-950/40 border-b border-slate-200 dark:border-slate-800 flex items-center gap-2 overflow-x-auto text-[11px] font-mono">
+        <span class="text-slate-500 font-semibold flex-shrink-0">Bookmarks:</span>
+        <button type="button" onclick="loadFolderList('repos/CustomerApi')"
+          class="px-2.5 py-1 rounded-md bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-700 hover:bg-blue-200 flex-shrink-0 cursor-pointer font-bold">
+          📦 repos/CustomerApi (Demo)
+        </button>
+        <div id="modalQuickAccess" class="flex items-center gap-1.5 flex-shrink-0"></div>
+      </div>
+
+      <!-- Current Directory Bar & Up Button -->
+      <div class="px-4 py-2 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center gap-2">
+        <button type="button" onclick="navigateParentFolder()" id="btnFolderUp"
+          class="px-2.5 py-1 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-mono font-bold cursor-pointer" title="Go to parent directory">
+          ⬆ Up
+        </button>
+        <div id="modalCurrentPathDisplay" class="text-xs font-mono text-slate-700 dark:text-slate-300 truncate flex-1 font-semibold"></div>
+        <button type="button" onclick="refreshFolderList()" class="p-1 rounded text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer text-xs" title="Refresh">↻</button>
+      </div>
+
+      <!-- Subdirectory List -->
+      <div class="p-3 flex-1 overflow-y-auto custom-scroll space-y-2 bg-slate-50/50 dark:bg-slate-950/20" id="modalFolderListContainer">
+        <div class="text-xs text-slate-500 text-center py-8 font-mono">Loading folders...</div>
+      </div>
+
+      <!-- Footer Action -->
+      <div class="p-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex items-center justify-between gap-3">
+        <span class="text-[11px] text-slate-500 font-mono">Works with any local folder even if it is not linked to any git repository.</span>
+        <div class="flex items-center gap-2">
+          <button onclick="confirmCurrentFolder()"
+            class="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs text-white font-mono font-bold cursor-pointer">
+            Select Current Folder
+          </button>
+          <button onclick="closeFolderPickerModal()"
+            class="px-3 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 text-xs text-slate-700 dark:text-slate-300 font-mono cursor-pointer">
+            Cancel
+          </button>
         </div>
       </div>
     </div>
@@ -4087,10 +4162,13 @@ ${filesFormatted}
       const gitToken = document.getElementById("gitToken").value.trim();
 
       if (!repoUrl) {
-        alert("Please enter a Git Repository URL (e.g. https://github.com/organization/repository.git).");
+        alert("Please enter a Repository URL or local project path (e.g. repos/CustomerApi or /path/to/project).");
         document.getElementById("repoUrl").focus();
         return;
       }
+
+      const isLocal = window.isLocalProject || repoUrl.startsWith("/") || repoUrl.startsWith("./") || repoUrl.startsWith("~") || repoUrl.includes("repos/");
+      const actionMsg = isLocal ? "Mounting and isolating local project" : "Cloning repository";
 
       if (!window.isFullPipelineRunning) {
         setGlobalActionLock(true, "Step 01: Initializing Workspace", "btnPrepare");
@@ -4099,10 +4177,10 @@ ${filesFormatted}
         setStage(1, "RUNNING...", false);
         showBuildTestLoader(
           "Workspace Initialization & Build/Test in Progress...",
-          `Cloning repository and configuring quarantine branch for ${repoUrl}...`,
-          "GitSubAgent Process 01: Cloning workspace and setting up quarantine branch..."
+          `${actionMsg} and configuring quarantine branch for ${repoUrl}...`,
+          "GitSubAgent Process 01: Initializing workspace and configuring quarantine branch..."
         );
-        log(`Cloning and isolating repository from ${repoUrl}...`, "info", "GitSubAgent");
+        log(`${actionMsg} from ${repoUrl}...`, "info", "GitSubAgent");
         document.getElementById("btnPrepare").textContent = "⏳ Step 1: Initializing Workspace & Build/Test...";
 
         const res = await apiPost("/api/prepare", {
@@ -4110,12 +4188,13 @@ ${filesFormatted}
           token: gitToken || undefined,
           base_branch: baseBranch,
           feature_branch: featureBranch,
+          auto_init: true,
           skip_build_test: true
         });
 
         if (res.error) {
           hideBuildTestLoader();
-          document.getElementById("btnPrepare").textContent = "Clone, Build & Test Quarantine Workspace";
+          document.getElementById("btnPrepare").textContent = isLocal ? "Initialize & Quarantine Local Project Workspace" : "Clone, Build & Test Quarantine Workspace";
           window.activePreparedWorkspacePath = "";
           setStage(1, "FAILED", false);
           log(`Prepare failed: ${res.error}`, "error", "GitSubAgent");
@@ -4128,7 +4207,8 @@ ${filesFormatted}
         const mainRepo = extractMainRepoName(res.context?.repo_name, res.context?.repo_url || repoUrl, res.context?.repo_path);
         log(`Workspace isolated on branch: ${res.context.feature_branch} (${mainRepo})`, "success", "GitSubAgent");
         document.getElementById("currentBranchDisplay").textContent = res.context.feature_branch;
-        showPathFeedback(`✓ Active Repository: ${mainRepo} (${(res.context?.provider || "Git").toUpperCase()})`, true);
+        const providerName = (res.context?.provider === "local" || isLocal) ? "LOCAL" : (res.context?.provider || "Git").toUpperCase();
+        showPathFeedback(`✓ Active Repository: ${mainRepo} (${providerName})`, true);
 
         // Workspace ready, now show loader for build and unit test verification
         showBuildTestLoader(
@@ -5004,8 +5084,7 @@ ${filesFormatted}
       }
 
       const repoInput = document.getElementById("repoUrl");
-      if (repoInput) {
-        repoInput.value = "";
+      if (repoInput && !repoInput.value.trim()) {
         handlePathInput("");
         showPathFeedback("", true);
       }
@@ -5115,32 +5194,203 @@ ${filesFormatted}
 
       const btnPrepare = document.getElementById("btnPrepare");
       const stage1Desc = document.getElementById("stage-1-desc");
-      if (btnPrepare) btnPrepare.innerHTML = `<span>Clone &amp; Initialize Quarantine Workspace</span>`;
-      if (stage1Desc) stage1Desc.textContent = "GitSubAgent • Remote Clone";
+      const badge = document.getElementById("targetModeBadge");
 
       if (!trimmed) {
         showPathFeedback("", false);
+        if (btnPrepare) btnPrepare.innerHTML = `<span>Clone, Build &amp; Test Quarantine Workspace</span>`;
+        if (stage1Desc) stage1Desc.textContent = "GitSubAgent • Ready";
+        if (badge) {
+          badge.textContent = "Ready";
+          badge.className = "text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-semibold border border-slate-200 dark:border-slate-700";
+        }
         return;
       }
 
-      pathValidationTimeout = setTimeout(() => {
+      pathValidationTimeout = setTimeout(async () => {
         const isHttpGit = /^https?:\/\/[^\s/$.?#].[^\s]*$/i.test(trimmed);
         const isSshGit = /^(git@[a-zA-Z0-9._-]+:|\w+@|ssh:\/\/).+$/i.test(trimmed);
         if (isHttpGit || isSshGit) {
+          window.isLocalProject = false;
+          window.autoInitGit = false;
           let provider = "Git";
           if (trimmed.includes("github.com")) provider = "GitHub";
           else if (trimmed.includes("gitlab.com") || trimmed.includes("gitlab.")) provider = "GitLab";
           else if (trimmed.includes("bitbucket.org")) provider = "Bitbucket";
           else if (trimmed.includes("azure.com")) provider = "Azure DevOps";
           showPathFeedback(`✓ Valid ${provider} repository URL recognized. Enter Personal Access Token (PAT) if private.`, true);
+          if (btnPrepare) btnPrepare.innerHTML = `<span>Clone, Build &amp; Test Quarantine Workspace</span>`;
+          if (stage1Desc) stage1Desc.textContent = `GitSubAgent • Remote Clone (${provider})`;
+          if (badge) {
+            badge.textContent = `🌐 ${provider} Remote`;
+            badge.className = "text-[10px] font-mono px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-semibold border border-blue-300";
+          }
         } else {
-          showPathFeedback(`⚠️ Enter a valid Git repository URL (e.g. https://github.com/organization/repository.git)`, false);
+          // Local filesystem path or project directory
+          try {
+            const check = await apiPost("/api/validate-path", { path: trimmed, allow_non_git: true });
+            if (check.valid) {
+              window.isLocalProject = true;
+              if (check.has_git) {
+                window.autoInitGit = false;
+                showPathFeedback(`✓ Valid Local Git Repository: ${check.path} (Offline mode - not linked to any remote repo)`, true);
+                if (btnPrepare) btnPrepare.innerHTML = `<span>Initialize &amp; Quarantine Local Project</span>`;
+                if (stage1Desc) stage1Desc.textContent = "GitSubAgent • Local Repository Mode";
+                if (badge) {
+                  badge.textContent = "💻 Local Git Repo (Unlinked)";
+                  badge.className = "text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-semibold border border-emerald-300";
+                }
+              } else {
+                window.autoInitGit = true;
+                showPathFeedback(`✓ Local Project directory: ${check.path} (Git repository will be auto-initialized to isolate & fix issues)`, true);
+                if (btnPrepare) btnPrepare.innerHTML = `<span>Initialize, Build &amp; Test Local Project</span>`;
+                if (stage1Desc) stage1Desc.textContent = "GitSubAgent • Local Project Mode (Auto-Init Git)";
+                if (badge) {
+                  badge.textContent = "📁 Local Project (Auto-Init)";
+                  badge.className = "text-[10px] font-mono px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-semibold border border-amber-300";
+                }
+              }
+            } else {
+              window.isLocalProject = false;
+              window.autoInitGit = false;
+              showPathFeedback(`⚠️ ${check.error || "Enter a valid Git repository URL or local project directory path"}`, false);
+              if (badge) {
+                badge.textContent = "Path Not Found";
+                badge.className = "text-[10px] font-mono px-2 py-0.5 rounded bg-rose-100 text-rose-800 font-semibold border border-rose-300";
+              }
+            }
+          } catch (e) {
+            window.isLocalProject = false;
+            window.autoInitGit = false;
+            showPathFeedback(`⚠️ Enter a valid Git repository URL or local project directory path`, false);
+            if (badge) {
+              badge.textContent = "Error";
+              badge.className = "text-[10px] font-mono px-2 py-0.5 rounded bg-rose-100 text-rose-800 font-semibold border border-rose-300";
+            }
+          }
         }
       }, 200);
     }
 
+    // ==========================================
+    // Interactive Local Folder Browser
+    // ==========================================
+    function openFolderPickerModal(initialPath = "") {
+      const modal = document.getElementById("folderPickerModal");
+      if (modal) modal.style.display = "flex";
+      loadFolderList(initialPath || document.getElementById("repoUrl")?.value || "");
+    }
+
+    function closeFolderPickerModal() {
+      const modal = document.getElementById("folderPickerModal");
+      if (modal) modal.style.display = "none";
+    }
+
+    async function loadFolderList(targetPath = "") {
+      const container = document.getElementById("modalFolderListContainer");
+      if (!container) return;
+      container.innerHTML = `<div class="text-xs text-slate-500 text-center py-8 font-mono">Loading folders...</div>`;
+      try {
+        const res = await apiPost("/api/fs/list", { path: targetPath });
+        currentModalPath = res.current_path || targetPath;
+        currentModalHasGit = Boolean(res.current_has_git);
+        modalParentPath = res.parent_path || null;
+
+        const pathEl = document.getElementById("modalCurrentPathDisplay");
+        if (pathEl) {
+          pathEl.textContent = currentModalPath;
+          pathEl.title = currentModalPath;
+        }
+
+        const upBtn = document.getElementById("btnFolderUp");
+        if (upBtn) {
+          upBtn.disabled = !modalParentPath;
+          upBtn.classList.toggle("opacity-50", !modalParentPath);
+        }
+
+        // Render quick access bookmarks
+        const qaContainer = document.getElementById("modalQuickAccess");
+        if (qaContainer && res.quick_access) {
+          qaContainer.innerHTML = res.quick_access.map(qa => `
+            <button type="button" onclick="loadFolderList('${qa.path.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}')"
+              class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 text-slate-700 dark:text-slate-300 text-[10px] font-mono cursor-pointer truncate">
+              ${qa.label}
+            </button>
+          `).join("");
+        }
+
+        if (!res.folders || res.folders.length === 0) {
+          container.innerHTML = `<div class="text-xs text-slate-500 text-center py-8 font-mono">No subdirectories found in this folder.</div>`;
+          return;
+        }
+
+        let html = "";
+        for (const f of res.folders) {
+          const escPath = f.path.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+          html += `
+            <div class="p-2.5 rounded-lg border ${f.has_git ? 'border-emerald-300 bg-emerald-50/70 dark:bg-emerald-950/30 dark:border-emerald-700' : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900'} hover:border-blue-400 transition flex items-center justify-between gap-3">
+              <div class="flex items-center gap-2.5 min-w-0 cursor-pointer flex-1" onclick="loadFolderList('${escPath}')" title="Click to browse inside folder">
+                <span class="text-lg">${f.has_git ? '📦' : '📁'}</span>
+                <div class="truncate">
+                  <div class="text-xs font-mono font-semibold ${f.has_git ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-800 dark:text-slate-200'} truncate">${f.name}</div>
+                  <div class="text-[10px] text-slate-500 truncate font-mono">${f.path}</div>
+                </div>
+              </div>
+              <div class="flex items-center gap-1.5 flex-shrink-0">
+                ${f.has_git ? '<span class="px-1.5 py-0.5 rounded text-[10px] bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300 font-mono font-bold border border-emerald-300">Git Repo</span>' : '<span class="px-1.5 py-0.5 rounded text-[10px] bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 font-mono">Project</span>'}
+                <button type="button" onclick="selectFolder('${escPath}', ${Boolean(f.has_git)})"
+                  class="px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs font-mono transition cursor-pointer">
+                  Select
+                </button>
+                <button type="button" onclick="loadFolderList('${escPath}')"
+                  class="px-2 py-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-500 text-xs transition cursor-pointer" title="Open directory">
+                  ➔
+                </button>
+              </div>
+            </div>
+          `;
+        }
+        container.innerHTML = html;
+      } catch (err) {
+        container.innerHTML = `<div class="text-xs text-rose-600 text-center py-6 font-mono">Failed to load folders: ${err.message}</div>`;
+      }
+    }
+
+    function navigateParentFolder() {
+      if (modalParentPath) loadFolderList(modalParentPath);
+    }
+
+    function refreshFolderList() {
+      loadFolderList(currentModalPath);
+    }
+
+    function selectFolder(folderPath, hasGit) {
+      const input = document.getElementById("repoUrl");
+      if (input) {
+        input.value = folderPath;
+        handlePathInput(folderPath);
+      }
+      closeFolderPickerModal();
+      log(`Selected local project: ${folderPath} (${hasGit ? "Local Git Repo" : "Local Project - Auto-Init"})`, "info", "System");
+    }
+
+    function confirmCurrentFolder() {
+      if (!currentModalPath) return;
+      selectFolder(currentModalPath, currentModalHasGit);
+    }
+
+    function selectDefaultDemoProject() {
+      const input = document.getElementById("repoUrl");
+      if (input) {
+        input.value = "repos/CustomerApi";
+        handlePathInput("repos/CustomerApi");
+      }
+      log("Loaded default local project: repos/CustomerApi (offline C# air-gap test bed)", "info", "System");
+    }
+
     window.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
+        closeFolderPickerModal();
         closeLocalPrModal();
       }
     });

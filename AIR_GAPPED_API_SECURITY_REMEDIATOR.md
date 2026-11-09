@@ -214,8 +214,10 @@ Generated at the repository root to verify isolation standards for security revi
 #### Supported Hosting Modes
 1. **GitHub**: API v3 REST integration (supports PR generation, branch detection, draft PRs).
 2. **GitLab**: GitLab REST API v4 (supports Merge Requests, self-hosted GitLab Enterprise URLs).
-3. **Local Filesystem Repositories** (`ProviderType.LOCAL`):
-   - Supports local filesystem paths (e.g. `/home/user/project`, `./repo`, `file:///path/to/repo`).
+3. **Local Filesystem Repositories & Unlinked Projects** (`ProviderType.LOCAL`):
+   - Supports local filesystem paths (e.g. `repos/CustomerApi`, `/home/user/project`, `./repo`, `file:///path/to/repo`).
+   - Supports repositories **without any remote upstream** (`origin` unlinked). Changes remain safely committed to the isolated local feature branch without failing on push.
+   - Supports **plain local directories** not yet initialized with Git via automated Git repository initialization (`auto_init: true`). Automatically executes `git init`, establishes a baseline commit, and provisions default branches (`main` and `master`).
    - Runs in-place directly on the existing working tree or inside an isolated branch.
    - Detects local default branches (`main`, `master`, or tracking refs).
    - Generates offline Markdown PR manifests (`.git/local_prs/PR-<id>.md` or `.local_prs/PR-<id>.md`).
@@ -323,9 +325,11 @@ python3 web_server.py 8080
    - Visual progress indicators reflecting the active execution phase (Setup → Scan → Remediate → Commit → PR).
    - "⚡ Run End-to-End Pipeline" one-click execution button.
 3. **Repository Setup & Validation**:
-   - **Dual Target Mode**: Accepts remote URLs (`https://github.com/...`) or local disk paths (`/Users/...`, `file://...`).
-   - **Interactive Folder Browser**: Built-in modal directory browser with quick bookmarks (Home, Workspace, Projects, Documents, Desktop, Downloads).
-   - **Real-Time Git Validation**: `/api/validate-path` proactively verifies if the chosen directory contains a valid `.git` tree and reports errors immediately.
+   - **Multi-Target Mode**: Accepts remote URLs (`https://github.com/...`), local Git repositories (including unlinked repos without remotes), or local project folders (`repos/CustomerApi`, `/path/to/project`).
+   - **Interactive Folder Browser**: Built-in modal directory browser (`📂 Browse Local Folders...`) with breadcrumb navigation and quick bookmarks (CustomerApi Demo, Home, Workspace, Projects, Documents, Desktop, Downloads).
+   - **One-Click Demo Project**: Instant loading button (`💻 Use Demo Project (repos/CustomerApi)`) to test local remediation instantly.
+   - **Dynamic Target Mode Badges**: Real-time visual badge updating between `REMOTE GIT REPOSITORY`, `LOCAL REPOSITORY (UNLINKED)`, and `LOCAL DIRECTORY (AUTO-INIT)`.
+   - **Real-Time Git Validation**: `/api/validate-path` verifies directory existence, checks `.git` presence, and supports on-demand initialization.
 4. **Egress Findings & Vulnerability Viewer**:
    - Interactive table detailing finding IDs, severity tags (HIGH, MEDIUM, LOW), file locations, offending URLs, and recommendations.
 5. **In-Browser Patch Editor & Diff Viewer**:
@@ -348,14 +352,14 @@ The control server exposes a full REST API for programmatic control and UI integ
 | `GET` | `/api/status` | Returns the active repository's git status (branch, modified files, untracked files). |
 | `GET` | `/api/diff` | Returns the current workspace git diff. |
 | `GET` | `/api/local-pr` | Fetches the generated local PR markdown review document. |
-| `POST` | `/api/prepare` | Prepares the workspace (clones remote or opens local repo, creates feature branch). |
+| `POST` | `/api/prepare` | Prepares the workspace (clones remote, mounts local repo, or auto-inits local project). |
 | `POST` | `/api/scan` | Runs `ScannerAgent` across the prepared workspace. |
 | `POST` | `/api/fix` | Runs `RemediatorAgent` to apply proxy configs and audit manifests. |
 | `POST` | `/api/write-file` | Writes or edits a file inside the repository workspace. |
 | `POST` | `/api/commit-push` | Stages changes, creates a git commit, and updates the branch. |
 | `POST` | `/api/create-pr` | Creates a Pull Request on GitHub/GitLab or generates a Local PR manifest. |
 | `POST` | `/api/pipeline/run` | Executes the complete 5-stage remediation pipeline sequentially. |
-| `POST` | `/api/validate-path` | Validates whether a given filesystem directory exists and is a valid git repository. |
+| `POST` | `/api/validate-path` | Validates directory existence, checks `.git` presence, and supports auto-init. |
 | `POST` | `/api/fs/list` | Lists subdirectories for the interactive UI folder picker. |
 
 ---
@@ -401,7 +405,7 @@ Returns all registered agents in the `AgentRegistry`.
 ---
 
 #### 2. `POST /api/prepare`
-Initializes a repository workspace and checks out a feature branch.
+Initializes a repository workspace, checks out a feature branch, and optionally auto-initializes plain directories into Git repositories.
 
 **Request Body:**
 ```json
@@ -413,7 +417,8 @@ Initializes a repository workspace and checks out a feature branch.
   "feature_branch": "agent/audit-fix-01",
   "workspace_dir": null,
   "author_name": "Security Bot",
-  "author_email": "bot@airgap.local"
+  "author_email": "bot@airgap.local",
+  "auto_init": true
 }
 ```
 
@@ -595,36 +600,53 @@ Executes all 5 stages in an end-to-end atomic workflow.
 ---
 
 #### 9. `POST /api/validate-path`
-Validates directory existence and `.git` repository health before workspace preparation.
+Validates directory existence and `.git` repository health before workspace preparation. When `allow_non_git: true` is passed, accepts non-git directories and signals auto-init readiness. When `auto_init: true` is passed, initializes git in-place.
 
 **Request Body:**
 ```json
 {
-  "path": "/Users/developer/Projects/payment-gateway"
+  "path": "/Users/developer/Projects/payment-gateway",
+  "allow_non_git": true,
+  "auto_init": false
 }
 ```
 
-**Response (200 OK):**
+**Response (200 OK - Git Repository):**
 ```json
 {
   "valid": true,
   "exists": true,
   "is_dir": true,
   "has_git": true,
+  "can_auto_init": false,
   "path": "/Users/developer/Projects/payment-gateway",
   "message": "Valid Git repository detected at /Users/developer/Projects/payment-gateway"
 }
 ```
 
-**Error Response (400 Bad Request if not a git repo):**
+**Response (200 OK - Plain Directory with `allow_non_git: true`):**
+```json
+{
+  "valid": true,
+  "exists": true,
+  "is_dir": true,
+  "has_git": false,
+  "can_auto_init": true,
+  "path": "/Users/developer/Projects/plain-folder",
+  "message": "Local directory detected (Git repository can be auto-initialized)"
+}
+```
+
+**Error Response (400 Bad Request when not a git repo and `allow_non_git: false`):**
 ```json
 {
   "valid": false,
   "exists": true,
   "is_dir": true,
   "has_git": false,
+  "can_auto_init": true,
   "path": "/Users/developer/Projects/plain-folder",
-  "error": "Selected path '/Users/developer/Projects/plain-folder' is not a Git repository (missing '.git' directory)."
+  "error": "Selected path '/Users/developer/Projects/plain-folder' is not a Git repository (missing '.git' directory). Pass 'allow_non_git': true to allow auto-initialization."
 }
 ```
 
@@ -817,7 +839,7 @@ Once registered, the new agent:
 
 ## 11. Testing & Quality Assurance
 
-The codebase includes comprehensive automated unit tests covering all agents, providers, workspaces, and web endpoints.
+The codebase includes an exhaustive test suite of **69 automated unit and integration tests** covering all agents, providers, workspaces, web endpoints, and unlinked/offline repositories.
 
 ### Executing the Test Suite
 Run the standard library test runner:
@@ -827,8 +849,8 @@ python3 -m unittest discover -s tests
 
 ### Test Coverage Highlights
 - [`tests/test_multi_agent.py`](file:///Users/krunaldharamshi/Projects/GitAgent/tests/test_multi_agent.py): Tests `AgentRegistry`, `ScannerAgent` detection of external URLs, `RemediatorAgent` generation of proxy configs, and `MultiAgentPipeline` execution on local git repositories.
-- [`tests/test_web_server.py`](file:///Users/krunaldharamshi/Projects/GitAgent/tests/test_web_server.py): Tests all web API endpoints (`/api/validate-path`, `/api/prepare`, `/api/scan`, `/api/fix`, `/api/local-pr`, `/api/fs/list`).
-- [`tests/test_providers.py`](file:///Users/krunaldharamshi/Projects/GitAgent/tests/test_providers.py): Tests GitHub, GitLab, and `LocalProvider` repository access verification, branch detection, and PR manifest creation.
+- [`tests/test_web_server.py`](file:///Users/krunaldharamshi/Projects/GitAgent/tests/test_web_server.py): Tests all web API endpoints (`/api/validate-path`, `/api/prepare`, `/api/scan`, `/api/fix`, `/api/local-pr`, `/api/fs/list`), including non-git validation (`allow_non_git`), auto-initialization (`auto_init`), and end-to-end remediation of unlinked local projects without remotes.
+- [`tests/test_providers.py`](file:///Users/krunaldharamshi/Projects/GitAgent/tests/test_providers.py): Tests GitHub, GitLab, and `LocalProvider` repository access verification, branch detection, auto-initialization of git repos, and local PR manifest creation.
 - [`tests/test_mcp_server.py`](file:///Users/krunaldharamshi/Projects/GitAgent/tests/test_mcp_server.py): Validates JSON-RPC 2.0 MCP tools, dispatching, and error handling.
 - [`tests/test_workspace.py`](file:///Users/krunaldharamshi/Projects/GitAgent/tests/test_workspace.py): Tests isolated temporary workspaces, git diffing, staging, committing, and token scrubbing.
 

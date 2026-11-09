@@ -61,6 +61,43 @@ def _ensure_default_local_repo_ready(reset_files: bool = False) -> None:
         logger.debug("Could not initialize default local repo: %s", exc)
 
 
+def _init_local_git_repo(
+    path: Path,
+    base_branch: str = "main",
+    author_name: str = "Git SubAgent",
+    author_email: str = "git-agent@subagent.local",
+) -> bool:
+    """Initializes a local directory as a Git repository with baseline commit and main/master branches."""
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        init_branch = base_branch if base_branch and base_branch.lower() != "auto" else "main"
+        env = os.environ.copy()
+        env["GIT_AUTHOR_NAME"] = author_name
+        env["GIT_COMMITTER_NAME"] = author_name
+        env["GIT_AUTHOR_EMAIL"] = author_email
+        env["GIT_COMMITTER_EMAIL"] = author_email
+        env["GIT_TERMINAL_PROMPT"] = "0"
+
+        subprocess.run(["git", "init", "-b", init_branch], cwd=str(path), capture_output=True, check=True)
+        subprocess.run(["git", "config", "user.name", author_name], cwd=str(path), capture_output=True)
+        subprocess.run(["git", "config", "user.email", author_email], cwd=str(path), capture_output=True)
+        subprocess.run(["git", "config", "commit.gpgsign", "false"], cwd=str(path), capture_output=True)
+        subprocess.run(["git", "add", "-A"], cwd=str(path), capture_output=True)
+        subprocess.run(
+            ["git", "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "chore: initial baseline repository snapshot"],
+            cwd=str(path),
+            env=env,
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(["git", "branch", "-f", "master", "HEAD"], cwd=str(path), capture_output=True)
+        subprocess.run(["git", "branch", "-f", "main", "HEAD"], cwd=str(path), capture_output=True)
+        return True
+    except Exception as exc:
+        logger.warning("Could not auto-initialize git repository at %s: %s", path, exc)
+        return False
+
+
 _ensure_default_local_repo_ready(reset_files=False)
 
 # Register core agents
@@ -77,24 +114,31 @@ def _normalize_local_repo_path(raw_path: str | Path) -> Path:
     if not raw_path:
         return Path(raw_path) if isinstance(raw_path, Path) else Path(".")
     raw_str = str(raw_path).replace("file://", "").strip()
-    p = Path(raw_str).expanduser().resolve()
-    if p.exists():
-        return p
+    p = Path(raw_str).expanduser()
+    if p.is_absolute() and p.exists():
+        return p.resolve()
+    # Resolve relative to APP_ROOT_DIR first if it exists there
+    candidate_app = (APP_ROOT_DIR / raw_str).resolve()
+    if candidate_app.exists():
+        return candidate_app
+    resolved = p.resolve()
+    if resolved.exists():
+        return resolved
     # Fallback 1: If path includes GitAgent/EnterpriseEmployeePortal, try without GitAgent/
-    if "GitAgent" in p.parts:
-        parts = [part for part in p.parts if part != "GitAgent"]
+    if "GitAgent" in resolved.parts:
+        parts = [part for part in resolved.parts if part != "GitAgent"]
         alt1 = Path(*parts)
         if alt1.exists():
             return alt1
     # Fallback 2: Check in parent directory of APP_ROOT_DIR
-    alt2 = (APP_ROOT_DIR.parent / p.name).resolve()
+    alt2 = (APP_ROOT_DIR.parent / resolved.name).resolve()
     if alt2.exists():
         return alt2
-    # Fallback 3: Check inside APP_ROOT_DIR / "repos" / p.name
-    alt3 = (APP_ROOT_DIR / "repos" / p.name).resolve()
+    # Fallback 3: Check inside APP_ROOT_DIR / "repos" / resolved.name
+    alt3 = (APP_ROOT_DIR / "repos" / resolved.name).resolve()
     if alt3.exists():
         return alt3
-    return p
+    return resolved
 
 
 def _resolve_active_workspace() -> Optional[Path]:
@@ -403,6 +447,7 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                     return
 
                 # Normalize local path if specified
+                norm_cand = _normalize_local_repo_path(repo_url)
                 is_local_hint = (
                     repo_url.startswith("/")
                     or repo_url.startswith("~")
@@ -411,11 +456,11 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                     or repo_url.startswith("file://")
                     or repo_url == "."
                     or (len(repo_url) > 2 and repo_url[1] == ":")
+                    or norm_cand.exists()
                 )
                 if is_local_hint:
-                    norm_path = _normalize_local_repo_path(repo_url)
-                    if norm_path.exists():
-                        repo_url = str(norm_path)
+                    if norm_cand.exists():
+                        repo_url = str(norm_cand)
 
                 token = payload.get("token") or os.getenv("GITHUB_TOKEN") or os.getenv("GITLAB_TOKEN")
                 provider_str = payload.get("provider")
@@ -424,8 +469,12 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                         provider = ProviderType(provider_str.lower())
                     except ValueError:
                         provider = ProviderType.GENERIC
+                elif is_local_hint:
+                    provider = ProviderType.LOCAL
                 else:
                     provider = ProviderType.GENERIC
+
+                auto_init = bool(payload.get("auto_init", False))
 
                 config = GitAgentConfig(
                     repo_url=repo_url,
@@ -436,6 +485,7 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                     workspace_dir=payload.get("workspace_dir"),
                     author_name=payload.get("author_name", "Git SubAgent"),
                     author_email=payload.get("author_email", "git-agent@subagent.local"),
+                    auto_init=auto_init,
                 )
 
                 # Validation & Self-Protection: if target is local, verify it exists and never mutate APP_ROOT_DIR itself
@@ -460,10 +510,19 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                             capture_output=True,
                         ).returncode
                         if code != 0:
-                            self._send_json({
-                                "error": f"Selected path '{clean_path}' is not a Git repository. Missing '.git' directory."
-                            }, status=400)
-                            return
+                            if auto_init and clean_path.is_dir():
+                                _init_local_git_repo(
+                                    clean_path,
+                                    base_branch=payload.get("base_branch") or "main",
+                                    author_name=config.author_name,
+                                    author_email=config.author_email,
+                                )
+                                has_git = True
+                            else:
+                                self._send_json({
+                                    "error": f"Selected path '{clean_path}' is not a Git repository. Missing '.git' directory."
+                                }, status=400)
+                                return
 
                     # Clean up demo artifacts that may have been previously injected into non-CustomerApi repo
                     if clean_path.name != "CustomerApi":
@@ -508,7 +567,7 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                         except Exception:
                             pass
                 try:
-                    ctx = ACTIVE_GIT_AGENT.prepare_workspace()
+                    ctx = ACTIVE_GIT_AGENT.prepare_workspace(auto_init=auto_init)
                 except Exception as clone_exc:
                     logger.error("Failed to prepare repository (%s): %s", config.sanitized_repo_url, clone_exc)
                     ACTIVE_GIT_AGENT = None
@@ -1058,22 +1117,42 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                     ).returncode
                     has_git = (code == 0)
 
+                auto_init = bool(payload.get("auto_init", False))
+                allow_non_git = bool(payload.get("allow_non_git", False))
+
                 if not has_git:
-                    self._send_json({
-                        "valid": False,
-                        "exists": True,
-                        "is_dir": True,
-                        "has_git": False,
-                        "path": str(target_path),
-                        "error": f"Selected path '{target_path}' is not a Git repository (missing '.git' directory).",
-                    }, status=400)
-                    return
+                    if auto_init and target_path.is_dir():
+                        _init_local_git_repo(target_path)
+                        has_git = True
+                    elif allow_non_git and target_path.is_dir():
+                        self._send_json({
+                            "valid": True,
+                            "exists": True,
+                            "is_dir": True,
+                            "has_git": False,
+                            "can_auto_init": True,
+                            "path": str(target_path),
+                            "message": f"Local project directory detected at {target_path} (Git can be auto-initialized).",
+                        })
+                        return
+                    else:
+                        self._send_json({
+                            "valid": False,
+                            "exists": True,
+                            "is_dir": True,
+                            "has_git": False,
+                            "can_auto_init": True,
+                            "path": str(target_path),
+                            "error": f"Selected path '{target_path}' is not a Git repository (missing '.git' directory).",
+                        }, status=400)
+                        return
 
                 self._send_json({
                     "valid": True,
                     "exists": True,
                     "is_dir": True,
                     "has_git": True,
+                    "can_auto_init": False,
                     "path": str(target_path),
                     "message": f"Valid Git repository detected at {target_path}",
                 })
