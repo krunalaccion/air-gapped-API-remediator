@@ -19,31 +19,28 @@ class Finding:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Finding":
-        required_fields = [
-            "finding_id",
-            "rule_id",
-            "severity",
-            "file_path",
-            "line_number",
-            "message",
-            "code_snippet",
-            "repository",
-        ]
-        missing = [f for f in required_fields if f not in data]
-        if missing:
-            raise ValueError(f"Missing required finding fields: {', '.join(missing)}")
+        finding_id = str(data.get("finding_id") or data.get("id") or "FINDING")
+        rule_id = str(data.get("rule_id") or data.get("rule") or "security-violation")
+        severity = str(data.get("severity") or "MEDIUM").upper()
+        file_path = str(data.get("file_path") or data.get("file") or "")
+        line_num = int(data.get("line_number") or data.get("line_start") or data.get("line") or 1)
+        message = str(data.get("message") or data.get("description") or data.get("raw_evidence") or "Security finding")
+        code_snippet = str(data.get("code_snippet") or "")
+        repository = str(data.get("repository") or "repository")
+        status = str(data.get("status", "NEW")).upper()
+        cwe_id = str(data.get("cwe_id", "")) if data.get("cwe_id") else None
 
         return cls(
-            finding_id=str(data["finding_id"]),
-            rule_id=str(data["rule_id"]),
-            severity=str(data["severity"]).upper(),
-            file_path=str(data["file_path"]),
-            line_number=int(data["line_number"]),
-            message=str(data["message"]),
-            code_snippet=str(data["code_snippet"]),
-            repository=str(data["repository"]),
-            status=str(data.get("status", "NEW")).upper(),
-            cwe_id=str(data.get("cwe_id", "")) if data.get("cwe_id") else None,
+            finding_id=finding_id,
+            rule_id=rule_id,
+            severity=severity,
+            file_path=file_path,
+            line_number=line_num,
+            message=message,
+            code_snippet=code_snippet,
+            repository=repository,
+            status=status,
+            cwe_id=cwe_id,
         )
 
     def to_dict(self) -> Dict[str, Any]:

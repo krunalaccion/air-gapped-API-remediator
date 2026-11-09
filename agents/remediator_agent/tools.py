@@ -97,6 +97,15 @@ class RepositoryTools:
             actual = lines[line_number - 1] if 1 <= line_number <= len(lines) else (lines[0] if lines else "")
             return True, line_number, actual or "<missing_heuristic>"
 
+        # Check for redacted secrets in snippet (e.g. connection string with Password=***REDACTED***)
+        if "***REDACTED***" in normalized_snippet or "***" in normalized_snippet:
+            key_m = re.search(r'\"(?P<key>[\w\.\-]+)\"\s*:\s*\"', normalized_snippet)
+            if key_m:
+                key = key_m.group("key")
+                for idx, line in enumerate(lines, start=1):
+                    if f'"{key}"' in line:
+                        return True, idx, line
+
         # 1. Check exact line first (1-based index)
         if 1 <= line_number <= len(lines):
             candidate = lines[line_number - 1].strip()
@@ -140,6 +149,20 @@ class RepositoryTools:
         target_path: Path, fixed_content: str, create_backup: bool = True
     ) -> Optional[Path]:
         """Writes the remediated content to target_path, optionally creating a .bak file."""
+        # Ensure markdown code fences are stripped from file content
+        clean_fixed = fixed_content.strip()
+        if clean_fixed.startswith("```"):
+            fence_m = re.match(r"^```[a-zA-Z0-9_\-]*\s*\n([\s\S]*?)\n```\s*$", clean_fixed)
+            if fence_m:
+                clean_fixed = fence_m.group(1)
+            else:
+                lines = [l for l in clean_fixed.splitlines() if not l.strip().startswith("```")]
+                clean_fixed = "\n".join(lines)
+            fixed_content = clean_fixed
+
+        if not fixed_content.endswith("\n"):
+            fixed_content += "\n"
+
         backup_path: Optional[Path] = None
         if create_backup:
             backup_path = target_path.with_suffix(target_path.suffix + ".bak")

@@ -32,7 +32,7 @@ The test scope validates the 7 core sub-systems:
    - External scanner adapters for **Semgrep** and **Trivy** CLI detection and automatic fallbacks ([`agents/scanner_agent/external_scanners.py`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/scanner_agent/external_scanners.py)).
    - Interactive HTML and JSON security audit report generation ([`agents/scanner_agent/pipeline.py`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/scanner_agent/pipeline.py)).
 3. **RemediatorAgent & BugFixerAgent**:
-   - Dual-mode code remediation: 100% offline deterministic rule-based fixer (`AIR-GAP OFFLINE`) and multi-provider AI engine (**Local Ollama**, **OpenAI-compatible local LLMs**, **Google Gemini**, **OpenAI GPT-4o**, **Anthropic Claude 3.5 Sonnet**).
+   - Dual-mode code remediation: 100% offline deterministic rule-based fixer (`AIR-GAP OFFLINE`) and local AI engines (**Local Ollama**, **Local OpenAI-compatible LLMs** such as LM Studio or vLLM).
    - Gateway proxy interceptor generation ([`config/airgap_proxy.json`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/remediator_agent/agent.py#L58)) and audit documentation ([`AIRGAP_SECURITY_AUDIT.md`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/remediator_agent/agent.py#L37)).
    - Automated post-remediation verification scans and posture score calculations.
    - Executive **Remediation & Compliance Dossier** generation ([`REMEDIATION_AUDIT_REPORT.html`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/remediator_agent/reporter.py)) with strict UI gating.

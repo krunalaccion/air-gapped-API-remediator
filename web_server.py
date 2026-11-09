@@ -182,6 +182,7 @@ def _build_telemetry_payload() -> Dict[str, Any]:
             "status": REMEDIATOR_AGENT.status if git_prepared else "IDLE",
             "last_result": REMEDIATOR_AGENT.last_result if git_prepared else None,
             "reports_count": len(remediator_reports),
+            "progress": REMEDIATOR_AGENT.get_progress(),
         },
         "workspace_files": workspace_files,
         "latest_pr": LATEST_PR,
@@ -232,6 +233,11 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                 "agents": agents_list,
                 "total": len(agents_list),
             })
+            return
+
+        elif path in ("/api/fix/progress", "/api/remediator/progress"):
+            """Return real-time status of files being fixed by RemediatorAgent in Step 3."""
+            self._send_json(REMEDIATOR_AGENT.get_progress())
             return
 
         elif path == "/api/bug-fixer/reports":
@@ -485,6 +491,9 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                 SCANNER_AGENT.status = "IDLE"
                 REMEDIATOR_AGENT.last_result = None
                 REMEDIATOR_AGENT.status = "IDLE"
+                REMEDIATOR_AGENT.accumulated_threats.clear()
+                REMEDIATOR_AGENT.accumulated_modified_files.clear()
+                REMEDIATOR_AGENT.accumulated_bug_fixes.clear()
                 LATEST_PR = None
                 if SCANNER_AGENT.findings_dir.exists():
                     for old_f in SCANNER_AGENT.findings_dir.glob("*.json"):
@@ -506,21 +515,33 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                     self._send_json({"error": f"Failed to prepare repository: {clone_exc}"}, status=400)
                     return
 
-                # Build the code and run unit tests if any
+                # Build the code and run unit tests if any (can be skipped for staged UI execution)
+                skip_build_test = bool(payload.get("skip_build_test", False))
                 build_test_res = {}
-                try:
-                    build_test_res = ACTIVE_GIT_AGENT.build_and_test()
-                except Exception as bt_exc:
-                    logger.warning("Build/test runner failed: %s", bt_exc)
+                if skip_build_test:
                     build_test_res = {
                         "executed": False,
-                        "error": str(bt_exc),
-                        "ecosystem": "unknown",
-                        "ecosystem_name": "Unknown",
-                        "build": {"status": "skipped", "summary": f"Build runner error: {bt_exc}"},
-                        "tests": {"status": "skipped", "tests_found": False, "summary": "Tests not run"},
-                        "summary": f"Build runner error: {bt_exc}",
+                        "status": "pending",
+                        "ecosystem": "pending",
+                        "ecosystem_name": "Pending Execution",
+                        "build": {"status": "pending", "summary": "Build pending"},
+                        "tests": {"status": "pending", "tests_found": False, "summary": "Tests pending"},
+                        "summary": "Build and unit test verification suite queued",
                     }
+                else:
+                    try:
+                        build_test_res = ACTIVE_GIT_AGENT.build_and_test()
+                    except Exception as bt_exc:
+                        logger.warning("Build/test runner failed: %s", bt_exc)
+                        build_test_res = {
+                            "executed": False,
+                            "error": str(bt_exc),
+                            "ecosystem": "unknown",
+                            "ecosystem_name": "Unknown",
+                            "build": {"status": "skipped", "summary": f"Build runner error: {bt_exc}"},
+                            "tests": {"status": "skipped", "tests_found": False, "summary": "Tests not run"},
+                            "summary": f"Build runner error: {bt_exc}",
+                        }
 
                 self._send_json({
                     "message": "Repository prepared successfully",
@@ -577,6 +598,7 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
             # 3. Fix Code (RemediatorAgent + BugFixerAgent on scanner_agent/findings/*.json)
+            # Iterative remediation loop: runs until all threats are resolved or up to 5 times
             elif path == "/api/fix":
                 prepared_ws = _resolve_active_workspace()
                 explicit_ws = (payload.get("workspace_path") or payload.get("repo_url") or "").strip()
@@ -595,19 +617,96 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                 if not ws_path:
                     self._send_json({"error": "Repository not prepared yet. Complete Step 01 to initialize workspace."}, status=400)
                     return
-                result = REMEDIATOR_AGENT.run({
-                    "workspace_path": str(ws_path),
-                    "provider": payload.get("provider"),
-                    "model": payload.get("model"),
-                    "base_url": payload.get("base_url"),
-                })
-                result["mode"] = "live" if ACTIVE_GIT_AGENT else "preview"
-                # Re-run scanner on the patched workspace using the active scanner engine to reflect real post-remediation findings & posture
-                scan_engine = payload.get("scanner_engine") or getattr(SCANNER_AGENT, "last_engine", "all")
-                post_scan = SCANNER_AGENT.run({"workspace_path": str(ws_path), "scanner_engine": scan_engine})
-                result["post_scan"] = post_scan
-                REMEDIATOR_AGENT.last_post_scan = post_scan
-                REMEDIATOR_AGENT.last_workspace_path = str(ws_path)
+
+                max_iterations = int(payload.get("max_iterations") or 5)
+                max_iterations = max(1, min(max_iterations, 5))
+                iteration = 0
+                result = {}
+                post_scan = {}
+
+                while iteration < max_iterations:
+                    iteration += 1
+                    logger.info("[Iterative Remediation] Starting iteration %d of %d for workspace: %s", iteration, max_iterations, ws_path)
+                    REMEDIATOR_AGENT.current_progress["iteration"] = iteration
+                    REMEDIATOR_AGENT.current_progress["max_iterations"] = max_iterations
+                    REMEDIATOR_AGENT.current_progress["status"] = "RUNNING"
+                    REMEDIATOR_AGENT.current_progress["phase"] = f"Iteration {iteration}/{max_iterations}"
+                    REMEDIATOR_AGENT.current_progress["message"] = f"Iteration {iteration}/{max_iterations}: Applying security patches..."
+
+                    result = REMEDIATOR_AGENT.run({
+                        "workspace_path": str(ws_path),
+                        "provider": payload.get("provider"),
+                        "model": payload.get("model"),
+                        "base_url": payload.get("base_url"),
+                    })
+                    result["mode"] = "live" if ACTIVE_GIT_AGENT else "preview"
+
+                    # Update real-time progress for the post-remediation verification scan
+                    for itm in REMEDIATOR_AGENT.current_progress.get("items", []):
+                        if itm.get("id") == "POST-SCAN-VERIFY":
+                            itm["status"] = "fixing"
+                            itm["action"] = f"Executing verification scan (Iteration {iteration}/{max_iterations})..."
+                            break
+                    REMEDIATOR_AGENT.current_progress["current_file"] = "AST Security Post-Scan"
+                    REMEDIATOR_AGENT.current_progress["phase"] = f"Verification Scan {iteration}/{max_iterations}"
+                    REMEDIATOR_AGENT.current_progress["message"] = f"Iteration {iteration}/{max_iterations}: Running verification scan to verify threats..."
+                    REMEDIATOR_AGENT.current_progress["percent"] = 90
+
+                    # Re-run scanner on the patched workspace using the active scanner engine to reflect real post-remediation findings & posture
+                    scan_engine = payload.get("scanner_engine") or getattr(SCANNER_AGENT, "last_engine", "all")
+                    post_scan = SCANNER_AGENT.run({"workspace_path": str(ws_path), "scanner_engine": scan_engine, "is_post_scan": True})
+                    result["post_scan"] = post_scan
+                    REMEDIATOR_AGENT.last_post_scan = post_scan
+                    REMEDIATOR_AGENT.last_workspace_path = str(ws_path)
+
+                    residual_findings = post_scan.get("findings") if post_scan.get("findings") is not None else (post_scan.get("bug_findings") or [])
+                    residual_count = len(residual_findings)
+                    logger.info("[Iterative Remediation] Iteration %d/%d completed. Residual threats detected: %d", iteration, max_iterations, residual_count)
+
+                    if residual_count == 0:
+                        logger.info("[Iterative Remediation] All threats resolved successfully in iteration %d!", iteration)
+                        break
+                    elif iteration < max_iterations:
+                        logger.info("[Iterative Remediation] Re-ingesting %d residual threats for iteration %d/%d", residual_count, iteration + 1, max_iterations)
+                        # Save only active residual findings to findings_dir for the next iteration pass
+                        SCANNER_AGENT.findings_dir.mkdir(parents=True, exist_ok=True)
+                        for existing_f in list(SCANNER_AGENT.findings_dir.glob("*.json")):
+                            try:
+                                existing_f.unlink()
+                            except OSError:
+                                pass
+                        for rf in residual_findings:
+                            rf_id = (rf.get("finding_id") or rf.get("id") or "FINDING").lower().replace("_", "-")
+                            f_file = SCANNER_AGENT.findings_dir / f"{rf_id}.json"
+                            try:
+                                f_file.write_text(json.dumps(rf, indent=2), encoding="utf-8")
+                            except Exception:
+                                pass
+
+                # Finalize real-time progress
+                resolved_all = (len(post_scan.get("findings") if post_scan.get("findings") is not None else (post_scan.get("bug_findings") or [])) == 0)
+                for itm in REMEDIATOR_AGENT.current_progress.get("items", []):
+                    if itm.get("id") == "POST-SCAN-VERIFY":
+                        itm["status"] = "remediated"
+                        itm["action"] = f"Verified: {len(post_scan.get('findings') or [])} residual threats detected"
+                        break
+                REMEDIATOR_AGENT.current_progress["completed_targets"] = len(REMEDIATOR_AGENT.current_progress.get("items", []))
+                REMEDIATOR_AGENT.current_progress["percent"] = 100
+                REMEDIATOR_AGENT.current_progress["status"] = "COMPLETED"
+                REMEDIATOR_AGENT.current_progress["phase"] = "Completed"
+                REMEDIATOR_AGENT.current_progress["iteration"] = iteration
+                REMEDIATOR_AGENT.current_progress["max_iterations"] = max_iterations
+                REMEDIATOR_AGENT.current_progress["resolved_all"] = resolved_all
+                REMEDIATOR_AGENT.current_progress["message"] = (
+                    f"All threats resolved in {iteration} iteration(s) (100/100 Grade A+)."
+                    if resolved_all else
+                    f"Completed {iteration} iterations. Remaining threats: {len(post_scan.get('findings') or [])}."
+                )
+                REMEDIATOR_AGENT.current_progress["current_file"] = None
+
+                result["iterations_run"] = iteration
+                result["max_iterations"] = max_iterations
+                result["resolved_all"] = resolved_all
 
                 # Refresh the saved HTML audit report with post_scan posture
                 try:
@@ -663,6 +762,9 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                 SCANNER_AGENT.status = "IDLE"
                 REMEDIATOR_AGENT.last_result = None
                 REMEDIATOR_AGENT.status = "IDLE"
+                REMEDIATOR_AGENT.accumulated_threats.clear()
+                REMEDIATOR_AGENT.accumulated_modified_files.clear()
+                REMEDIATOR_AGENT.accumulated_bug_fixes.clear()
                 LATEST_PR = None
                 if SCANNER_AGENT.findings_dir.exists():
                     for old_f in SCANNER_AGENT.findings_dir.glob("*.json"):
@@ -768,7 +870,28 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                     self._send_json({"error": "Please call /api/prepare first"}, status=400)
                     return
 
-                commit_msg = payload.get("commit_message", "fix(airgap): remediate external API endpoints")
+                commit_msg = payload.get("commit_message")
+                repo_name = ACTIVE_GIT_AGENT.context.repo_name if (ACTIVE_GIT_AGENT and ACTIVE_GIT_AGENT.context) else "repository"
+                cur_threats = list(REMEDIATOR_AGENT.accumulated_threats.values())
+                cur_files = list(REMEDIATOR_AGENT.accumulated_modified_files)
+
+                # Ensure commit_msg contains detailed threat and remediation information irrespective of run count
+                if cur_threats:
+                    full_template = REMEDIATOR_AGENT.generate_commit_message(
+                        repo_name=repo_name,
+                        threats=cur_threats,
+                        modified_files=cur_files,
+                    )
+                    if not commit_msg or not commit_msg.strip():
+                        commit_msg = full_template
+                    elif "\n" not in commit_msg.strip() or "Remediated Security Threats" not in commit_msg:
+                        # Append detailed threat breakdown to user-provided subject
+                        lines = full_template.split("\n\n", 1)
+                        body_part = lines[1] if len(lines) > 1 else ""
+                        commit_msg = f"{commit_msg.strip()}\n\n{body_part}"
+                elif not commit_msg:
+                    commit_msg = "fix(airgap): remediate external API endpoints"
+
                 files = payload.get("files")
                 cur_br = ACTIVE_GIT_AGENT.workspace.current_feature_branch or ACTIVE_GIT_AGENT.workspace.get_current_branch()
                 dest_label = "remote branch" if not ACTIVE_GIT_AGENT.config.is_local else "local branch"
@@ -796,8 +919,33 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                     self._send_json({"error": "Please call /api/prepare first"}, status=400)
                     return
 
-                title = payload.get("title", "[Air-Gapped Remediation] Security & SAST Compliance Remediation")
-                desc = payload.get("description", "Automated Pull Request from Multi-Agent System")
+                repo_name = ACTIVE_GIT_AGENT.context.repo_name if (ACTIVE_GIT_AGENT and ACTIVE_GIT_AGENT.context) else "repository"
+                cur_threats = list(REMEDIATOR_AGENT.accumulated_threats.values())
+                cur_files = list(REMEDIATOR_AGENT.accumulated_modified_files)
+
+                title = payload.get("title")
+                if not title:
+                    title = REMEDIATOR_AGENT.generate_pr_title(repo_name=repo_name, threat_count=len(cur_threats))
+
+                desc = payload.get("description")
+                if not desc or desc.strip() in ("", "Automated Pull Request from Multi-Agent System"):
+                    desc = REMEDIATOR_AGENT.generate_pr_body(
+                        repo_name=repo_name,
+                        threats=cur_threats,
+                        modified_files=cur_files,
+                        branch=ACTIVE_GIT_AGENT.workspace.current_feature_branch or "remediation/airgap-api-compliance",
+                        base_branch=ACTIVE_GIT_AGENT.workspace.base_branch or "main",
+                    )
+                elif cur_threats and "Remediated Vulnerabilities" not in desc:
+                    body_ext = REMEDIATOR_AGENT.generate_pr_body(
+                        repo_name=repo_name,
+                        threats=cur_threats,
+                        modified_files=cur_files,
+                        branch=ACTIVE_GIT_AGENT.workspace.current_feature_branch or "remediation/airgap-api-compliance",
+                        base_branch=ACTIVE_GIT_AGENT.workspace.base_branch or "main",
+                    )
+                    desc = f"{desc.strip()}\n\n{body_ext}"
+
                 draft = bool(payload.get("draft", False))
 
                 if not ACTIVE_GIT_AGENT.provider:

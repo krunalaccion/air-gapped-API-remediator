@@ -17,7 +17,7 @@ A production-ready, autonomous multi-agent security remediation system designed 
   - Interactive **Security Scanner HTML/JSON Audit Report** generation (`/api/scanner/report?format=html`) with verified threat counts and compliance verdicts.
 
 - **Autonomous Code Patching & Remediation Studio (`RemediatorAgent` & `BugFixerAgent`)**:
-  - Dual-mode remediation: 100% offline deterministic rule-based fixer (`AIR-GAP OFFLINE`) or multi-provider AI engine (**Local Ollama**, **OpenAI-compatible local LLMs**, **Google Gemini**, **OpenAI GPT-4o**, **Anthropic Claude 3.5 Sonnet**).
+  - Dual-mode remediation: 100% offline deterministic rule-based fixer (`AIR-GAP OFFLINE`) or local AI engines (**Local Ollama**, **Local OpenAI-compatible LLMs** such as LM Studio or vLLM).
   - Remediates all detected security flaws and egress calls in C#, Python, and JS/TS codebases.
   - Injects compliant internal proxy routing (`config/airgap_proxy.json`) redirecting egress to `proxy.airgap.internal:8080` with offline mock fallbacks.
   - Interactive Web Studio with Queued Targets, Side-by-Side (Split) Diff, Unified Diff, and live code editing.
@@ -111,7 +111,7 @@ A production-ready, autonomous multi-agent security remediation system designed 
    - Generates interactive **Security Audit Report** (`/api/scanner/report?format=html`).
 3. **Step 03: Autonomous Code Patching & Remediation (`RemediatorAgent` & `BugFixerAgent`)**
    - Queues findings from Step 02 in the interactive remediation studio.
-   - Applies AST-accurate patches using rule-based or AI LLM backends (Ollama, Gemini, OpenAI, Claude).
+   - Applies AST-accurate patches using rule-based or local AI LLM backends (Local Ollama, LM Studio / vLLM, Air-Gap Offline Rule Engine).
    - Injects proxy routes and mock interceptors for air-gap isolation.
    - Executes verification post-scan, confirms score (100/100 A+), and generates the **Remediation & Compliance Dossier**.
 4. **Step 04: Patch Verification & Git Commit (`GitSubAgent`)**

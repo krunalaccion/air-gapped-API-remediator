@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 
 try:
-    from agents.base import BaseAgent
+    from agents.base import BaseAgent, AgentRegistry
 except ImportError:
     class BaseAgent:
         def __init__(self, name: str, role: str, description: str = ""):
@@ -20,6 +20,11 @@ except ImportError:
             self.role = role
             self.description = description
             self.status = "READY"
+
+    class AgentRegistry:
+        @classmethod
+        def get(cls, name: str):
+            return None
 
 try:
     from .config import GitAgentConfig, ProviderType
@@ -276,7 +281,15 @@ class GitSubAgent(BaseAgent):
         self.workspace.add(files)
 
         # 4. Commit changes
-        msg = commit_message or "fix(security): resolve vulnerabilities detected during audit"
+        if not commit_message:
+            remediator = AgentRegistry.get("remediator")
+            if remediator and hasattr(remediator, "accumulated_threats") and remediator.accumulated_threats:
+                repo_name = self.context.repo_name if self.context else "repository"
+                msg = remediator.generate_commit_message(repo_name=repo_name)
+            else:
+                msg = "fix(security): resolve vulnerabilities detected during audit"
+        else:
+            msg = commit_message
         logger.info("Committing changes with message: %s", msg)
         commit_hash = self.workspace.commit(
             message=msg,
@@ -298,7 +311,19 @@ class GitSubAgent(BaseAgent):
             )
 
         title = pr_title or self.config.default_pr_title
-        body = pr_body or self.config.default_pr_body
+        if not pr_body:
+            remediator = AgentRegistry.get("remediator")
+            if remediator and hasattr(remediator, "accumulated_threats") and remediator.accumulated_threats:
+                repo_name = self.context.repo_name if self.context else "repository"
+                body = remediator.generate_pr_body(
+                    repo_name=repo_name,
+                    branch=self.context.feature_branch,
+                    base_branch=self.context.base_branch,
+                )
+            else:
+                body = self.config.default_pr_body
+        else:
+            body = pr_body
         is_draft = draft if draft is not None else self.config.draft_pr
 
         provider_name = (

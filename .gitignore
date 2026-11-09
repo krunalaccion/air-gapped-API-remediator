@@ -43,3 +43,9 @@ test_venv/
 .env
 
 repos/
+
+# Ephemeral test findings & individual remediation reports
+agents/scanner_agent/findings/
+reports/*_report.json
+reports/*.html
+reports/REMEDIATION_AUDIT_REPORT.html

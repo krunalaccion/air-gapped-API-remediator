@@ -55,6 +55,7 @@ class ScannerAgent(BaseAgent):
         self.securescan_pipeline = SecureScanPipeline(findings_dir=self.findings_dir)
         self.last_bundle: Optional[ScanReportBundle] = None
         self.last_engine: str = "all"
+        self.initial_scan_findings: List[Dict[str, Any]] = []
 
     def load_bug_findings(self) -> List[Dict[str, Any]]:
         """
@@ -417,41 +418,45 @@ class ScannerAgent(BaseAgent):
         if not combined_findings and not securescan_data.get("executed") and ws_path is None and scanner_engine in ("all", "auto"):
             combined_findings = self.scan_workspace(None)
 
-        # Clean old findings from previous scans so findings from other repositories don't linger
-        if self.findings_dir.exists():
-            for old_json in self.findings_dir.glob("*.json"):
-                try:
-                    old_json.unlink()
-                except Exception as exc:
-                    logger.debug("Could not remove old finding %s: %s", old_json, exc)
+        is_post_scan = bool(context.get("is_post_scan", False))
 
-        # Persist all detected findings into agents/scanner_agent/findings/*.json for RemediatorAgent
-        repo_name = effective_scan_dir.name if effective_scan_dir else "repository"
-        for idx, f in enumerate(combined_findings, 1):
-            fid = f.get("finding_id") or f.get("id") or f"FINDING-{idx:03d}"
-            rule_id = f.get("rule_id") or f.get("rule") or "security-violation"
-            sev = f.get("severity", "MEDIUM")
-            fname = re.sub(r'[^a-zA-Z0-9_\-]', '_', fid.lower()) + ".json"
-            f_path = f.get("file_path") or f.get("file", "")
-            finding_payload = {
-                "finding_id": fid,
-                "rule_id": rule_id,
-                "severity": sev,
-                "file_path": f_path,
-                "line_number": f.get("line_number") or f.get("line") or f.get("line_start", 1),
-                "message": f.get("description") or f.get("message") or f.get("raw_evidence", "Security finding detected by ScannerAgent"),
-                "code_snippet": f.get("code_snippet", ""),
-                "repository": repo_name,
-                "status": "NEW",
-                "cwe_id": f.get("cwe_id"),
-                "classification": f.get("classification"),
-                "owasp_category": f.get("owasp_category"),
-                "recommendation": f.get("recommendation"),
-            }
-            try:
-                (self.findings_dir / fname).write_text(json.dumps(finding_payload, indent=2), encoding="utf-8")
-            except Exception as exc:
-                logger.debug("Could not write finding JSON %s: %s", fname, exc)
+        if not is_post_scan:
+            self.initial_scan_findings = list(combined_findings)
+            # Clean old findings from previous scans so findings from other repositories don't linger
+            if self.findings_dir.exists():
+                for old_json in self.findings_dir.glob("*.json"):
+                    try:
+                        old_json.unlink()
+                    except Exception as exc:
+                        logger.debug("Could not remove old finding %s: %s", old_json, exc)
+
+            # Persist all detected findings into agents/scanner_agent/findings/*.json for RemediatorAgent
+            repo_name = effective_scan_dir.name if effective_scan_dir else "repository"
+            for idx, f in enumerate(combined_findings, 1):
+                fid = f.get("finding_id") or f.get("id") or f"FINDING-{idx:03d}"
+                rule_id = f.get("rule_id") or f.get("rule") or "security-violation"
+                sev = f.get("severity", "MEDIUM")
+                fname = re.sub(r'[^a-zA-Z0-9_\-]', '_', fid.lower()) + ".json"
+                f_path = f.get("file_path") or f.get("file", "")
+                finding_payload = {
+                    "finding_id": fid,
+                    "rule_id": rule_id,
+                    "severity": sev,
+                    "file_path": f_path,
+                    "line_number": f.get("line_number") or f.get("line") or f.get("line_start", 1),
+                    "message": f.get("description") or f.get("message") or f.get("raw_evidence", "Security finding detected by ScannerAgent"),
+                    "code_snippet": f.get("code_snippet", ""),
+                    "repository": repo_name,
+                    "status": "NEW",
+                    "cwe_id": f.get("cwe_id"),
+                    "classification": f.get("classification"),
+                    "owasp_category": f.get("owasp_category"),
+                    "recommendation": f.get("recommendation"),
+                }
+                try:
+                    (self.findings_dir / fname).write_text(json.dumps(finding_payload, indent=2), encoding="utf-8")
+                except Exception as exc:
+                    logger.debug("Could not write finding JSON %s: %s", fname, exc)
 
         bug_findings = self.load_bug_findings()
 
@@ -466,6 +471,8 @@ class ScannerAgent(BaseAgent):
             "status": "completed",
             "workspace_scanned": str(effective_scan_dir) if effective_scan_dir else None,
             "total_findings": len(combined_findings),
+            "is_post_scan": is_post_scan,
+            "initial_findings": self.initial_scan_findings,
             "severity_counts": {"critical": crit, "high": high, "medium": med, "low": low},
             "posture": posture,
             "findings": combined_findings,

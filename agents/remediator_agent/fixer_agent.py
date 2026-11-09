@@ -59,15 +59,33 @@ class BugFixerAgent:
         matched, actual_line, matched_text = self.tools.verify_snippet(
             original_content, finding.line_number, finding.code_snippet
         )
+        is_missing_heuristic = (
+            "not found" in (finding.code_snippet or "").lower()
+            or "missing" in (finding.code_snippet or "").lower()
+            or "hsts" in finding.rule_id.lower()
+            or "hsts" in finding.finding_id.lower()
+        )
         if not matched:
             # Check if this finding was already remediated by a previous step or another rule
             clean_snip = re.sub(r'[\s\'\",;]+', '', finding.code_snippet or "").lower()
             clean_orig = re.sub(r'[\s\'\",;]+', '', original_content).lower()
-            if (
-                "parameters.addwithvalue" in clean_orig
-                or (len(clean_snip) > 6 and clean_snip not in clean_orig)
-                or finding.status == "FIXED"
-            ):
+
+            already_done = False
+            if "connectionstring" in finding.rule_id.lower() or "cwe-798" in (finding.cwe_id or "").lower() or "***redacted***" in clean_snip:
+                is_vuln_still_present = bool(re.search(r'(?i)\b(password|pwd)\s*=\s*[^;]+', original_content))
+                already_done = not is_vuln_still_present
+            elif is_missing_heuristic:
+                if "hsts" in finding.rule_id.lower() or "hsts" in finding.finding_id.lower():
+                    already_done = "app.usehsts(" in clean_orig
+            else:
+                already_done = (
+                    "parameters.addwithvalue" in clean_orig
+                    or "typenamehandling.none" in clean_orig
+                    or (len(clean_snip) > 6 and clean_snip not in clean_orig)
+                    or finding.status == "FIXED"
+                )
+
+            if already_done:
                 logger.info(
                     "Finding '%s' is already remediated in %s. Skipping redundant patch.",
                     finding.finding_id,
@@ -162,6 +180,31 @@ class BugFixerAgent:
         if not fixed_content or not fixed_content.strip():
             raise ValueError("LLM returned empty file content.")
 
+        # Strip any markdown code fences if wrapped around output
+        clean_fixed = fixed_content.strip()
+        if clean_fixed.startswith("```"):
+            fence_m = re.match(r"^```[a-zA-Z0-9_\-]*\s*\n([\s\S]*?)\n```\s*$", clean_fixed)
+            if fence_m:
+                clean_fixed = fence_m.group(1)
+            else:
+                lines = [l for l in clean_fixed.splitlines() if not l.strip().startswith("```")]
+                clean_fixed = "\n".join(lines)
+            fixed_content = clean_fixed
+
+        # Check for severe truncation
+        orig_line_count = len(original_content.splitlines())
+        fixed_line_count = len(fixed_content.splitlines())
+        if orig_line_count > 10 and fixed_line_count < int(orig_line_count * 0.6):
+            raise ValueError(
+                f"Proposed fix is severely truncated ({fixed_line_count} lines vs {orig_line_count} original lines)."
+            )
+
+        # Delimiter balancing check
+        for open_ch, close_ch in (("{", "}"), ("[", "]")):
+            if original_content.count(open_ch) == original_content.count(close_ch):
+                if fixed_content.count(open_ch) != fixed_content.count(close_ch):
+                    raise ValueError(f"Proposed fix contains unbalanced '{open_ch}' and '{close_ch}' syntax delimiters.")
+
         snippet_core = (finding.code_snippet or "").strip().rstrip(";")
         is_comment = (
             snippet_core.startswith("//")
@@ -173,7 +216,20 @@ class BugFixerAgent:
             "not found" in snippet_core.lower()
             or "missing" in snippet_core.lower()
             or "hsts" in finding.rule_id.lower()
+            or "hsts" in finding.finding_id.lower()
         )
+
+        # For HSTS, explicitly enforce presence of app.UseHsts()
+        if "hsts" in finding.rule_id.lower() or "hsts" in finding.finding_id.lower():
+            if "app.UseHsts(" not in fixed_content:
+                raise ValueError("Validation failed: app.UseHsts() is missing from the remediated Program.cs.")
+
+        # For Program.cs, ensure lifecycle statements are not lost
+        if finding.file_path.lower().endswith("program.cs"):
+            if "builder.Build()" in original_content and "builder.Build()" not in fixed_content:
+                raise ValueError("Validation failed: builder.Build() was removed from Program.cs.")
+            if "app.Run()" in original_content and "app.Run()" not in fixed_content:
+                raise ValueError("Validation failed: app.Run() was removed from Program.cs.")
 
         clean_snip = re.sub(r'[\s\'\",;]+', '', snippet_core).lower()
         clean_orig = re.sub(r'[\s\'\",;]+', '', original_content).lower()
@@ -182,6 +238,13 @@ class BugFixerAgent:
         if "allowedhosts" in clean_snip:
             is_vuln_in_fixed = bool(re.search(r'\"AllowedHosts\"\s*:\s*\"\*\"', fixed_content))
             is_vuln_in_orig = bool(re.search(r'\"AllowedHosts\"\s*:\s*\"\*\"', original_content))
+        elif "connectionstring" in finding.rule_id.lower() or "cwe-798" in (finding.cwe_id or "").lower() or "***redacted***" in clean_snip:
+            is_vuln_in_fixed = bool(re.search(r'(?i)\b(password|pwd)\s*=\s*[^;]+', fixed_content))
+            is_vuln_in_orig = bool(re.search(r'(?i)\b(password|pwd)\s*=\s*[^;]+', original_content))
+        elif "typenamehandling" in clean_snip or "cwe-502" in (finding.cwe_id or "").lower() or "deserial" in finding.rule_id.lower() or "deserial" in finding.finding_id.lower():
+            # In deserialization, TypeNameHandling.None is SAFE. Only All, Auto, Objects, Arrays are vulnerable
+            is_vuln_in_fixed = bool(re.search(r'TypeNameHandling\.(All|Auto|Objects|Arrays)', fixed_content))
+            is_vuln_in_orig = bool(re.search(r'TypeNameHandling\.(All|Auto|Objects|Arrays)', original_content))
         else:
             is_vuln_in_fixed = snippet_core in fixed_content or (
                 len(clean_snip) > 6 and clean_snip in re.sub(r'[\s\'\",;]+', '', fixed_content).lower()
