@@ -277,6 +277,612 @@ class TestAirGappedScannerAndRemediator(unittest.TestCase):
         self.assertTrue(b_data["executed"])
         self.assertEqual(b_data["ecosystem"], "python")
 
+    def test_api_prepare_skip_build_test_and_subsequent_execution(self):
+        # Prepare repo with skip_build_test flag for staged UI loading
+        test_repo = self.temp_dir / "staged_py_repo"
+        test_repo.mkdir()
+        subprocess.run(["git", "init", "-b", "main"], cwd=str(test_repo), check=True, capture_output=True)
+        (test_repo / "main.py").write_text("print('hello world')\n")
+        subprocess.run(["git", "add", "."], cwd=str(test_repo), check=True, capture_output=True)
+        subprocess.run(["git", "-c", "commit.gpgsign=false", "-c", "user.name=Test", "-c", "user.email=test@test.local", "commit", "-m", "init"], cwd=str(test_repo), check=True, capture_output=True)
+
+        status, prep_data = self._call_post("/api/prepare", {
+            "repo_url": str(test_repo),
+            "skip_build_test": True,
+        })
+        self.assertEqual(status, 200)
+        bt = prep_data.get("build_and_test", {})
+        self.assertEqual(bt.get("status"), "pending")
+        self.assertFalse(bt.get("executed"))
+
+        # Subsequent call to /api/build-test executes the verification
+        b_status, b_data = self._call_post("/api/build-test", {})
+        self.assertEqual(b_status, 200)
+        self.assertTrue(b_data.get("executed"))
+        self.assertEqual(b_data.get("ecosystem"), "python")
+        self.assertEqual(b_data.get("build", {}).get("status"), "passed")
+
+    def test_step3_repeated_runs_accumulate_threats_and_generate_dossier_commit_and_pr(self):
+        import web_server
+        # Prepare a local repository with external egress
+        repo_dir = self.temp_dir / "threat_accum_repo"
+        repo_dir.mkdir()
+        subprocess.run(["git", "init", "-b", "main"], cwd=str(repo_dir), check=True, capture_output=True)
+        (repo_dir / "app.py").write_text('import requests\nrequests.get("https://api.external-cloud.com/v1/telemetry")\n')
+        subprocess.run(["git", "add", "."], cwd=str(repo_dir), check=True, capture_output=True)
+        subprocess.run(["git", "-c", "commit.gpgsign=false", "-c", "user.name=Test", "-c", "user.email=test@test.local", "commit", "-m", "init"], cwd=str(repo_dir), check=True, capture_output=True)
+
+        # Step 1: Prepare
+        p_status, p_data = self._call_post("/api/prepare", {"repo_url": str(repo_dir)})
+        self.assertEqual(p_status, 200)
+
+        # Step 2: Scan
+        s_status, s_data = self._call_post("/api/scan", {"workspace_path": str(repo_dir)})
+        self.assertEqual(s_status, 200)
+        initial_findings = s_data.get("findings", [])
+        self.assertTrue(len(initial_findings) >= 1)
+
+        # Step 3: Run Fix (Run 1)
+        f_status1, f_data1 = self._call_post("/api/fix", {"workspace_path": str(repo_dir)})
+        self.assertEqual(f_status1, 200)
+        threats_run1 = f_data1.get("all_threats", [])
+        self.assertTrue(len(threats_run1) >= 1)
+        self.assertIn("fix(airgap)", f_data1.get("commit_message", ""))
+        self.assertIn("Remediated Security Threats", f_data1.get("commit_message", ""))
+
+        # Step 3: Run Fix again (Run 2) - must retain all threats and not wipe them
+        f_status2, f_data2 = self._call_post("/api/fix", {"workspace_path": str(repo_dir)})
+        self.assertEqual(f_status2, 200)
+        threats_run2 = f_data2.get("all_threats", [])
+        self.assertTrue(len(threats_run2) >= len(threats_run1), "Threats must not decrease or wipe on repeated step 3 runs")
+        self.assertIn("fix(airgap)", f_data2.get("commit_message", ""))
+        self.assertIn("Remediated Security Threats", f_data2.get("commit_message", ""))
+        self.assertIn("Security Posture", f_data2.get("pr_body", ""))
+        self.assertIn("SecOps Compliance", f_data2.get("pr_body", ""))
+
+        # Step 4: Commit & Push with default / empty commit message
+        c_status, c_data = self._call_post("/api/commit-push", {})
+        self.assertEqual(c_status, 200)
+
+        # Verify the actual git commit in the repository contains the full breakdown
+        active_agent = web_server.ACTIVE_GIT_AGENT
+        self.assertIsNotNone(active_agent)
+        log_res = subprocess.run(
+            ["git", "log", "-1", "--pretty=%B"],
+            cwd=str(active_agent.get_workspace_path()),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        commit_body = log_res.stdout
+        self.assertIn("fix(airgap)", commit_body)
+        self.assertIn("Remediated Security Threats & Remediation Actions:", commit_body)
+        self.assertIn("Modified Files & Compliance Manifests:", commit_body)
+
+        # Step 4: Create PR with default / empty description
+        pr_status, pr_data = self._call_post("/api/create-pr", {})
+        self.assertEqual(pr_status, 200)
+        pr_content = pr_data.get("pr_content", "")
+        self.assertIn("[SecOps Compliance]", pr_data.get("title", ""))
+        self.assertIn("Remediated Vulnerabilities & Security Findings Evidence", pr_content)
+        self.assertIn("Modified Source Code & Artifacts", pr_content)
+        self.assertIn("Air-Gap & Perimeter Security Compliance Checklist", pr_content)
+
+    def test_index_html_contains_build_test_loader_elements(self):
+        from web_server import get_web_dir
+        html_path = get_web_dir() / "index.html"
+        content = html_path.read_text(encoding="utf-8")
+        self.assertIn('id="buildTestLoader"', content)
+        self.assertIn('showBuildTestLoader', content)
+        self.assertIn('hideBuildTestLoader', content)
+        self.assertIn('accumulatedThreatFindings', content)
+        self.assertIn('accumulatedRemediations', content)
+        self.assertIn('generateCommitMessageSummary', content)
+
+    def test_step3_realtime_progress_endpoint(self):
+        # 1. Test initial GET /api/fix/progress
+        status, prog = self._call_get("/api/fix/progress")
+        self.assertEqual(status, 200)
+        self.assertIn("status", prog)
+        self.assertIn("percent", prog)
+        self.assertIn("items", prog)
+        self.assertIn("completed_targets", prog)
+        self.assertIn("total_targets", prog)
+
+        # 2. Test progress tracking after remediation
+        test_repo = self.temp_dir / "progress_test_repo"
+        test_repo.mkdir()
+        subprocess.run(["git", "init", "-b", "main"], cwd=str(test_repo), check=True, capture_output=True)
+        (test_repo / "server.py").write_text('import requests\nrequests.get("https://api.external-cloud.com/v1/metrics")\n')
+        subprocess.run(["git", "add", "."], cwd=str(test_repo), check=True, capture_output=True)
+        subprocess.run(["git", "-c", "commit.gpgsign=false", "-c", "user.name=Test", "-c", "user.email=test@test.local", "commit", "-m", "init"], cwd=str(test_repo), check=True, capture_output=True)
+
+        self._call_post("/api/prepare", {"repo_url": str(test_repo)})
+        self._call_post("/api/scan", {"workspace_path": str(test_repo)})
+        f_status, f_res = self._call_post("/api/fix", {"workspace_path": str(test_repo)})
+        self.assertEqual(f_status, 200)
+
+        p_status, post_prog = self._call_get("/api/fix/progress")
+        self.assertEqual(p_status, 200)
+        self.assertEqual(post_prog["status"], "COMPLETED")
+        self.assertEqual(post_prog["percent"], 100)
+        self.assertTrue(len(post_prog["items"]) >= 3)
+        item_ids = [itm["id"] for itm in post_prog["items"]]
+        self.assertIn("AIRGAP-PROXY-001", item_ids)
+        self.assertIn("AIRGAP-AUDIT-001", item_ids)
+        self.assertIn("POST-SCAN-VERIFY", item_ids)
+
+        # Check telemetry also includes progress
+        t_status, telem = self._call_get("/api/telemetry")
+        self.assertEqual(t_status, 200)
+        self.assertIn("progress", telem.get("remediator", {}))
+
+    def test_index_html_step3_realtime_progress_and_button_lock_elements(self):
+        from web_server import get_web_dir
+        html_path = get_web_dir() / "index.html"
+        content = html_path.read_text(encoding="utf-8")
+        self.assertIn('id="step3LiveFixProgress"', content)
+        self.assertIn('id="fixProgressIterationBadge"', content)
+        self.assertIn('showStep3FixProgress', content)
+        self.assertIn('updateStep3FixProgress', content)
+        self.assertIn('hideStep3FixProgress', content)
+        self.assertIn('setGlobalActionLock', content)
+        self.assertIn('function apiGet', content)
+        self.assertIn('function apiPost', content)
+        self.assertIn('btnFix', content)
+        self.assertIn('btnScan', content)
+        self.assertIn('btnPrepare', content)
+
+    def test_csharp_deserialization_cwe502_comment_handling(self):
+        from agents.scanner_agent.inspectors import CSharpLexicalAnalyzer
+        from agents.remediator_agent.llm_client import CloudLLMClient
+        from agents.remediator_agent.models import Finding
+
+        analyzer = CSharpLexicalAnalyzer()
+
+        # 1. Vulnerable code with comment should be detected
+        vuln_code = (
+            "namespace TestNamespace {\n"
+            "    public class TestSerializer {\n"
+            "        private static readonly JsonSerializerSettings UnsafeSettings = new() {\n"
+            "            TypeNameHandling = TypeNameHandling.Auto, // or TypeNameHandling.Auto if type safety is not a concern\n"
+            "            Formatting = Formatting.Indented\n"
+            "        };\n"
+            "    }\n"
+            "}\n"
+        )
+        vuln_file = self.temp_dir / "VulnSerializer.cs"
+        vuln_file.write_text(vuln_code, encoding="utf-8")
+        findings = analyzer.analyze_file(vuln_file)
+        deserial_findings = [f for f in findings if f.cwe_id == "CWE-502" or "deserial" in f.rule_id]
+        self.assertEqual(len(deserial_findings), 1)
+        self.assertEqual(deserial_findings[0].line_start, 4)
+
+        # 2. Compliant code with comment should NOT be flagged as vulnerable
+        safe_code = (
+            "namespace TestNamespace {\n"
+            "    public class TestSerializer {\n"
+            "        private static readonly JsonSerializerSettings SafeSettings = new() {\n"
+            "            TypeNameHandling = TypeNameHandling.None, // or TypeNameHandling.Auto if type safety is not a concern\n"
+            "            Formatting = Formatting.Indented\n"
+            "        };\n"
+            "    }\n"
+            "}\n"
+        )
+        safe_file = self.temp_dir / "SafeSerializer.cs"
+        safe_file.write_text(safe_code, encoding="utf-8")
+        safe_findings = analyzer.analyze_file(safe_file)
+        safe_deserial = [f for f in safe_findings if f.cwe_id == "CWE-502" or "deserial" in f.rule_id]
+        self.assertEqual(len(safe_deserial), 0)
+
+        # 3. Deterministic Remediator fix replaces TypeNameHandling and sanitizes comment
+        finding = Finding(
+            finding_id="DESERIAL-0001",
+            rule_id="csharp.deserialization.unsafe-api",
+            severity="HIGH",
+            file_path="src/EmployeePortal.Integrations/Serialization/LegacyJsonSerializer.cs",
+            line_number=4,
+            message="Unsafe deserialization API or TypeNameHandling configuration detected.",
+            code_snippet="TypeNameHandling = TypeNameHandling.Auto, // or TypeNameHandling.Auto if type safety is not a concern",
+            repository="test_repo",
+            cwe_id="CWE-502",
+        )
+        client = CloudLLMClient(provider="mock")
+        proposal = client.generate_fix(finding, vuln_code, vuln_code)
+        self.assertIn("TypeNameHandling = TypeNameHandling.None", proposal.fixed_file_content)
+        self.assertNotIn("TypeNameHandling.Auto", proposal.fixed_file_content)
+
+        # 4. Running inspector on the fixed code yields 0 findings
+        fixed_file = self.temp_dir / "FixedSerializer.cs"
+        fixed_file.write_text(proposal.fixed_file_content, encoding="utf-8")
+        fixed_findings = analyzer.analyze_file(fixed_file)
+        fixed_deserial = [f for f in fixed_findings if f.cwe_id == "CWE-502" or "deserial" in f.rule_id]
+        self.assertEqual(len(fixed_deserial), 0)
+
+    def test_iterative_remediation_pipeline_execution(self):
+        from orchestrator.pipeline import MultiAgentPipeline
+        from agents.git_agent.config import GitAgentConfig, ProviderType
+
+        local_repo = self.temp_dir / "pipeline_iter_repo"
+        local_repo.mkdir()
+        subprocess.run(["git", "init", "-b", "main"], cwd=str(local_repo), check=True, capture_output=True)
+        (local_repo / "server.py").write_text('import requests\nrequests.get("https://api.external-cloud.com/v1/metrics")\n')
+        subprocess.run(["git", "add", "."], cwd=str(local_repo), check=True, capture_output=True)
+        subprocess.run(["git", "-c", "commit.gpgsign=false", "-c", "user.name=Test", "-c", "user.email=test@test.local", "commit", "-m", "init"], cwd=str(local_repo), check=True, capture_output=True)
+
+        config = GitAgentConfig(
+            repo_url=str(local_repo),
+            provider=ProviderType.LOCAL,
+            feature_branch_name="remediation/iterative-test",
+        )
+        pipeline = MultiAgentPipeline(git_config=config)
+        res = pipeline.run_remediation_pipeline()
+
+        self.assertEqual(res["status"], "success")
+        self.assertIn("iterations_run", res)
+        self.assertIn("max_iterations", res)
+        self.assertEqual(res["max_iterations"], 5)
+        self.assertTrue(1 <= res["iterations_run"] <= 5)
+        self.assertTrue(res["resolved_all"])
+        self.assertEqual(res["git_result"]["status"], "success")
+
+    def test_hsts_cwe319_remediation_and_inspection(self):
+        from agents.scanner_agent.inspectors import AspNetContextInspector, ProjectProfile
+        from agents.remediator_agent.llm_client import CloudLLMClient
+        from agents.remediator_agent.models import Finding
+        from agents.remediator_agent.fixer_agent import BugFixerAgent
+
+        program_code = (
+            "var builder = WebApplication.CreateBuilder(args);\n"
+            "var app = builder.Build();\n\n"
+            "if (!app.Environment.IsDevelopment())\n"
+            "{\n"
+            "    app.UseExceptionHandler(\"/Error\", createScopeForErrors: true);\n"
+            "}\n\n"
+            "app.UseStaticFiles();\n"
+            "app.UseAntiforgery();\n\n"
+            "app.MapRazorComponents<App>()\n"
+            "    .AddInteractiveServerRenderMode();\n\n"
+            "app.Run();\n"
+        )
+        test_dir = self.temp_dir / "HstsProject"
+        test_dir.mkdir(parents=True, exist_ok=True)
+        prog_file = test_dir / "Program.cs"
+        prog_file.write_text(program_code, encoding="utf-8")
+
+        # 1. Inspect initial Program.cs -> should find HSTS-0001
+        profile = ProjectProfile(project_root=test_dir, source_files=[prog_file])
+        inspector = AspNetContextInspector()
+        findings = inspector.inspect_project(profile)
+        hsts_findings = [f for f in findings if f.cwe_id == "CWE-319" or "hsts" in f.rule_id]
+        self.assertEqual(len(hsts_findings), 1)
+        self.assertEqual(hsts_findings[0].code_snippet, "app.UseHsts() not found in Program.cs")
+
+        # 2. Fix finding via BugFixerAgent
+        finding = Finding(
+            finding_id="HSTS-0001",
+            rule_id="aspnet.headers.hsts-missing-heuristic",
+            severity="MEDIUM",
+            file_path="Program.cs",
+            line_number=1,
+            message="app.UseHsts() is omitted in middleware pipeline.",
+            code_snippet="app.UseHsts() not found in Program.cs",
+            repository="HstsProject",
+            cwe_id="CWE-319",
+        )
+        fixer = BugFixerAgent(repos_root=test_dir, reports_dir=test_dir / "reports")
+        report = fixer.process_finding(finding)
+        self.assertTrue(report.applied)
+
+        # 3. Verify file content now contains app.UseHsts()
+        remediated_content = prog_file.read_text(encoding="utf-8")
+        self.assertIn("app.UseHsts()", remediated_content)
+        self.assertIn("app.UseHttpsRedirection()", remediated_content)
+        self.assertIn("app.Run()", remediated_content)
+
+        # 4. Re-inspect -> 0 findings
+        post_findings = inspector.inspect_project(profile)
+        post_hsts = [f for f in post_findings if f.cwe_id == "CWE-319" or "hsts" in f.rule_id]
+        self.assertEqual(len(post_hsts), 0)
+
+    def test_launchsettings_json_cwe918_schemastore_and_external_proxy(self):
+        from agents.remediator_agent.llm_client import CloudLLMClient
+        from agents.remediator_agent.models import Finding
+        from agents.remediator_agent.fixer_agent import BugFixerAgent
+        from agents.scanner_agent.agent import ScannerAgent
+
+        test_dir = self.temp_dir / "LaunchSettingsTest"
+        props_dir = test_dir / "Properties"
+        props_dir.mkdir(parents=True, exist_ok=True)
+
+        # Case A: External schemastore.org URL
+        launch_api = (
+            "{\n"
+            '  "$schema": "https://json.schemastore.org/launchsettings.json",\n'
+            '  "profiles": {\n'
+            '    "http": {\n'
+            '      "commandName": "Project",\n'
+            '      "applicationUrl": "http://localhost:5180"\n'
+            "    }\n"
+            "  }\n"
+            "}\n"
+        )
+        api_file = props_dir / "launchSettings.json"
+        api_file.write_text(launch_api, encoding="utf-8")
+
+        finding_api = Finding(
+            finding_id="SEMGREP-001",
+            rule_id="airgap.network.unwhitelisted-external-egress",
+            severity="HIGH",
+            file_path="Properties/launchSettings.json",
+            line_number=2,
+            message="Direct outbound internet connection detected in isolated perimeter. (CWE-918)",
+            code_snippet='"$schema": "https://json.schemastore.org/launchsettings.json"',
+            repository="LaunchSettingsTest",
+            cwe_id="CWE-918",
+        )
+        fixer = BugFixerAgent(repos_root=test_dir, reports_dir=test_dir / "reports")
+        rep_api = fixer.process_finding(finding_api)
+        self.assertTrue(rep_api.applied)
+
+        fixed_api_content = api_file.read_text(encoding="utf-8")
+        self.assertIn("http://proxy.airgap.internal:8080/launchsettings.json", fixed_api_content)
+        self.assertNotIn("https://json.schemastore.org", fixed_api_content)
+        self.assertNotIn("```", fixed_api_content)
+
+        # Case B: External proxy with corrupted markdown fences
+        launch_web = (
+            "```\n"
+            "{\n"
+            '  "$schema": "https://internal-proxy.example.com/launchsettings.json",\n'
+            '  "profiles": {\n'
+            '    "http": {\n'
+            '      "commandName": "Project",\n'
+            '      "applicationUrl": "http://localhost:5181"\n'
+            "    }\n"
+            "  }\n"
+            "}\n"
+            "```\n"
+        )
+        web_file = props_dir / "launchSettings.Web.json"
+        web_file.write_text(launch_web, encoding="utf-8")
+
+        finding_web = Finding(
+            finding_id="SEMGREP-002",
+            rule_id="airgap.network.unwhitelisted-external-egress",
+            severity="HIGH",
+            file_path="Properties/launchSettings.Web.json",
+            line_number=3,
+            message="Direct outbound internet connection detected in isolated perimeter. (CWE-918)",
+            code_snippet='"$schema": "https://internal-proxy.example.com/launchsettings.json"',
+            repository="LaunchSettingsTest",
+            cwe_id="CWE-918",
+        )
+        rep_web = fixer.process_finding(finding_web)
+        self.assertTrue(rep_web.applied)
+
+        fixed_web_content = web_file.read_text(encoding="utf-8")
+        self.assertIn("http://proxy.airgap.internal:8080/launchsettings.json", fixed_web_content)
+        self.assertNotIn("internal-proxy.example.com", fixed_web_content)
+        self.assertNotIn("```", fixed_web_content)
+        # Verify valid JSON
+        data = json.loads(fixed_web_content)
+        self.assertEqual(data["$schema"], "http://proxy.airgap.internal:8080/launchsettings.json")
+
+    def test_employee_portal_exact_reported_findings_remediation(self):
+        from agents.remediator_agent.agent import RemediatorAgent
+        from agents.scanner_agent.agent import ScannerAgent
+
+        ep_dir = self.temp_dir / "EmployeePortalTestRepo"
+        ep_dir.mkdir(parents=True, exist_ok=True)
+
+        web_dir = ep_dir / "src" / "EmployeePortal.Web"
+        api_dir = ep_dir / "src" / "EmployeePortal.API"
+        web_props = web_dir / "Properties"
+        api_props = api_dir / "Properties"
+        web_props.mkdir(parents=True, exist_ok=True)
+        api_props.mkdir(parents=True, exist_ok=True)
+
+        # Create dummy .csproj files so ProjectInspector recognizes the C# projects
+        csproj_xml = '<Project Sdk="Microsoft.NET.Sdk.Web"><PropertyGroup><TargetFramework>net9.0</TargetFramework></PropertyGroup></Project>'
+        (web_dir / "EmployeePortal.Web.csproj").write_text(csproj_xml, encoding="utf-8")
+        (api_dir / "EmployeePortal.API.csproj").write_text(csproj_xml, encoding="utf-8")
+
+        # 1. Program.cs without app.UseHsts()
+        program_cs = (
+            "using EmployeePortal.Web.Components;\n"
+            "using EmployeePortal.Web.Services;\n\n"
+            "var builder = WebApplication.CreateBuilder(args);\n\n"
+            "builder.Services.AddRazorComponents()\n"
+            "    .AddInteractiveServerComponents();\n\n"
+            "builder.Services.AddScoped<PortalUserSessionService>();\n\n"
+            'var apiBaseUrl = builder.Configuration["PortalApi:BaseUrl"] ?? "http://localhost:5180";\n'
+            "var app = builder.Build();\n\n"
+            "if (!app.Environment.IsDevelopment())\n"
+            "{\n"
+            '    app.UseExceptionHandler("/Error", createScopeForErrors: true);\n'
+            "}\n\n"
+            "app.UseStaticFiles();\n"
+            "app.UseAntiforgery();\n\n"
+            "app.MapRazorComponents<App>()\n"
+            "    .AddInteractiveServerRenderMode();\n\n"
+            "app.Run();\n"
+        )
+        (web_dir / "Program.cs").write_text(program_cs, encoding="utf-8")
+
+        # 2. API launchSettings.json with schemastore.org
+        api_launch = (
+            "{\n"
+            '  "$schema": "https://json.schemastore.org/launchsettings.json",\n'
+            '  "profiles": {\n'
+            '    "http": {\n'
+            '      "commandName": "Project",\n'
+            '      "applicationUrl": "http://localhost:5180"\n'
+            "    }\n"
+            "  }\n"
+            "}\n"
+        )
+        (api_props / "launchSettings.json").write_text(api_launch, encoding="utf-8")
+
+        # 3. Web launchSettings.json with internal-proxy.example.com
+        web_launch = (
+            "{\n"
+            '  "$schema": "https://internal-proxy.example.com/launchsettings.json",\n'
+            '  "profiles": {\n'
+            '    "http": {\n'
+            '      "commandName": "Project",\n'
+            '      "applicationUrl": "http://localhost:5181"\n'
+            "    }\n"
+            "  }\n"
+            "}\n"
+        )
+        (web_props / "launchSettings.json").write_text(web_launch, encoding="utf-8")
+
+        # 4. Web appsettings.json with wildcard AllowedHosts
+        web_appsettings = (
+            "{\n"
+            '  "Logging": { "LogLevel": { "Default": "Information" } },\n'
+            '  "AllowedHosts": "*",\n'
+            '  "PortalApi": { "BaseUrl": "http://localhost:5180" }\n'
+            "}\n"
+        )
+        (web_dir / "appsettings.json").write_text(web_appsettings, encoding="utf-8")
+
+        # 5. API appsettings.json with wildcard AllowedHosts and plaintext database password
+        api_appsettings = (
+            "{\n"
+            '  "Logging": { "LogLevel": { "Default": "Information" } },\n'
+            '  "AllowedHosts": "*",\n'
+            '  "ConnectionStrings": {\n'
+            '    "DefaultConnection": "Server=sql-sandbox.dummy-hr-portal.local,1433;Database=EmployeeDb;User Id=sa;Password=DummyP@ssw0rd123!;TrustServerCertificate=True;"\n'
+            '  }\n'
+            "}\n"
+        )
+        (api_dir / "appsettings.json").write_text(api_appsettings, encoding="utf-8")
+
+        # Initial Scan
+        scanner = ScannerAgent(findings_dir=ep_dir / "findings")
+        scan_res = scanner.run({"workspace_path": str(ep_dir)})
+        findings = scan_res.get("findings", [])
+        self.assertTrue(len(findings) >= 2)
+
+        # Run RemediatorAgent
+        remediator = RemediatorAgent(
+            repos_root=ep_dir,
+            reports_dir=ep_dir / "reports",
+            scanner_findings_dir=ep_dir / "findings",
+        )
+        fix_res = remediator.remediate(workspace_path=ep_dir, provider="mock")
+        self.assertTrue(len(fix_res["bug_fixes"]) > 0)
+        self.assertTrue(len(fix_res["files_modified"]) > 0)
+
+        # Post-scan verification
+        post_res = scanner.run({"workspace_path": str(ep_dir), "is_post_scan": True})
+        residual_findings = post_res.get("findings", [])
+
+        # Verify all target files were remediated
+        web_prog_fixed = (web_dir / "Program.cs").read_text(encoding="utf-8")
+        self.assertIn("app.UseHsts()", web_prog_fixed)
+        self.assertIn("app.UseHttpsRedirection()", web_prog_fixed)
+
+        api_launch_fixed = (api_props / "launchSettings.json").read_text(encoding="utf-8")
+        self.assertIn("http://proxy.airgap.internal:8080/launchsettings.json", api_launch_fixed)
+        self.assertNotIn("json.schemastore.org", api_launch_fixed)
+
+        web_launch_fixed = (web_props / "launchSettings.json").read_text(encoding="utf-8")
+        self.assertIn("http://proxy.airgap.internal:8080/launchsettings.json", web_launch_fixed)
+        self.assertNotIn("internal-proxy.example.com", web_launch_fixed)
+
+        web_cfg_fixed = (web_dir / "appsettings.json").read_text(encoding="utf-8")
+        self.assertIn('"AllowedHosts": "localhost;*.airgap.internal"', web_cfg_fixed)
+        self.assertNotIn('"AllowedHosts": "*"', web_cfg_fixed)
+
+        api_cfg_fixed = (api_dir / "appsettings.json").read_text(encoding="utf-8")
+        self.assertIn('"AllowedHosts": "localhost;*.airgap.internal"', api_cfg_fixed)
+        self.assertNotIn('"AllowedHosts": "*"', api_cfg_fixed)
+        self.assertIn("Integrated Security=True;", api_cfg_fixed)
+        self.assertNotIn("DummyP@ssw0rd123!", api_cfg_fixed)
+
+        # Residual egress / HSTS / config findings must be 0
+        target_residual = [
+            rf for rf in residual_findings
+            if "hsts" in rf.get("rule_id", "").lower()
+            or "launchsettings" in rf.get("file", "").lower()
+            or "allowed-hosts" in rf.get("rule_id", "").lower()
+            or "connectionstring" in rf.get("rule_id", "").lower()
+        ]
+        self.assertEqual(len(target_residual), 0)
+
+    def test_validate_path_allow_non_git(self):
+        non_git = self.temp_dir / "plain_project_1"
+        non_git.mkdir()
+        status, data = self._call_post("/api/validate-path", {"path": str(non_git), "allow_non_git": True})
+        self.assertEqual(status, 200)
+        self.assertTrue(data.get("valid"))
+        self.assertFalse(data.get("has_git"))
+        self.assertTrue(data.get("can_auto_init"))
+
+    def test_validate_path_auto_init(self):
+        non_git = self.temp_dir / "plain_project_2"
+        non_git.mkdir()
+        status, data = self._call_post("/api/validate-path", {"path": str(non_git), "auto_init": True})
+        self.assertEqual(status, 200)
+        self.assertTrue(data.get("valid"))
+        self.assertTrue(data.get("has_git"))
+        self.assertTrue((non_git / ".git").exists())
+
+    def test_prepare_and_fix_unlinked_local_project(self):
+        # Create a plain local project without git or remote
+        proj_dir = self.temp_dir / "unlinked_local_app"
+        proj_dir.mkdir()
+        (proj_dir / "telemetry.py").write_text(
+            'import requests\n\ndef send():\n    return requests.post("https://api.mixpanel.com/track", data={})\n',
+            encoding="utf-8",
+        )
+
+        # 1. Prepare with auto_init: True
+        status, prep_data = self._call_post("/api/prepare", {
+            "repo_url": str(proj_dir),
+            "feature_branch": "remediation/local-fix-test",
+            "auto_init": True,
+            "skip_build_test": True,
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(prep_data["context"]["provider"], "local")
+        self.assertTrue((proj_dir / ".git").exists())
+
+        # 2. Scan workspace
+        status, scan_data = self._call_post("/api/scan", {
+            "workspace_path": str(proj_dir),
+            "scanner_engine": "all",
+        })
+        self.assertEqual(status, 200)
+        self.assertGreater(scan_data.get("total_findings", 0), 0)
+
+        # 3. Fix issues
+        status, fix_data = self._call_post("/api/fix", {
+            "workspace_path": str(proj_dir),
+        })
+        self.assertEqual(status, 200)
+        self.assertGreater(len(fix_data.get("files_modified", [])), 0)
+
+        # 4. Commit and push (remains safely local for unlinked repo)
+        status, commit_data = self._call_post("/api/commit-push", {
+            "commit_message": "fix(airgap): remediate mixpanel telemetry in unlinked project",
+        })
+        self.assertEqual(status, 200)
+        self.assertIn("commit_hash", commit_data)
+
+        # 5. Create local PR manifest
+        status, pr_data = self._call_post("/api/create-pr", {
+            "title": "Remediate Mixpanel Telemetry",
+            "description": "Auto-remediation for unlinked project",
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(pr_data.get("provider"), "local")
+        self.assertTrue(Path(pr_data["pr_file_path"]).exists())
+        self.assertIn("Remediate Mixpanel Telemetry", pr_data.get("title", ""))
+
 
 
 if __name__ == "__main__":

@@ -17,7 +17,7 @@ A production-ready, autonomous multi-agent security remediation system designed 
   - Interactive **Security Scanner HTML/JSON Audit Report** generation (`/api/scanner/report?format=html`) with verified threat counts and compliance verdicts.
 
 - **Autonomous Code Patching & Remediation Studio (`RemediatorAgent` & `BugFixerAgent`)**:
-  - Dual-mode remediation: 100% offline deterministic rule-based fixer (`AIR-GAP OFFLINE`) or multi-provider AI engine (**Local Ollama**, **OpenAI-compatible local LLMs**, **Google Gemini**, **OpenAI GPT-4o**, **Anthropic Claude 3.5 Sonnet**).
+  - Dual-mode remediation: 100% offline deterministic rule-based fixer (`AIR-GAP OFFLINE`) or local AI engines (**Local Ollama**, **Local OpenAI-compatible LLMs** such as LM Studio or vLLM).
   - Remediates all detected security flaws and egress calls in C#, Python, and JS/TS codebases.
   - Injects compliant internal proxy routing (`config/airgap_proxy.json`) redirecting egress to `proxy.airgap.internal:8080` with offline mock fallbacks.
   - Interactive Web Studio with Queued Targets, Side-by-Side (Split) Diff, Unified Diff, and live code editing.
@@ -34,9 +34,11 @@ A production-ready, autonomous multi-agent security remediation system designed 
   - Automatically detects and displays the main repository name (e.g., `CustomerApi`, `EnterpriseEmployeePortal`) rather than temporary path strings.
   - Resolves perimeter isolation status (`ISOLATED`).
 
-- **Offline & Local Git Repository Mode (`LocalProvider`)**:
-  - Zero-internet operation for local filesystem repositories (`/path/to/repo`).
-  - Creates file-based local PR review manifests (`.git/local_prs/PR-*.md`) containing complete audit evidence, diffs, and verification checklists.
+- **Offline & Local Project Mode (`LocalProvider`)**:
+  - Full remediation support for local repositories **without any linked remote** (no GitHub/GitLab origin).
+  - Auto-initializes plain directories into Git repositories on-demand (`auto_init: true`) with baseline commits and isolated feature branches.
+  - Zero-internet operation for local filesystem projects (`repos/CustomerApi` or `/path/to/project`).
+  - Creates file-based offline PR review manifests (`.git/local_prs/PR-*.md`) containing complete audit evidence, diffs, and verification checklists.
 
 - **Remote Enterprise Git Providers (`GitHubProvider`, `GitLabProvider`)**:
   - Works with GitHub, GitLab (including self-hosted enterprise enclaves).
@@ -48,7 +50,8 @@ A production-ready, autonomous multi-agent security remediation system designed 
   - Dark Mode and Light Mode support with persistent user preferences.
   - Multi-browser and high-resolution touch icon support (Apple Touch Icons, standard SVG/PNG favicons).
   - Live repository file tree with real-time modified file pills and syntax viewing.
-  - Modal filesystem picker with instant `.git` repository validation.
+  - Modal filesystem picker with bookmarks and one-click demo loader (`repos/CustomerApi`).
+  - Dynamic perimeter mode badges: Remote Git, Local Git (Unlinked), and Local Project (Auto-Init).
 
 - **Model Context Protocol (MCP) Server**:
   - Full JSON-RPC 2.0 stdio server compliant with the MCP specification (2024-11-05).
@@ -111,7 +114,7 @@ A production-ready, autonomous multi-agent security remediation system designed 
    - Generates interactive **Security Audit Report** (`/api/scanner/report?format=html`).
 3. **Step 03: Autonomous Code Patching & Remediation (`RemediatorAgent` & `BugFixerAgent`)**
    - Queues findings from Step 02 in the interactive remediation studio.
-   - Applies AST-accurate patches using rule-based or AI LLM backends (Ollama, Gemini, OpenAI, Claude).
+   - Applies AST-accurate patches using rule-based or local AI LLM backends (Local Ollama, LM Studio / vLLM, Air-Gap Offline Rule Engine).
    - Injects proxy routes and mock interceptors for air-gap isolation.
    - Executes verification post-scan, confirms score (100/100 A+), and generates the **Remediation & Compliance Dossier**.
 4. **Step 04: Patch Verification & Git Commit (`GitSubAgent`)**
@@ -186,8 +189,8 @@ The multi-threaded server (`web_server.py`) provides 17 REST endpoints for multi
 | `GET` | `/api/telemetry` | Returns real-time state of all agents, workspace files, git status, PRs, and build status | _(none)_ |
 | `GET` | `/api/agents` | Lists registered specialist agents and their operational status | _(none)_ |
 | `GET` | `/api/fs/list` | Lists subdirectories and quick-access bookmarks for repository selection | `{"path": "/path/to/dir"}` |
-| `POST` | `/api/validate-path` | Validates if a filesystem directory exists and contains a valid `.git` tree | `{"path": "/path/to/repo"}` |
-| `POST` | `/api/prepare` | Clones/mounts repository, provisions feature branch, and runs build/test detection | `{"repo_url", "token", "base_branch", "feature_branch"}` |
+| `POST` | `/api/validate-path` | Validates if a filesystem directory exists, checks `.git` presence, and supports auto-init | `{"path": "/path/to/repo", "allow_non_git": true, "auto_init": false}` |
+| `POST` | `/api/prepare` | Clones/mounts repository (or local unlinked folder), provisions feature branch, and runs build/test detection | `{"repo_url", "token", "base_branch", "feature_branch", "auto_init": true}` |
 | `POST` | `/api/scan` | Runs SAST and air-gap egress scanner across workspace files | `{"workspace_path", "repo_url", "scanner_engine"}` |
 | `GET` | `/api/scanner/tools` | Detects availability of external scanner CLIs (**Semgrep**, **Trivy**) | _(none)_ |
 | `GET` | `/api/scanner/report` | Returns interactive HTML or JSON security scan audit report | `?format=html` or `?format=json` |
@@ -338,9 +341,9 @@ python3 -m unittest discover tests
 Output:
 ```
 ----------------------------------------------------------------------
-Ran 56 tests in 5.080s
+Ran 69 tests in 8.887s
 
 OK
 ```
 
-All **56 unit and integration tests** pass cleanly with 100% pass rate.
+All **69 unit and integration tests** pass cleanly with 100% pass rate.

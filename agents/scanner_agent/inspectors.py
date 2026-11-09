@@ -350,7 +350,18 @@ class CSharpLexicalAnalyzer:
             clean = line.strip()
             if clean.startswith("//") or clean.startswith("/*") or clean.startswith("*"):
                 continue
-            if (has_bf and ".Deserialize(" in line) or "TypeNameHandling.All" in line or "TypeNameHandling.Auto" in line:
+            # Strip inline comments to prevent comments like '// or TypeNameHandling.Auto' from causing false positives
+            code_only = line.split("//")[0].strip()
+            # If code explicitly secures TypeNameHandling to None, it is compliant
+            if "TypeNameHandling.None" in code_only:
+                continue
+            if (
+                (has_bf and ".Deserialize(" in code_only)
+                or "TypeNameHandling.All" in code_only
+                or "TypeNameHandling.Auto" in code_only
+                or "TypeNameHandling.Objects" in code_only
+                or "TypeNameHandling.Arrays" in code_only
+            ):
                 findings.append(
                     RawSecurityFinding(
                         finding_id=self._next_id("DESERIAL"),

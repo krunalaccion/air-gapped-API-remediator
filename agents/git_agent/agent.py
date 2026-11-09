@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 
 try:
-    from agents.base import BaseAgent
+    from agents.base import BaseAgent, AgentRegistry
 except ImportError:
     class BaseAgent:
         def __init__(self, name: str, role: str, description: str = ""):
@@ -20,6 +20,11 @@ except ImportError:
             self.role = role
             self.description = description
             self.status = "READY"
+
+    class AgentRegistry:
+        @classmethod
+        def get(cls, name: str):
+            return None
 
 try:
     from .config import GitAgentConfig, ProviderType
@@ -157,6 +162,7 @@ class GitSubAgent(BaseAgent):
         self,
         feature_branch: Optional[str] = None,
         base_branch: Optional[str] = None,
+        auto_init: Optional[bool] = None,
     ) -> WorkspaceContext:
         """
         Step 1: Clones repository, pulls base branch (main/master), and creates feature branch.
@@ -164,10 +170,19 @@ class GitSubAgent(BaseAgent):
         """
         logger.info("Preparing workspace for repo: %s", self.config.sanitized_repo_url)
 
-        # Validate that local repository exists and has git
+        # Validate that local repository exists and has git (or auto-initialize if enabled)
         if self.config.is_local or self.config.provider == ProviderType.LOCAL:
             if self.provider and hasattr(self.provider, "check_is_git_repository"):
-                self.provider.check_is_git_repository()
+                should_auto_init = auto_init if auto_init is not None else getattr(self.config, "auto_init", False)
+                try:
+                    self.provider.check_is_git_repository(auto_init=should_auto_init)
+                except TypeError:
+                    self.provider.check_is_git_repository()
+
+            if self.provider and hasattr(self.provider, "repo_path") and self.provider.repo_path.exists():
+                if not self.config.workspace_dir:
+                    self.workspace.workspace_dir = self.provider.repo_path
+                    self.config.workspace_dir = str(self.provider.repo_path)
 
         # 1. Clone repository
         clone_url = self.config.authenticated_clone_url
@@ -276,7 +291,15 @@ class GitSubAgent(BaseAgent):
         self.workspace.add(files)
 
         # 4. Commit changes
-        msg = commit_message or "fix(security): resolve vulnerabilities detected during audit"
+        if not commit_message:
+            remediator = AgentRegistry.get("remediator")
+            if remediator and hasattr(remediator, "accumulated_threats") and remediator.accumulated_threats:
+                repo_name = self.context.repo_name if self.context else "repository"
+                msg = remediator.generate_commit_message(repo_name=repo_name)
+            else:
+                msg = "fix(security): resolve vulnerabilities detected during audit"
+        else:
+            msg = commit_message
         logger.info("Committing changes with message: %s", msg)
         commit_hash = self.workspace.commit(
             message=msg,
@@ -298,7 +321,19 @@ class GitSubAgent(BaseAgent):
             )
 
         title = pr_title or self.config.default_pr_title
-        body = pr_body or self.config.default_pr_body
+        if not pr_body:
+            remediator = AgentRegistry.get("remediator")
+            if remediator and hasattr(remediator, "accumulated_threats") and remediator.accumulated_threats:
+                repo_name = self.context.repo_name if self.context else "repository"
+                body = remediator.generate_pr_body(
+                    repo_name=repo_name,
+                    branch=self.context.feature_branch,
+                    base_branch=self.context.base_branch,
+                )
+            else:
+                body = self.config.default_pr_body
+        else:
+            body = pr_body
         is_draft = draft if draft is not None else self.config.draft_pr
 
         provider_name = (
