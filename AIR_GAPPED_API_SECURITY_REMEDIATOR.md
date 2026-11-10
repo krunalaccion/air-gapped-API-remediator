@@ -123,9 +123,10 @@ The [`AgentRegistry`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/bas
 ### ScannerAgent: Egress & Vulnerability Detection
 [`ScannerAgent`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/scanner_agent/agent.py) is responsible for auditing codebases for outbound network connections:
 
-#### File Ingestion
-- Recursively inspects: `.py`, `.js`, `.ts`, `.json`, `.yaml`, `.yml`, `.html`, `.sh`, `.md`, `.txt`, and files starting with `.env`.
-- Automatically ignores `.git` internal objects and hidden system directories.
+#### File Ingestion & Multi-Language SAST
+- Recursively inspects: `.cs`, `.py`, `.js`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.json`, `.yaml`, `.yml`, `.html`, `.sh`, `.md`, `.txt`, and files starting with `.env`.
+- Automatically ignores `.git`, `node_modules`, `dist`, `build`, `coverage`, and dependency lockfiles (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, etc.) alongside registry metadata URLs so package lockfiles do not flood egress alerts.
+- Executes [`SecureScanPipeline`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/scanner_agent/pipeline.py) across **C#/.NET** and **Node.js / Express** ([`JavaScriptLexicalAnalyzer`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/scanner_agent/js_inspector.py) + offline Semgrep [`nodejs_rules.yaml`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/scanner_agent/rules/semgrep/nodejs_rules.yaml)) to catch OWASP/CWE application vulnerabilities (`CWE-89`, `78`, `95`, `639`, `22`, `287`, `798`, `256`, `359`, `209`, `942`, `1321`, `918`, `601`).
 
 #### Whitelist & Policy Enforcement
 URLs are evaluated against an air-gap perimeter policy:
@@ -839,7 +840,7 @@ Once registered, the new agent:
 
 ## 11. Testing & Quality Assurance
 
-The codebase includes an exhaustive test suite of **69 automated unit and integration tests** covering all agents, providers, workspaces, web endpoints, and unlinked/offline repositories.
+The codebase includes an exhaustive test suite of **73 automated unit and integration tests** covering all agents, providers, workspaces, web endpoints, workspace resets, unlinked/offline repositories, and multi-language Node.js/Express SAST scanning and offline deterministic remediation.
 
 ### Executing the Test Suite
 Run the standard library test runner:
@@ -849,7 +850,7 @@ python3 -m unittest discover -s tests
 
 ### Test Coverage Highlights
 - [`tests/test_multi_agent.py`](file:///Users/krunaldharamshi/Projects/GitAgent/tests/test_multi_agent.py): Tests `AgentRegistry`, `ScannerAgent` detection of external URLs, `RemediatorAgent` generation of proxy configs, and `MultiAgentPipeline` execution on local git repositories.
-- [`tests/test_web_server.py`](file:///Users/krunaldharamshi/Projects/GitAgent/tests/test_web_server.py): Tests all web API endpoints (`/api/validate-path`, `/api/prepare`, `/api/scan`, `/api/fix`, `/api/local-pr`, `/api/fs/list`), including non-git validation (`allow_non_git`), auto-initialization (`auto_init`), and end-to-end remediation of unlinked local projects without remotes.
+- [`tests/test_web_server.py`](file:///Users/krunaldharamshi/Projects/GitAgent/tests/test_web_server.py): Tests all web API endpoints (`/api/validate-path`, `/api/prepare`, `/api/scan`, `/api/fix`, `/api/local-pr`, `/api/fs/list`), non-git validation (`allow_non_git`), auto-initialization (`auto_init`), unlinked local projects without remotes, reset clearing of folder references, and full 15-CWE Node.js/Express SAST scanning & `auto-fallback` zero-residual remediation (`NodeJsScannerAndRemediatorTest`).
 - [`tests/test_providers.py`](file:///Users/krunaldharamshi/Projects/GitAgent/tests/test_providers.py): Tests GitHub, GitLab, and `LocalProvider` repository access verification, branch detection, auto-initialization of git repos, and local PR manifest creation.
 - [`tests/test_mcp_server.py`](file:///Users/krunaldharamshi/Projects/GitAgent/tests/test_mcp_server.py): Validates JSON-RPC 2.0 MCP tools, dispatching, and error handling.
 - [`tests/test_workspace.py`](file:///Users/krunaldharamshi/Projects/GitAgent/tests/test_workspace.py): Tests isolated temporary workspaces, git diffing, staging, committing, and token scrubbing.

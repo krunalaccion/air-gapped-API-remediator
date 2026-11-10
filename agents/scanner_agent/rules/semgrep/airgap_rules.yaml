@@ -40,7 +40,7 @@ rules:
       owasp: "A07:2021-Identification and Authentication Failures"
       confidence: "HIGH"
     patterns:
-      - pattern-regex: '(?i)\b(password|pwd|secret|apiKey|api_key|token|auth_token|bearer)\s*[:=]\s*["''][^"'']{8,}["'']'
+      - pattern-regex: '(?i)\b(?:(?:password|pwd)\s*=|(?:secret|jwt_secret|apiKey|api_key|private_key|privateKey|token|auth_token|bearer)\s*[:=])\s*(?:process\.env\.[A-Z0-9_]+\s*\|\|\s*)?["''](?!\$\{)[^"''\r\n]{8,}["'']'
 
   # 3. Weak Cryptography Algorithms (CWE-327, CWE-328)
   - id: airgap.generic.crypto.weak-algorithm

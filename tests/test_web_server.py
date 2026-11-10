@@ -883,6 +883,379 @@ class TestAirGappedScannerAndRemediator(unittest.TestCase):
         self.assertTrue(Path(pr_data["pr_file_path"]).exists())
         self.assertIn("Remediate Mixpanel Telemetry", pr_data.get("title", ""))
 
+    def test_reset_all_removes_folder_name_and_references(self):
+        # 1. Prepare a local project workspace
+        proj_dir = self.temp_dir / "my_secret_project"
+        proj_dir.mkdir()
+        (proj_dir / "app.py").write_text("print('hello')\n")
+        status, prep_data = self._call_post("/api/prepare", {
+            "repo_url": str(proj_dir),
+            "feature_branch": "remediation/test-branch",
+            "auto_init": True,
+            "skip_build_test": True,
+        })
+        self.assertEqual(status, 200)
+
+        # 2. Call reset-all
+        status, reset_data = self._call_post("/api/reset-all", {})
+        self.assertEqual(status, 200)
+        self.assertEqual(reset_data.get("status"), "success")
+        self.assertEqual(reset_data.get("workspace_path"), "")
+        self.assertEqual(reset_data.get("repo_name"), "")
+        self.assertEqual(reset_data.get("status_summary", {}).get("branch"), "none")
+
+        # 3. Verify telemetry contains zero references to the folder or git workspace
+        telem = reset_data.get("telemetry", {})
+        self.assertFalse(telem.get("git", {}).get("prepared"))
+        self.assertEqual(telem.get("git", {}).get("repo_name"), "")
+        self.assertIsNone(telem.get("git", {}).get("context"))
+        self.assertEqual(telem.get("active_workspace_path"), "")
+        self.assertEqual(telem.get("workspace_files"), [])
+
+    def test_bug_fixer_reset_removes_folder_name_and_references(self):
+        # 1. Prepare a local project workspace
+        proj_dir = self.temp_dir / "another_local_app"
+        proj_dir.mkdir()
+        (proj_dir / "index.js").write_text("console.log('hi');\n")
+        status, prep_data = self._call_post("/api/prepare", {
+            "repo_url": str(proj_dir),
+            "feature_branch": "remediation/branch-2",
+            "auto_init": True,
+            "skip_build_test": True,
+        })
+        self.assertEqual(status, 200)
+
+        # 2. Call bug-fixer/reset
+        status, reset_data = self._call_post("/api/bug-fixer/reset", {})
+        self.assertEqual(status, 200)
+        self.assertEqual(reset_data.get("status"), "success")
+        self.assertEqual(reset_data.get("workspace_path"), "")
+        self.assertEqual(reset_data.get("repo_name"), "")
+        self.assertEqual(reset_data.get("status_summary", {}).get("branch"), "none")
+
+        # 3. Verify telemetry contains zero references to the folder or git workspace
+        telem = reset_data.get("telemetry", {})
+        self.assertFalse(telem.get("git", {}).get("prepared"))
+        self.assertEqual(telem.get("git", {}).get("repo_name"), "")
+        self.assertIsNone(telem.get("git", {}).get("context"))
+        self.assertEqual(telem.get("active_workspace_path"), "")
+        self.assertEqual(telem.get("workspace_files"), [])
+
+
+class NodeJsScannerAndRemediatorTest(unittest.TestCase):
+    """Regression suite for multi-language Node.js/Express SAST scanning and offline deterministic remediation."""
+
+    @staticmethod
+    def _create_vulnerable_node_project(proj_dir: Path) -> None:
+        (proj_dir / "src" / "controllers").mkdir(parents=True)
+        (proj_dir / "src" / "middleware").mkdir(parents=True)
+        (proj_dir / "src" / "utils").mkdir(parents=True)
+
+        (proj_dir / "package.json").write_text(json.dumps({
+            "name": "vulnerable-express-api",
+            "version": "1.0.0",
+            "dependencies": {
+                "express": "^4.19.2",
+                "jsonwebtoken": "^9.0.2",
+                "sqlite3": "^5.1.7",
+                "cors": "^2.8.5"
+            }
+        }, indent=2))
+        (proj_dir / "package-lock.json").write_text(json.dumps({
+            "name": "vulnerable-express-api",
+            "lockfileVersion": 3,
+            "packages": {
+                "node_modules/express": {
+                    "version": "4.19.2",
+                    "resolved": "https://registry.npmjs.org/express/-/express-4.19.2.tgz"
+                },
+                "node_modules/tarball": {
+                    "version": "1.0.0",
+                    "resolved": "https://external.cdn.example/tarball-1.0.0.tgz"
+                }
+            }
+        }, indent=2))
+
+        (proj_dir / "src" / "app.js").write_text(
+            "const express = require('express');\n"
+            "const cors = require('cors');\n"
+            "const app = express();\n"
+            "app.use(cors({\n"
+            "  origin: '*',\n"
+            "  credentials: true\n"
+            "}));\n"
+            "module.exports = app;\n"
+        )
+
+        (proj_dir / "src" / "middleware" / "auth.js").write_text(
+            "const jwt = require('jsonwebtoken');\n"
+            "const JWT_SECRET = process.env.JWT_SECRET || 'hardcoded-test-jwt-secret-key';\n"
+            "function authenticateToken(req, res, next) {\n"
+            "  // debug bypass header\n"
+            "  if (req.headers['x-debug-mode'] === 'true') {\n"
+            "    req.user = { id: 1, role: 'admin' };\n"
+            "    return next();\n"
+            "  }\n"
+            "  const token = (req.headers['authorization'] || '').split(' ')[1];\n"
+            "  jwt.verify(token, JWT_SECRET, { algorithms: ['HS256', 'none'] }, (err, decoded) => {\n"
+            "    if (err) return res.status(403).json({ error: 'Invalid token' });\n"
+            "    req.user = decoded;\n"
+            "    next();\n"
+            "  });\n"
+            "}\n"
+            "function requireRole(...roles) {\n"
+            "  return (req, res, next) => {\n"
+            "    const overrideRole = req.headers['x-role-override'];\n"
+            "    const currentRole = overrideRole || (req.user && req.user.role);\n"
+            "    if (!roles.includes(currentRole)) return res.status(403).json({ error: 'Denied' });\n"
+            "    next();\n"
+            "  };\n"
+            "}\n"
+            "module.exports = { authenticateToken, requireRole, JWT_SECRET };\n"
+        )
+
+        (proj_dir / "src" / "middleware" / "errorHandler.js").write_text(
+            "function errorHandler(err, req, res, next) {\n"
+            "  res.status(err.status || 500).json({\n"
+            "    status: 'error',\n"
+            "    message: err.message,\n"
+            "    stack: err.stack,\n"
+            "    internalQuery: err.query || null,\n"
+            "    processEnv: process.env.NODE_ENV\n"
+            "  });\n"
+            "}\n"
+            "module.exports = errorHandler;\n"
+        )
+
+        (proj_dir / "src" / "utils" / "objectUtils.js").write_text(
+            "function deepMerge(target, source) {\n"
+            "  for (const key in source) {\n"
+            "    if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {\n"
+            "      if (!target[key]) target[key] = {};\n"
+            "      deepMerge(target[key], source[key]);\n"
+            "    } else {\n"
+            "      target[key] = source[key];\n"
+            "    }\n"
+            "  }\n"
+            "  return target;\n"
+            "}\n"
+            "module.exports = { deepMerge };\n"
+        )
+
+        (proj_dir / "src" / "controllers" / "authController.js").write_text(
+            "const { rawQuery, safeQuery } = require('../config/database');\n"
+            "async function login(req, res, next) {\n"
+            "  try {\n"
+            "    const { username, password } = req.body;\n"
+            "    console.log(`[LOGIN] Attempting login for ${username} / password=${password}`);\n"
+            "    const query = `SELECT * FROM users WHERE username = '${username}' AND password = '${password}'`;\n\n"
+            "    const users = await rawQuery(query);\n"
+            "    if (!users.length) return res.status(401).json({ error: 'Invalid credentials' });\n"
+            "    const user = users[0];\n"
+            "    return res.json({\n"
+            "      user: {\n"
+            "        id: user.id,\n"
+            "        username: user.username,\n"
+            "        ssn: user.ssn,\n"
+            "        resetToken: user.password_reset_token,\n"
+            "      }\n"
+            "    });\n"
+            "  } catch (err) { next(err); }\n"
+            "}\n"
+            "async function register(req, res, next) {\n"
+            "  try {\n"
+            "    const { username, password, email, role } = req.body;\n"
+            "    const assignedRole = 'user';\n"
+            "    const query = `INSERT INTO users (username, password, email, role, ssn) VALUES (?, ?, ?, ?, ?)`;\n"
+            "    await safeQuery(query, [username, password, email, assignedRole, '000-00-0000']);\n"
+            "    res.status(201).json({ status: 'created' });\n"
+            "  } catch (err) { next(err); }\n"
+            "}\n"
+            "module.exports = { login, register };\n"
+        )
+
+        (proj_dir / "src" / "controllers" / "productController.js").write_text(
+            "const path = require('path');\n"
+            "const { rawQuery, safeQuery } = require('../config/database');\n"
+            "async function searchProducts(req, res, next) {\n"
+            "  try {\n"
+            "    const searchTerm = req.query.q || '';\n"
+            "    const sql = `SELECT * FROM products WHERE name LIKE '%${searchTerm}%' OR description LIKE '%${searchTerm}%'`;\n"
+            "    console.log('[SEARCH]', sql);\n\n"
+            "    const products = await rawQuery(sql);\n"
+            "    res.json({ results: products });\n"
+            "  } catch (err) {\n"
+            "    err.query = `SELECT * FROM products WHERE name LIKE '%${req.query.q}%'`;\n"
+            "    next(err);\n"
+            "  }\n"
+            "}\n"
+            "function downloadProductReport(req, res) {\n"
+            "  const filename = req.query.file;\n"
+            "  const reportsDir = path.resolve(__dirname, '../../reports');\n"
+            "  const filePath = path.join(reportsDir, filename);\n"
+            "  res.sendFile(filePath);\n"
+            "}\n"
+            "module.exports = { searchProducts, downloadProductReport };\n"
+        )
+
+        (proj_dir / "src" / "controllers" / "systemController.js").write_text(
+            "const { exec } = require('child_process');\n"
+            "function pingHost(req, res) {\n"
+            "  const host = req.query.host;\n"
+            "  const command = `ping -c 1 ${host}`;\n"
+            "  exec(command, (error, stdout) => {\n"
+            "    if (error) return res.status(500).json({ error: error.message });\n"
+            "    res.json({ command, stdout });\n"
+            "  });\n"
+            "}\n"
+            "function calculateExpression(req, res) {\n"
+            "  const { expression } = req.body;\n"
+            "  const result = eval(expression);\n"
+            "  res.json({ expression, result });\n"
+            "}\n"
+            "module.exports = { pingHost, calculateExpression };\n"
+        )
+
+        (proj_dir / "src" / "controllers" / "userController.js").write_text(
+            "const { safeQuery } = require('../config/database');\n"
+            "async function getUserProfile(req, res, next) {\n"
+            "  try {\n"
+            "    const targetUserId = req.params.id;\n"
+            "    const rows = await safeQuery('SELECT * FROM users WHERE id = ?', [targetUserId]);\n"
+            "    const user = rows[0];\n"
+            "    res.json({ id: user.id, ssn: user.ssn, resetToken: user.password_reset_token });\n"
+            "  } catch (err) { next(err); }\n"
+            "}\n"
+            "module.exports = { getUserProfile };\n"
+        )
+
+        (proj_dir / "src" / "controllers" / "webhookController.js").write_text(
+            "const http = require('http');\n"
+            "const https = require('https');\n"
+            "function testWebhook(req, res, next) {\n"
+            "  const targetUrl = req.body.url || req.query.url;\n"
+            "  try {\n"
+            "    const parsed = new URL(targetUrl);\n"
+            "    const client = parsed.protocol === 'https:' ? https : http;\n"
+            "    const clientReq = client.get(targetUrl, (clientRes) => {\n"
+            "      res.json({ statusCode: clientRes.statusCode });\n"
+            "    });\n"
+            "    clientReq.on('error', (err) => res.status(502).json({ error: err.message }));\n"
+            "  } catch (err) { next(err); }\n"
+            "}\n"
+            "function handleRedirect(req, res) {\n"
+            "  const target = req.query.to;\n"
+            "  res.redirect(target);\n"
+            "}\n"
+            "module.exports = { testWebhook, handleRedirect };\n"
+        )
+
+    def test_nodejs_express_scanner_detects_all_15_owasp_vulns_and_ignores_lockfiles(self):
+        from agents.scanner_agent.agent import ScannerAgent
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            proj_dir = tmp_path / "node_api"
+            findings_dir = tmp_path / "findings"
+            findings_dir.mkdir()
+            self._create_vulnerable_node_project(proj_dir)
+
+            scanner = ScannerAgent(findings_dir=findings_dir)
+            result = scanner.run({"workspace_path": str(proj_dir), "scanner_engine": "all"})
+
+            self.assertEqual(result["status"], "completed")
+            self.assertTrue(result["securescan"]["executed"])
+            self.assertEqual(result["securescan"]["project_topology"], "Node.js / Express REST API")
+            self.assertIn("Node.js (Express ^4.19.2)", result["securescan"]["target_frameworks"])
+
+            findings = result["findings"]
+            lockfile_findings = [
+                f for f in findings
+                if "package-lock.json" in (f.get("file_path") or "")
+                or "registry.npmjs.org" in (f.get("code_snippet") or "")
+            ]
+            self.assertEqual(lockfile_findings, [])
+
+            expected_pairs = [
+                ("CWE-89", "authController.js"),
+                ("CWE-89", "productController.js"),
+                ("CWE-78", "systemController.js"),
+                ("CWE-95", "systemController.js"),
+                ("CWE-639", "userController.js"),
+                ("CWE-22", "productController.js"),
+                ("CWE-287", "auth.js"),
+                ("CWE-798", "auth.js"),
+                ("CWE-256", "authController.js"),
+                ("CWE-359", "userController.js"),
+                ("CWE-209", "errorHandler.js"),
+                ("CWE-942", "app.js"),
+                ("CWE-1321", "objectUtils.js"),
+                ("CWE-918", "webhookController.js"),
+                ("CWE-601", "webhookController.js"),
+            ]
+            for cwe, fname in expected_pairs:
+                self.assertTrue(
+                    any((f.get("cwe_id") or "").upper() == cwe and fname in (f.get("file_path") or "") for f in findings),
+                    f"Expected finding ({cwe}, {fname}) not detected",
+                )
+
+    def test_nodejs_express_remediator_auto_fallback_achieves_zero_residual_findings(self):
+        from agents.scanner_agent.agent import ScannerAgent
+        from agents.remediator_agent.agent import RemediatorAgent
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            proj_dir = tmp_path / "node_api"
+            findings_dir = tmp_path / "findings"
+            reports_dir = tmp_path / "reports"
+            repos_root = tmp_path / "repos_root"
+            findings_dir.mkdir()
+            reports_dir.mkdir()
+            repos_root.mkdir()
+            self._create_vulnerable_node_project(proj_dir)
+
+            scanner = ScannerAgent(findings_dir=findings_dir)
+            init_res = scanner.run({"workspace_path": str(proj_dir), "scanner_engine": "all"})
+            self.assertGreaterEqual(len(init_res["findings"]), 15)
+
+            remediator = RemediatorAgent(
+                repos_root=repos_root,
+                reports_dir=reports_dir,
+                scanner_findings_dir=findings_dir,
+            )
+            rem_res = remediator.remediate(proj_dir, provider="auto-fallback")
+            self.assertEqual(len(rem_res.get("failed_fixes", [])), 0)
+            self.assertGreaterEqual(len(rem_res.get("bug_fixes", [])), 15)
+
+            auth_ctrl = (proj_dir / "src" / "controllers" / "authController.js").read_text()
+            self.assertIn("safeQuery(", auth_ctrl)
+            self.assertIn("crypto.scryptSync", auth_ctrl)
+            self.assertNotIn("user.ssn", auth_ctrl)
+
+            auth_mw = (proj_dir / "src" / "middleware" / "auth.js").read_text()
+            self.assertNotIn("hardcoded-test-jwt-secret-key", auth_mw)
+            self.assertNotIn("req.headers['x-debug-mode']", auth_mw)
+            self.assertNotIn("'none'", auth_mw)
+
+            sys_ctrl = (proj_dir / "src" / "controllers" / "systemController.js").read_text()
+            self.assertIn("execFile(", sys_ctrl)
+            self.assertNotIn("eval(", sys_ctrl)
+
+            obj_utils = (proj_dir / "src" / "utils" / "objectUtils.js").read_text()
+            self.assertIn("'__proto__'", obj_utils)
+            self.assertIn("'prototype'", obj_utils)
+
+            webhook_ctrl = (proj_dir / "src" / "controllers" / "webhookController.js").read_text()
+            self.assertIn("startsWith('127.')", webhook_ctrl)
+            self.assertIn("allowedDomains.includes", webhook_ctrl)
+
+            app_js = (proj_dir / "src" / "app.js").read_text()
+            self.assertNotIn("origin: '*'", app_js)
+            self.assertIn("app.disable('x-powered-by')", app_js)
+
+            post_res = scanner.run({"workspace_path": str(proj_dir), "scanner_engine": "all", "is_post_scan": True})
+            residual = post_res.get("post_scan_findings", post_res.get("findings", []))
+            self.assertEqual(residual, [])
 
 
 if __name__ == "__main__":

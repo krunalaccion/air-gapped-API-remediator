@@ -71,7 +71,7 @@ class BugFixerAgent:
             clean_orig = re.sub(r'[\s\'\",;]+', '', original_content).lower()
 
             already_done = False
-            if "connectionstring" in finding.rule_id.lower() or "cwe-798" in (finding.cwe_id or "").lower() or "***redacted***" in clean_snip:
+            if "connectionstring" in finding.rule_id.lower() or ("cwe-798" in (finding.cwe_id or "").lower() and "appsettings" in finding.file_path.lower()) or "***redacted***" in clean_snip:
                 is_vuln_still_present = bool(re.search(r'(?i)\b(password|pwd)\s*=\s*[^;]+', original_content))
                 already_done = not is_vuln_still_present
             elif is_missing_heuristic:
@@ -234,17 +234,44 @@ class BugFixerAgent:
         clean_snip = re.sub(r'[\s\'\",;]+', '', snippet_core).lower()
         clean_orig = re.sub(r'[\s\'\",;]+', '', original_content).lower()
 
+        rule_l = finding.rule_id.lower()
+        cwe_u = (finding.cwe_id or "").upper()
+        is_guard_rule = (
+            rule_l.startswith("nodejs.")
+            or rule_l.startswith("airgap.nodejs.")
+        ) and cwe_u in ("CWE-639", "CWE-256", "CWE-1321", "CWE-918", "CWE-601", "CWE-209", "CWE-22")
+
+        guard_satisfied = False
+        if is_guard_rule:
+            if cwe_u == "CWE-639":
+                guard_satisfied = "req.user" in fixed_content
+            elif cwe_u == "CWE-256":
+                guard_satisfied = any(k in fixed_content for k in ("scryptSync", "bcrypt", "argon2", "pbkdf2"))
+            elif cwe_u == "CWE-1321":
+                guard_satisfied = "__proto__" in fixed_content
+            elif cwe_u == "CWE-918":
+                guard_satisfied = any(k in fixed_content for k in ("169.254.", "127.", "isPrivateIP", "allowedHosts"))
+            elif cwe_u == "CWE-601":
+                guard_satisfied = any(k in fixed_content for k in ("allowedDomains", "startsWith('/')", "allowlist"))
+            elif cwe_u == "CWE-209":
+                guard_satisfied = "NODE_ENV" in fixed_content and "internalQuery" not in fixed_content
+            elif cwe_u == "CWE-22":
+                guard_satisfied = ".startsWith(" in fixed_content or "path.basename(" in fixed_content
+
         # Specifically check if vulnerable snippet is present
         if "allowedhosts" in clean_snip:
             is_vuln_in_fixed = bool(re.search(r'\"AllowedHosts\"\s*:\s*\"\*\"', fixed_content))
             is_vuln_in_orig = bool(re.search(r'\"AllowedHosts\"\s*:\s*\"\*\"', original_content))
-        elif "connectionstring" in finding.rule_id.lower() or "cwe-798" in (finding.cwe_id or "").lower() or "***redacted***" in clean_snip:
+        elif "connectionstring" in rule_l or ("cwe-798" in cwe_u.lower() and "appsettings" in finding.file_path.lower()) or "***redacted***" in clean_snip:
             is_vuln_in_fixed = bool(re.search(r'(?i)\b(password|pwd)\s*=\s*[^;]+', fixed_content))
             is_vuln_in_orig = bool(re.search(r'(?i)\b(password|pwd)\s*=\s*[^;]+', original_content))
-        elif "typenamehandling" in clean_snip or "cwe-502" in (finding.cwe_id or "").lower() or "deserial" in finding.rule_id.lower() or "deserial" in finding.finding_id.lower():
+        elif "typenamehandling" in clean_snip or cwe_u == "CWE-502" or "deserial" in rule_l or "deserial" in finding.finding_id.lower():
             # In deserialization, TypeNameHandling.None is SAFE. Only All, Auto, Objects, Arrays are vulnerable
             is_vuln_in_fixed = bool(re.search(r'TypeNameHandling\.(All|Auto|Objects|Arrays)', fixed_content))
             is_vuln_in_orig = bool(re.search(r'TypeNameHandling\.(All|Auto|Objects|Arrays)', original_content))
+        elif is_guard_rule and guard_satisfied:
+            is_vuln_in_fixed = False
+            is_vuln_in_orig = False
         else:
             is_vuln_in_fixed = snippet_core in fixed_content or (
                 len(clean_snip) > 6 and clean_snip in re.sub(r'[\s\'\",;]+', '', fixed_content).lower()

@@ -181,6 +181,30 @@ class SemgrepScanner:
             "--exclude",
             "node_modules",
             "--exclude",
+            "dist",
+            "--exclude",
+            "build",
+            "--exclude",
+            "coverage",
+            "--exclude",
+            "package-lock.json",
+            "--exclude",
+            "yarn.lock",
+            "--exclude",
+            "pnpm-lock.yaml",
+            "--exclude",
+            "npm-shrinkwrap.json",
+            "--exclude",
+            "composer.lock",
+            "--exclude",
+            "Pipfile.lock",
+            "--exclude",
+            "poetry.lock",
+            "--exclude",
+            "Cargo.lock",
+            "--exclude",
+            "go.sum",
+            "--exclude",
             "*.assets.json",
             "--exclude",
             "*.deps.json",
@@ -248,20 +272,34 @@ class SemgrepScanner:
             extra = res.get("extra", {})
             metadata = extra.get("metadata", {})
             raw_sev = (extra.get("severity") or "WARNING").upper()
+            meta_sev = str(metadata.get("severity") or "").upper()
 
             # Map Semgrep severity
-            if raw_sev in ("ERROR", "CRITICAL"):
+            if raw_sev == "CRITICAL" or meta_sev == "CRITICAL":
+                sev = FindingSeverity.CRITICAL
+            elif raw_sev in ("ERROR", "HIGH") or meta_sev == "HIGH":
                 sev = FindingSeverity.HIGH
-            elif raw_sev in ("WARNING", "MEDIUM"):
+            elif raw_sev in ("WARNING", "MEDIUM") or meta_sev == "MEDIUM":
                 sev = FindingSeverity.MEDIUM
             else:
                 sev = FindingSeverity.LOW
 
-            # Extract CWE & OWASP
-            cwe_list = metadata.get("cwe", [])
-            cwe_id = cwe_list[0].split(":")[0].strip() if cwe_list else "CWE-Security"
-            owasp_list = metadata.get("owasp", [])
-            owasp_cat = owasp_list[0] if owasp_list else "A03:2021-Injection"
+            # Extract CWE & OWASP (handle both string and list metadata formats)
+            raw_cwe = metadata.get("cwe")
+            if isinstance(raw_cwe, list):
+                cwe_id = str(raw_cwe[0]).split(":")[0].strip() if raw_cwe else "CWE-Security"
+            elif isinstance(raw_cwe, str) and raw_cwe.strip():
+                cwe_id = raw_cwe.split(":")[0].strip()
+            else:
+                cwe_id = "CWE-Security"
+
+            raw_owasp = metadata.get("owasp")
+            if isinstance(raw_owasp, list):
+                owasp_cat = str(raw_owasp[0]).strip() if raw_owasp else "A03:2021-Injection"
+            elif isinstance(raw_owasp, str) and raw_owasp.strip():
+                owasp_cat = raw_owasp.strip()
+            else:
+                owasp_cat = "A03:2021-Injection"
 
             file_p = res.get("path") or "source.cs"
             # Normalize relative path

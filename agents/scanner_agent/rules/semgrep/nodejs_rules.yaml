@@ -1,0 +1,140 @@
+# =============================================================================
+# Offline / Air-Gapped Node.js & Express Semgrep SAST Rule Suite
+# Executes locally without external network/registry dependencies.
+# =============================================================================
+
+rules:
+  - id: airgap.nodejs.sqli.template-interpolation
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "SQL Injection: Dynamic SQL query constructed via template interpolation or string concatenation. Use parameterized queries instead. (CWE-89)"
+    metadata:
+      cwe: "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
+      owasp: "A03:2021-Injection"
+      severity: "HIGH"
+    patterns:
+      - pattern-either:
+          - pattern-regex: '(?i)(?:SELECT|INSERT|UPDATE|DELETE)\b[^\n`;]*\$\{[^}]+\}'
+      - pattern-not-regex: '^\s*err\.\w+\s*='
+
+  - id: airgap.nodejs.command-injection.exec
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "OS Command Injection: Untrusted input passed into child_process exec/execSync. Use execFile with argument array. (CWE-78)"
+    metadata:
+      cwe: "CWE-78: Improper Neutralization of Special Elements used in an OS Command"
+      owasp: "A03:2021-Injection"
+      severity: "CRITICAL"
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $CMD = `...`;
+              ...
+              exec($CMD, ...);
+          - pattern: |
+              exec($ARG, ...)
+          - pattern: |
+              execSync($ARG, ...)
+      - pattern-not: |
+          exec("...", ...)
+      - pattern-not: |
+          execSync("...", ...)
+
+  - id: airgap.nodejs.code-injection.eval
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "Dynamic Code Evaluation via eval() allows arbitrary JavaScript execution. (CWE-95)"
+    metadata:
+      cwe: "CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code ('Eval Injection')"
+      owasp: "A03:2021-Injection"
+      severity: "CRITICAL"
+    patterns:
+      - pattern: |
+          eval($EXPR)
+
+  - id: airgap.nodejs.path-traversal.file-access
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "Path Traversal: Path combined without containment verification before file read/send. (CWE-22)"
+    metadata:
+      cwe: "CWE-22: Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
+      owasp: "A01:2021-Broken Access Control"
+      severity: "HIGH"
+    patterns:
+      - pattern: |
+          $P = path.join($BASE, $USER_FILE);
+          ...
+          res.sendFile($P);
+      - pattern-not-inside: |
+          if (!$X.startsWith(...)) { ... }
+
+  - id: airgap.nodejs.auth.header-bypass
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "Authentication & Privilege Bypass: Middleware trusts client-supplied header for auth bypass or role override. (CWE-287)"
+    metadata:
+      cwe: "CWE-287: Improper Authentication"
+      owasp: "A01:2021-Broken Access Control"
+      severity: "CRITICAL"
+    patterns:
+      - pattern-either:
+          - pattern: |
+              req.headers['x-debug-mode']
+          - pattern: |
+              req.headers['x-role-override']
+          - pattern: |
+              req.headers['x-auth-bypass']
+
+  - id: airgap.nodejs.error.stack-trace-leak
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: "Information Leakage: Internal error stack trace or SQL query returned to client. (CWE-209)"
+    metadata:
+      cwe: "CWE-209: Generation of Error Message Containing Sensitive Information"
+      owasp: "A05:2021-Security Misconfiguration"
+      severity: "MEDIUM"
+    patterns:
+      - pattern: |
+          res.status($CODE).json({ ..., stack: $ERR.stack, ... })
+
+  - id: airgap.nodejs.cors.wildcard-origin
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: "Overly Permissive CORS Policy: Wildcard origin '*' configured with CORS middleware. (CWE-942)"
+    metadata:
+      cwe: "CWE-942: Permissive Cross-domain Policy with Untrusted Domains"
+      owasp: "A05:2021-Security Misconfiguration"
+      severity: "MEDIUM"
+    patterns:
+      - pattern: |
+          cors({ ..., origin: '*', ... })
+
+  - id: airgap.nodejs.ssrf.unvalidated-request
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "Server-Side Request Forgery (SSRF): User-supplied URL fetched without private/loopback IP allowlisting. (CWE-918)"
+    metadata:
+      cwe: "CWE-918: Server-Side Request Forgery (SSRF)"
+      owasp: "A10:2021-Server-Side Request Forgery"
+      severity: "HIGH"
+    patterns:
+      - pattern: |
+          $URL = req.body.url || req.query.url;
+          ...
+          $CLIENT.get($URL, ...);
+      - pattern-not-regex: "startsWith\\(['\"]127\\.['\"]\\)|isSafeUrl|isPrivateIp"
+
+  - id: airgap.nodejs.open-redirect
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: "Unvalidated Open Redirect: Redirect target accepted directly from request query parameter. (CWE-601)"
+    metadata:
+      cwe: "CWE-601: URL Redirection to Untrusted Site ('Open Redirect')"
+      owasp: "A01:2021-Broken Access Control"
+      severity: "MEDIUM"
+    patterns:
+      - pattern: |
+          $TARGET = req.query.$PARAM;
+          ...
+          res.redirect($TARGET);
+      - pattern-not-regex: "\\.includes\\(|safeRedirect|isSafeRedirect"

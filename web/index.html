@@ -652,11 +652,11 @@
           <span
             class="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-medium"
             id="activeBranchTag">
-            Branch: <strong class="text-blue-700 dark:text-blue-400 font-mono" id="currentBranchDisplay">master</strong>
+            Branch: <strong class="text-blue-700 dark:text-blue-400 font-mono" id="currentBranchDisplay">none</strong>
           </span>
-          <button onclick="refreshAllSteps(true)"
+          <button id="btnRefresh" onclick="refreshAllSteps(true, true)"
             class="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold transition flex items-center gap-1.5 shadow-sm cursor-pointer"
-            title="Reset all pipeline steps and return to Step 01">
+            title="Reset all pipeline steps, clear repository references, and return to Step 01">
             <span>↻</span> Reset
           </button>
         </div>
@@ -4714,7 +4714,7 @@ ${filesFormatted}
         hideStep3FixProgress();
         const remSummaryBar = document.getElementById("remediationSummaryBar");
         if (remSummaryBar) remSummaryBar.classList.add("hidden");
-        await refreshAllSteps(true);
+        await refreshAllSteps(true, true);
       } finally {
         if (!window.isFullPipelineRunning) {
           setGlobalActionLock(false);
@@ -4891,7 +4891,7 @@ ${filesFormatted}
     }
 
     // Reset All 5 Steps to Initial State
-    async function refreshAllSteps(resetBackend = true) {
+    async function refreshAllSteps(resetBackend = true, clearRepo = true) {
       if (isPipelineRunning && !window.isFullPipelineRunning) return;
       hideStep3FixProgress();
       log("Resetting all 5 pipeline steps and workspace state...", "info", "Orchestrator");
@@ -5083,10 +5083,29 @@ ${filesFormatted}
         btnCreatePr.innerHTML = `<span>🚀 Submit Pull Request for Code Review</span>`;
       }
 
-      const repoInput = document.getElementById("repoUrl");
-      if (repoInput && !repoInput.value.trim()) {
+      // Reset folder / repository inputs and references if clearRepo is true
+      if (clearRepo) {
+        const repoInput = document.getElementById("repoUrl");
+        if (repoInput) repoInput.value = "";
+        window.activePreparedWorkspacePath = "";
+        window.isLocalProject = false;
+        window.autoInitGit = false;
+        currentModalPath = "";
         handlePathInput("");
-        showPathFeedback("", true);
+        showPathFeedback("", false);
+        const stage1Desc = document.getElementById("stage-1-desc");
+        if (stage1Desc) stage1Desc.textContent = "GitSubAgent • Ready";
+        const badge = document.getElementById("targetModeBadge");
+        if (badge) {
+          badge.textContent = "Ready";
+          badge.className = "text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-semibold border border-slate-200 dark:border-slate-700";
+        }
+        const baseBranch = document.getElementById("baseBranch");
+        if (baseBranch) baseBranch.value = "master";
+        const featBranch = document.getElementById("featureBranch");
+        if (featBranch) featBranch.value = "remediation/airgap-api-compliance";
+        const gitToken = document.getElementById("gitToken");
+        if (gitToken) gitToken.value = "";
       }
 
       // 3. Reset backend repository files & state so the next scan/fix runs on fresh vulnerable code
@@ -5120,8 +5139,14 @@ ${filesFormatted}
       if (btn) btn.innerHTML = `<span>⏳</span> <span>Resetting All Steps...</span>`;
 
       try {
+        const currentRepoUrl = (document.getElementById("repoUrl")?.value || "").trim();
         // Always reset all 5 steps first so every stage runs live from Step 01 -> Step 05
-        await refreshAllSteps(true);
+        await refreshAllSteps(true, false);
+        if (currentRepoUrl) {
+          const repoInput = document.getElementById("repoUrl");
+          if (repoInput) repoInput.value = currentRepoUrl;
+          handlePathInput(currentRepoUrl);
+        }
         await sleep(500);
 
         log("Initiating End-to-End 3-Process SecOps Playbook (Steps 01 → 05)...", "info", "Orchestrator");

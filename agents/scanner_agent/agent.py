@@ -75,15 +75,44 @@ class ScannerAgent(BaseAgent):
     @staticmethod
     def _default_recommendation_for_rule(rule_id: str, cwe_id: Optional[str]) -> str:
         rule_lower = (rule_id or "").lower()
+        is_node = rule_lower.startswith("nodejs.") or "nodejs" in rule_lower or rule_lower.startswith("airgap.nodejs")
         if "sqli" in rule_lower or cwe_id == "CWE-89":
+            if is_node:
+                return "Use parameterized queries with prepared statement placeholders (e.g. safeQuery('SELECT ... ?', [param]))."
             return "Remediation: Parameterize SQL queries with SqlCommand.Parameters.AddWithValue (@userId) via BugFixerAgent."
+        if "command-injection" in rule_lower or cwe_id == "CWE-78":
+            return "Validate input against strict IP/allowlist regex and use child_process.execFile with argument array instead of exec()."
+        if "code-injection" in rule_lower or "eval" in rule_lower or cwe_id == "CWE-95":
+            return "Remove eval() / new Function(); replace with a safe mathematical or AST expression parser library."
+        if "idor" in rule_lower or cwe_id == "CWE-639":
+            return "Verify that req.user.id === targetUserId or req.user.role === 'admin' before accessing or mutating user resources."
+        if "pathtraversal" in rule_lower or "path-traversal" in rule_lower or cwe_id == "CWE-22":
+            return "Verify path.resolve(baseDir, fileName).startsWith(baseDir) or sanitize with path.basename()."
+        if "auth.header-bypass" in rule_lower or "role-override" in rule_lower or cwe_id == "CWE-287":
+            return "Remove client-supplied debug/role-override headers and disallow JWT 'none' algorithm; trust only verified claims."
+        if "plaintext-password" in rule_lower or cwe_id == "CWE-256":
+            return "Hash passwords using bcrypt or argon2 before database persistence and omit plaintext credentials from logs."
+        if "data-exposure" in rule_lower or "sensitive" in rule_lower or cwe_id == "CWE-359":
+            return "Filter DB queries and JSON responses to non-sensitive fields (id, username, email, role, bio), omitting ssn and secrets."
+        if "stack-trace" in rule_lower or "error-handling" in rule_lower or cwe_id == "CWE-209":
+            return "Return generic error messages in production and restrict detailed stack traces and internal queries to secure server logs."
+        if "prototype-pollution" in rule_lower or cwe_id == "CWE-1321":
+            return "Ignore '__proto__', 'constructor', and 'prototype' keys during recursive deep merge operations."
+        if "ssrf" in rule_lower or cwe_id == "CWE-918":
+            return "Enforce strict URL allowlists and resolve DNS to block private/loopback IP ranges (127.0.0.0/8, 10.0.0.0/8, 169.254.0.0/16)."
+        if "open-redirect" in rule_lower or cwe_id == "CWE-601":
+            return "Validate redirect targets against allowed internal relative paths or a trusted domain allowlist."
         if "inverted-auth" in rule_lower or cwe_id == "CWE-696":
             return "Remediation: Register app.UseAuthentication() before app.UseAuthorization() in Program.cs."
+        if "hardcoded-jwt-secret" in rule_lower or (is_node and cwe_id == "CWE-798"):
+            return "Require JWT_SECRET / credentials strictly from environment variables and fail fast on startup if missing."
         if "connectionstring-plaintext-password" in rule_lower or cwe_id == "CWE-798":
             return "Remediation: Move database credentials to offline vault or Integrated Security in appsettings.json."
         if "hsts" in rule_lower or cwe_id == "CWE-319":
             return "Remediation: Enable app.UseHsts() and app.UseHttpsRedirection() in Program.cs."
         if "cors" in rule_lower or cwe_id == "CWE-942":
+            if is_node:
+                return "Specify explicit trusted origins in cors({ origin: [...] }) instead of wildcard '*' when credentials are allowed."
             return "Remediation: Restrict CORS policy to explicit trusted internal origins in Program.cs."
         if "allowed-hosts" in rule_lower or cwe_id == "CWE-16":
             return "Remediation: Restrict AllowedHosts in appsettings.json to internal air-gap domains."
@@ -107,7 +136,13 @@ class ScannerAgent(BaseAgent):
         if workspace_path and workspace_path.exists():
             is_customer_api = workspace_path.name == "CustomerApi"
             has_csproj = any(workspace_path.rglob("*.csproj"))
-            if scanner_engine in ("semgrep", "trivy") or is_customer_api or has_csproj:
+            has_js_project = (workspace_path / "package.json").exists() or any(
+                p
+                for ext in ("*.js", "*.ts", "*.jsx", "*.tsx", "*.mjs", "*.cjs")
+                for p in workspace_path.rglob(ext)
+                if "node_modules" not in p.parts
+            )
+            if scanner_engine in ("semgrep", "trivy") or is_customer_api or has_csproj or has_js_project:
                 target_dir = workspace_path
         elif workspace_path is None:
             if DEFAULT_CUSTOMER_API_DIR.exists():
@@ -247,10 +282,20 @@ class ScannerAgent(BaseAgent):
         url_regex = re.compile(r'https?://([a-zA-Z0-9\.\-_:]+)(/[^\s"\'<>)]*)?')
         extensions = {".cs", ".py", ".js", ".ts", ".json", ".yaml", ".yml", ".html", ".sh", ".config"}
         finding_id = 1
-        excluded_dirs = {"bin", "obj", ".git", ".vs", ".idea", ".vscode", "node_modules", "__pycache__", "reports"}
+        excluded_dirs = {
+            "bin", "obj", ".git", ".vs", ".idea", ".vscode",
+            "node_modules", "__pycache__", "reports", "findings", "dist", "build", "coverage",
+        }
+        excluded_lockfiles = {
+            "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "npm-shrinkwrap.json",
+            "composer.lock", "pipfile.lock", "poetry.lock", "cargo.lock", "go.sum",
+        }
 
         for p in workspace_path.rglob("*"):
             if p.is_file() and not any(part.lower() in excluded_dirs or (part.startswith(".") and part != p.name) for part in p.parts):
+                lower_fname = p.name.lower()
+                if lower_fname in excluded_lockfiles or lower_fname.endswith((".assets.json", ".deps.json")):
+                    continue
                 if p.suffix in extensions or p.name.startswith(".env"):
                     try:
                         rel = p.relative_to(workspace_path).as_posix()
@@ -265,6 +310,7 @@ class ScannerAgent(BaseAgent):
                                     or "schemastore.org" in domain
                                     or "microsoft.com" in domain
                                     or "w3.org" in domain
+                                    or domain in ("registry.npmjs.org", "registry.yarnpkg.com")
                                 ):
                                     continue
                                 findings.append({
