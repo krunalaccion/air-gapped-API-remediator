@@ -4,9 +4,10 @@ import os
 from pathlib import Path
 import re
 import socket
+import threading
 import urllib.request
 import urllib.error
-from typing import Dict, Any, Optional
+from typing import Callable, Dict, Any, Optional
 
 from .js_fixer import generate_deterministic_js_fix
 from .models import Finding, FixProposal
@@ -42,11 +43,13 @@ class CloudLLMClient:
         model: Optional[str] = None,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
+        cancel_check: Optional[Callable[[], bool]] = None,
     ):
         self.provider = (provider or os.getenv("LLM_PROVIDER") or self._detect_provider()).lower()
         self.model = model or os.getenv("LLM_MODEL") or self._default_model(self.provider)
         self.api_key = api_key or self._resolve_api_key(self.provider)
         self.base_url = base_url or os.getenv("LLM_BASE_URL")
+        self.cancel_check = cancel_check
         self._offline_fallback_active = False
 
     @staticmethod
@@ -93,6 +96,8 @@ class CloudLLMClient:
         numbered_context: str,
     ) -> FixProposal:
         """Calls the configured Cloud/Local LLM to generate a FixProposal for the finding."""
+        if self.cancel_check and self.cancel_check():
+            raise InterruptedError("Cancelled during LLM remediation")
         snippet_core = (finding.code_snippet or "").strip().rstrip(";")
         is_comment = (
             snippet_core.startswith("//")
@@ -167,6 +172,8 @@ class CloudLLMClient:
                 return self._generate_deterministic_fix(finding, file_content)
             else:
                 raise ValueError(f"Unsupported LLM provider: '{self.provider}'")
+        except InterruptedError:
+            raise
         except Exception as exc:
             # Fall back to deterministic fixer if LLM call fails (e.g. offline / air-gapped test or no network)
             if self.provider not in ("mock", "offline", "auto-fallback"):
@@ -222,7 +229,7 @@ Return the JSON object containing `explanation`, `remediation_summary`, `confide
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}",
         }
-        data = self._http_post(url, payload, headers)
+        data = self._post_json(url, payload, headers)
         return data["choices"][0]["message"]["content"]
 
     def _call_gemini(self, user_prompt: str) -> str:
@@ -244,7 +251,7 @@ Return the JSON object containing `explanation`, `remediation_summary`, `confide
             },
         }
         headers = {"Content-Type": "application/json"}
-        data = self._http_post(url, payload, headers)
+        data = self._post_json(url, payload, headers)
         return data["candidates"][0]["content"]["parts"][0]["text"]
 
     def _call_anthropic(self, user_prompt: str) -> str:
@@ -265,7 +272,7 @@ Return the JSON object containing `explanation`, `remediation_summary`, `confide
             "x-api-key": self.api_key,
             "anthropic-version": "2023-06-01",
         }
-        data = self._http_post(url, payload, headers)
+        data = self._post_json(url, payload, headers)
         return data["content"][0]["text"]
 
     def _call_ollama(self, user_prompt: str) -> str:
@@ -292,7 +299,7 @@ Return the JSON object containing `explanation`, `remediation_summary`, `confide
             headers = {"Content-Type": "application/json"}
             if self.api_key:
                 headers["Authorization"] = f"Bearer {self.api_key}"
-            data = self._http_post(url, payload, headers)
+            data = self._post_json(url, payload, headers)
             return data["choices"][0]["message"]["content"]
 
         # Native Ollama /api/chat with format="json"
@@ -310,8 +317,36 @@ Return the JSON object containing `explanation`, `remediation_summary`, `confide
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
-        data = self._http_post(url, payload, headers)
+        data = self._post_json(url, payload, headers)
         return data.get("message", {}).get("content", "")
+
+    def _post_json(
+        self, url: str, payload: Dict[str, Any], headers: Dict[str, str]
+    ) -> Dict[str, Any]:
+        """Executes _http_post with fast cancellation polling if cancel_check is supplied."""
+        if not self.cancel_check:
+            return self._http_post(url, payload, headers)
+
+        result_box: Dict[str, Any] = {}
+        error_box: Dict[str, BaseException] = {}
+        done_ev = threading.Event()
+
+        def _worker() -> None:
+            try:
+                result_box["data"] = self._http_post(url, payload, headers)
+            except BaseException as exc:
+                error_box["err"] = exc
+            finally:
+                done_ev.set()
+
+        t = threading.Thread(target=_worker, daemon=True)
+        t.start()
+        while not done_ev.wait(0.1):
+            if self.cancel_check():
+                raise InterruptedError("Cancelled during LLM HTTP request")
+        if "err" in error_box:
+            raise error_box["err"]
+        return result_box["data"]
 
     @staticmethod
     def _http_post(

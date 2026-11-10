@@ -573,20 +573,34 @@
 
   <!-- Top Security Classification & Theme Bar -->
   <div class="bg-slate-900 border-b border-slate-800 text-slate-200 px-4 py-2 text-[11px] font-mono shadow-sm">
-    <div class="max-w-[1680px] mx-auto flex items-center justify-end gap-4 text-slate-300">
-      <!-- Modern Dark/Light Segmented Switcher (No Neon) -->
-      <div
-        class="inline-flex items-center rounded-lg border border-slate-700 bg-slate-800/90 p-0.5 text-xs font-mono shadow-sm">
-        <button type="button" id="btnThemeLight" onclick="setPortalTheme('light')"
-          class="px-2.5 py-1 rounded-md text-slate-400 hover:text-white transition flex items-center gap-1.5 cursor-pointer font-semibold">
-          <span>☀️</span> Light
-        </button>
-        <button type="button" id="btnThemeDark" onclick="setPortalTheme('dark')"
-          class="px-2.5 py-1 rounded-md bg-slate-700 text-white font-bold shadow-sm transition flex items-center gap-1.5 cursor-pointer">
-          <span>🌙</span> Dark
-        </button>
+    <div class="max-w-[1680px] mx-auto flex flex-wrap items-center justify-between gap-3 text-slate-300">
+      <!-- Page Navigation Tabs -->
+      <nav class="inline-flex items-center rounded-lg border border-slate-700 bg-slate-800/90 p-0.5 text-xs font-mono shadow-sm">
+        <a href="/" id="navSingleRepo"
+          class="px-3 py-1 rounded-md bg-blue-600 text-white font-bold shadow-sm transition flex items-center gap-1.5">
+          <span>🛡️</span> Single Repo Pipeline
+        </a>
+        <a href="/scheduler" id="navBatchScheduler"
+          class="px-3 py-1 rounded-md text-slate-300 hover:text-white hover:bg-slate-700/70 transition flex items-center gap-1.5 font-semibold">
+          <span>🗓️</span> Batch Scheduler
+          <span id="navSchedulerLiveDot" class="hidden w-2 h-2 rounded-full bg-emerald-400 animate-pulse" title="Background batch running"></span>
+        </a>
+      </nav>
+      <div class="flex items-center gap-4">
+        <!-- Modern Dark/Light Segmented Switcher (No Neon) -->
+        <div
+          class="inline-flex items-center rounded-lg border border-slate-700 bg-slate-800/90 p-0.5 text-xs font-mono shadow-sm">
+          <button type="button" id="btnThemeLight" onclick="setPortalTheme('light')"
+            class="px-2.5 py-1 rounded-md text-slate-400 hover:text-white transition flex items-center gap-1.5 cursor-pointer font-semibold">
+            <span>☀️</span> Light
+          </button>
+          <button type="button" id="btnThemeDark" onclick="setPortalTheme('dark')"
+            class="px-2.5 py-1 rounded-md bg-slate-700 text-white font-bold shadow-sm transition flex items-center gap-1.5 cursor-pointer">
+            <span>🌙</span> Dark
+          </button>
+        </div>
+        <span id="socClockDisplay" class="text-slate-300 font-semibold">UTC TELEMETRY ONLINE</span>
       </div>
-      <span id="socClockDisplay" class="text-slate-300 font-semibold">UTC TELEMETRY ONLINE</span>
     </div>
   </div>
 
@@ -5440,6 +5454,21 @@ ${filesFormatted}
         }
       })
       .catch(() => { });
+
+    function pollNavSchedulerDot() {
+      fetch("/api/scheduler/overview")
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          const dot = document.getElementById("navSchedulerLiveDot");
+          if (dot && data) {
+            const isActive = Boolean(data.active_run_id || (data.queued_runs && data.queued_runs > 0));
+            dot.classList.toggle("hidden", !isActive);
+          }
+        })
+        .catch(() => { });
+    }
+    pollNavSchedulerDot();
+    setInterval(pollNavSchedulerDot, 5000);
   </script>
 </body>
 
