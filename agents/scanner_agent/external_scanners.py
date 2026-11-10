@@ -14,7 +14,8 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
-from typing import Any, Dict, List, Optional, Tuple
+import time
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .models import (
     FindingClassification,
@@ -50,6 +51,41 @@ def _get_safe_scanner_env() -> Dict[str, str]:
     existing_path = env.get("PATH", "")
     env["PATH"] = f"/opt/homebrew/bin:/usr/local/bin:{existing_path}"
     return env
+
+
+def _run_cancellable_subprocess(
+    cmd: List[str],
+    cwd: str,
+    env: Dict[str, str],
+    timeout: int,
+    cancel_check: Optional[Callable[[], bool]] = None,
+) -> subprocess.CompletedProcess:
+    """Runs subprocess with optional fast cancellation polling (kills process within ~0.15s on cancel)."""
+    if not cancel_check:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=cwd, env=env)
+    if cancel_check():
+        raise InterruptedError("Scan cancelled")
+
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=cwd, env=env)
+    deadline = time.monotonic() + timeout
+    while True:
+        if cancel_check():
+            proc.terminate()
+            try:
+                proc.wait(timeout=1.0)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+            raise InterruptedError("Scan cancelled")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            proc.kill()
+            proc.communicate()
+            raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout)
+        try:
+            stdout, stderr = proc.communicate(timeout=min(0.15, remaining))
+            return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
+        except subprocess.TimeoutExpired:
+            continue
 
 
 def find_binary(name: str) -> Optional[str]:
@@ -141,6 +177,7 @@ class SemgrepScanner:
         target_dir: Path,
         config: str = "auto",
         timeout: int = 120,
+        cancel_check: Optional[Callable[[], bool]] = None,
     ) -> Tuple[List[RawSecurityFinding], ScannerExecutionStatus]:
         findings: List[RawSecurityFinding] = []
         target_path = Path(target_dir).resolve()
@@ -218,14 +255,15 @@ class SemgrepScanner:
         logger.info("Running Semgrep scan on %s: %s", target_path, " ".join(cmd))
         safe_env = _get_safe_scanner_env()
         try:
-            proc = subprocess.run(
+            proc = _run_cancellable_subprocess(
                 cmd,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
                 cwd=str(target_path),
                 env=safe_env,
+                timeout=timeout,
+                cancel_check=cancel_check,
             )
+        except InterruptedError:
+            raise
         except subprocess.TimeoutExpired:
             logger.error("Semgrep scan timed out after %ds", timeout)
             status = ScannerExecutionStatus(
@@ -368,6 +406,7 @@ class TrivyScanner:
         target_dir: Path,
         security_checks: str = "vuln,config,secret",
         timeout: int = 120,
+        cancel_check: Optional[Callable[[], bool]] = None,
     ) -> Tuple[List[RawSecurityFinding], ScannerExecutionStatus]:
         findings: List[RawSecurityFinding] = []
         target_path = Path(target_dir).resolve()
@@ -402,13 +441,12 @@ class TrivyScanner:
         logger.info("Running Trivy scan on %s: %s", target_path, " ".join(cmd))
         safe_env = _get_safe_scanner_env()
         try:
-            proc = subprocess.run(
+            proc = _run_cancellable_subprocess(
                 cmd,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
                 cwd=str(target_path),
                 env=safe_env,
+                timeout=timeout,
+                cancel_check=cancel_check,
             )
             # If offline DB check failed because local cache was never initialized, fall back to config/secret checks
             if proc.returncode != 0 and ("DB error" in proc.stderr or "--skip-db-update" in proc.stderr):
@@ -425,14 +463,15 @@ class TrivyScanner:
                     "--quiet",
                     str(target_path),
                 ]
-                proc = subprocess.run(
+                proc = _run_cancellable_subprocess(
                     fallback_cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout,
                     cwd=str(target_path),
                     env=safe_env,
+                    timeout=timeout,
+                    cancel_check=cancel_check,
                 )
+        except InterruptedError:
+            raise
         except subprocess.TimeoutExpired:
             logger.error("Trivy scan timed out after %ds", timeout)
             status = ScannerExecutionStatus(

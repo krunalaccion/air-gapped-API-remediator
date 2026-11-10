@@ -1,0 +1,1531 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Batch Repository Scheduler • Autonomous API Defense</title>
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=3">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png?v=3">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png?v=3">
+  <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico?v=3">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3">
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <script>
+    if (typeof tailwind !== 'undefined') {
+      tailwind.config = {
+        darkMode: 'class',
+        theme: { extend: {} }
+      };
+    }
+    (function () {
+      const saved = localStorage.getItem("aegis_portal_theme") || "dark";
+      if (saved === "dark") {
+        document.documentElement.classList.add("dark");
+      } else {
+        document.documentElement.classList.remove("dark");
+      }
+    })();
+  </script>
+  <style>
+    :root {
+      --background: #f8fafc;
+      --surface: #ffffff;
+      --surface-muted: #f1f5f9;
+      --foreground: #0f172a;
+      --muted-foreground: #475569;
+      --border: #cbd5e1;
+      --border-subtle: #e2e8f0;
+      --input-bg: #ffffff;
+      --input-text: #0f172a;
+    }
+
+    html.dark,
+    body.dark {
+      --background: #0b0f19;
+      --surface: #111827;
+      --surface-muted: #1e293b;
+      --foreground: #f1f5f9;
+      --muted-foreground: #94a3b8;
+      --border: #334155;
+      --border-subtle: #1e293b;
+      --input-bg: #0b0f19;
+      --input-text: #f8fafc;
+    }
+
+    body {
+      background-color: var(--background);
+      color: var(--foreground);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      transition: background-color 0.2s ease, color 0.2s ease;
+    }
+
+    body:not(.dark) {
+      background-image:
+        radial-gradient(circle at 10% 10%, rgba(37, 99, 235, 0.04), transparent 35%),
+        radial-gradient(circle at 90% 15%, rgba(15, 23, 42, 0.03), transparent 35%);
+      background-attachment: fixed;
+      color: #0f172a !important;
+    }
+
+    body.dark {
+      background-image:
+        radial-gradient(circle at 10% 10%, rgba(30, 58, 138, 0.14), transparent 45%),
+        radial-gradient(circle at 90% 15%, rgba(15, 23, 42, 0.35), transparent 45%);
+      background-attachment: fixed;
+      background-color: #0b0f19;
+      color: #f1f5f9;
+    }
+
+    .soc-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      box-shadow: 0 4px 14px -3px rgba(15, 23, 42, 0.06), 0 1px 3px rgba(15, 23, 42, 0.04);
+      transition: background-color 0.2s ease, border-color 0.2s ease;
+    }
+
+    body.dark .soc-panel {
+      background-color: #111827 !important;
+      border-color: #334155 !important;
+      box-shadow: 0 4px 14px -3px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.3);
+    }
+
+    body:not(.dark) .soc-panel {
+      background-color: #ffffff !important;
+      border-color: #cbd5e1 !important;
+    }
+
+    .soc-input {
+      background-color: var(--input-bg);
+      border: 1px solid var(--border);
+      color: var(--input-text);
+      transition: all 0.15s ease;
+    }
+
+    .soc-input:focus {
+      outline: none;
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+    }
+
+    body.dark .bg-white { background-color: #111827 !important; }
+    body.dark .bg-slate-50 { background-color: #0f172a !important; }
+    body.dark .bg-slate-100 { background-color: #1e293b !important; }
+    body.dark .border-slate-200,
+    body.dark .border-slate-300 { border-color: #334155 !important; }
+    body.dark .text-slate-900,
+    body.dark .text-slate-800 { color: #f1f5f9 !important; }
+    body.dark .text-slate-700 { color: #cbd5e1 !important; }
+    body.dark .text-slate-600,
+    body.dark .text-slate-500 { color: #94a3b8 !important; }
+
+    .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scroll::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 4px; }
+    body.dark .custom-scroll::-webkit-scrollbar-thumb { background: #475569; }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+
+<body class="antialiased min-h-screen flex flex-col">
+
+  <!-- Top Navigation & Theme Bar -->
+  <div class="bg-slate-900 border-b border-slate-800 text-slate-200 px-4 py-2 text-[11px] font-mono shadow-sm">
+    <div class="max-w-[1680px] mx-auto flex flex-wrap items-center justify-between gap-3 text-slate-300">
+      <nav class="inline-flex items-center rounded-lg border border-slate-700 bg-slate-800/90 p-0.5 text-xs font-mono shadow-sm">
+        <a href="/" id="navSingleRepo"
+          class="px-3 py-1 rounded-md text-slate-300 hover:text-white hover:bg-slate-700/70 transition flex items-center gap-1.5 font-semibold">
+          <span>🛡️</span> Single Repo Pipeline
+        </a>
+        <a href="/scheduler" id="navBatchScheduler"
+          class="px-3 py-1 rounded-md bg-blue-600 text-white font-bold shadow-sm transition flex items-center gap-1.5">
+          <span>🗓️</span> Batch Scheduler
+          <span id="navSchedulerLiveDot" class="hidden w-2 h-2 rounded-full bg-emerald-400 animate-pulse" title="Background batch running"></span>
+        </a>
+      </nav>
+
+      <div class="flex items-center gap-4">
+        <div class="inline-flex items-center rounded-lg border border-slate-700 bg-slate-800/90 p-0.5 text-xs font-mono shadow-sm">
+          <button type="button" id="btnThemeLight" onclick="setPortalTheme('light')"
+            class="px-2.5 py-1 rounded-md text-slate-400 hover:text-white transition flex items-center gap-1.5 cursor-pointer font-semibold">
+            <span>☀️</span> Light
+          </button>
+          <button type="button" id="btnThemeDark" onclick="setPortalTheme('dark')"
+            class="px-2.5 py-1 rounded-md bg-slate-700 text-white font-bold shadow-sm transition flex items-center gap-1.5 cursor-pointer">
+            <span>🌙</span> Dark
+          </button>
+        </div>
+        <span id="socClockDisplay" class="text-slate-300 font-semibold">UTC TELEMETRY ONLINE</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Container -->
+  <div class="max-w-[1680px] w-full mx-auto p-4 md:p-6 space-y-5 flex-1">
+
+    <!-- Header & Live Scheduler KPI Strip -->
+    <header class="soc-panel rounded-xl p-4 md:p-5 space-y-4">
+      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3.5 border-b border-slate-200 dark:border-slate-800">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-slate-900 border border-slate-700/60 p-1 flex items-center justify-center shadow-md flex-shrink-0">
+            <span class="text-xl">🗓️</span>
+          </div>
+          <div>
+            <h1 class="text-base sm:text-lg md:text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100 flex items-center gap-2 flex-wrap">
+              <span>Scheduled Batch Repository Remediation</span>
+              <span id="daemonStatusBadge"
+                class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700 font-mono font-bold">
+                BACKGROUND DAEMON READY
+              </span>
+            </h1>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+              Automatically discovers all repositories inside a local folder &amp; executes Prepare → Scan → Remediate → Commit → PR sequentially in the background
+            </p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2 text-xs font-mono">
+          <button type="button" onclick="refreshSchedulerOverview()"
+            class="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-semibold cursor-pointer transition">
+            ↻ Refresh Status
+          </button>
+        </div>
+      </div>
+
+      <!-- 3-Column KPI Strip -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+        <div class="p-3.5 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/60 border-l-4 border-l-blue-600">
+          <div class="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 font-mono uppercase font-semibold">
+            <span>Background Worker</span>
+            <span id="kpiWorkerBadge" class="px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-[10px]">IDLE</span>
+          </div>
+          <div class="mt-1 flex items-baseline justify-between gap-2">
+            <div class="text-lg font-bold text-slate-900 dark:text-slate-100 font-mono truncate" id="kpiWorkerStatus">Standby (Background Active)</div>
+            <span class="text-xs text-slate-600 dark:text-slate-400 font-mono flex-shrink-0" id="kpiQueueText">Queue: 0</span>
+          </div>
+          <div class="mt-1 text-[10px] text-slate-500 dark:text-slate-400 font-mono truncate" id="kpiWorkerSubtext">
+            Jobs continue running on the server even if you close this browser tab
+          </div>
+        </div>
+
+        <div class="p-3.5 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/60 border-l-4 border-l-indigo-600">
+          <div class="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 font-mono uppercase font-semibold">
+            <span>Saved Schedules</span>
+            <span id="kpiSchedCountBadge" class="px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-200 font-bold text-[10px]">0 ACTIVE</span>
+          </div>
+          <div class="mt-1 flex items-baseline justify-between gap-2">
+            <div class="text-lg font-bold text-slate-900 dark:text-slate-100 font-mono truncate" id="kpiNextRunText">No upcoming schedule</div>
+            <span class="text-xs text-indigo-600 dark:text-indigo-400 font-mono font-bold flex-shrink-0" id="kpiNextCountdown"></span>
+          </div>
+          <div class="mt-1 text-[10px] text-slate-500 dark:text-slate-400 font-mono truncate" id="kpiNextScheduleName">
+            Create a folder schedule below to begin automated scanning
+          </div>
+        </div>
+
+        <div class="p-3.5 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/60 border-l-4 border-l-emerald-600">
+          <div class="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 font-mono uppercase font-semibold">
+            <span>Batch Remediation Totals</span>
+            <span id="kpiRunsTotalBadge" class="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 font-bold text-[10px]">0 RUNS</span>
+          </div>
+          <div class="mt-1 flex items-baseline justify-between gap-2">
+            <div class="text-lg font-bold text-emerald-700 dark:text-emerald-400 font-mono" id="kpiTotalRemediated">0 Issues Fixed</div>
+            <span class="text-xs text-slate-600 dark:text-slate-400 font-mono" id="kpiTotalRepos">0 Repos Processed</span>
+          </div>
+          <div class="mt-1 text-[10px] text-slate-500 dark:text-slate-400 font-mono truncate" id="kpiLatestRunSummary">
+            No batch runs executed yet
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Top Grid: Schedule Creator (Left 5 cols) + Saved Schedules List (Right 7 cols) -->
+    <div class="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
+
+      <!-- CREATE / EDIT SCHEDULE FORM -->
+      <section class="xl:col-span-5 soc-panel rounded-xl p-5 space-y-4 border-t-4 border-t-blue-600">
+        <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+          <div>
+            <h2 id="formHeading" class="text-sm font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wide font-mono">
+              Create Background Folder Schedule
+            </h2>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+              Select a local parent folder; all repos inside will run sequentially one by one
+            </p>
+          </div>
+          <span id="editingBadge" class="hidden text-[10px] px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 font-mono font-bold">
+            EDITING
+          </span>
+        </div>
+
+        <input type="hidden" id="editingScheduleId" value="">
+
+        <div id="schedFormError" class="hidden p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 text-xs font-mono text-rose-700 dark:text-rose-300"></div>
+
+        <div class="space-y-3.5">
+          <!-- Schedule Name -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Schedule Name</label>
+            <input type="text" id="schedName" placeholder="e.g. Nightly Workspace Air-Gap Audit"
+              class="soc-input w-full text-xs font-mono px-3 py-2 rounded-lg">
+          </div>
+
+          <!-- Target Local Folder Path + Discovery -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
+              <span>Local Parent Folder Path</span>
+              <span class="text-[10px] text-blue-600 dark:text-blue-400 font-mono">Picks all repos inside</span>
+            </label>
+            <input type="text" id="schedFolderPath" placeholder="/path/to/repos-folder or repos"
+              oninput="debouncedDiscoverRepos()"
+              class="soc-input w-full text-xs font-mono px-3 py-2 rounded-lg">
+
+            <div class="flex items-center gap-1.5 flex-wrap mt-2">
+              <button type="button" onclick="openFolderPickerModal()"
+                class="px-2.5 py-1 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 text-[11px] font-mono font-semibold transition cursor-pointer flex items-center gap-1">
+                <span>📂</span> <span>Browse Folder...</span>
+              </button>
+              <button type="button" onclick="selectDemoReposFolder()"
+                class="px-2.5 py-1 rounded bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-[11px] font-mono font-semibold transition cursor-pointer flex items-center gap-1">
+                <span>💻</span> <span>Use Demo Folder (repos/)</span>
+              </button>
+              <button type="button" onclick="discoverReposNow()"
+                class="px-2.5 py-1 rounded bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[11px] font-mono font-semibold transition cursor-pointer">
+                🔍 Scan Folder
+              </button>
+            </div>
+
+            <div class="flex items-center gap-4 mt-2 text-[11px] font-mono text-slate-600 dark:text-slate-400">
+              <label class="flex items-center gap-1.5 cursor-pointer">
+                <input type="checkbox" id="schedRecursive" onchange="discoverReposNow()" class="rounded border-slate-300">
+                <span>Recursive subfolders</span>
+              </label>
+              <label class="flex items-center gap-1.5 cursor-pointer">
+                <input type="checkbox" id="schedIncludeNonGit" onchange="discoverReposNow()" class="rounded border-slate-300">
+                <span>Auto-init non-Git folders</span>
+              </label>
+            </div>
+
+            <!-- Discovered Repositories Preview -->
+            <div id="discoveredReposBox" class="mt-2 p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 space-y-1.5">
+              <div class="flex items-center justify-between text-[11px] font-mono">
+                <span class="font-bold text-slate-700 dark:text-slate-300">Discovered Repositories</span>
+                <span id="discoveredCountBadge" class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-[10px]">
+                  Enter a folder path
+                </span>
+              </div>
+              <div id="discoveredReposList" class="max-h-32 overflow-y-auto custom-scroll space-y-1 text-[11px] font-mono text-slate-500">
+                Select or enter a folder to preview repositories that will run one by one.
+              </div>
+            </div>
+          </div>
+
+          <!-- Schedule Timing Type -->
+          <div class="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 space-y-3">
+            <label class="block text-xs font-bold font-mono text-slate-800 dark:text-slate-200 uppercase">Schedule Frequency</label>
+
+            <div class="grid grid-cols-5 gap-1 bg-slate-200/70 dark:bg-slate-900 p-1 rounded-lg text-[11px] font-mono">
+              <button type="button" data-stype="interval" onclick="setScheduleType('interval')"
+                class="stype-btn py-1.5 rounded-md font-bold bg-blue-600 text-white cursor-pointer transition">Interval</button>
+              <button type="button" data-stype="daily" onclick="setScheduleType('daily')"
+                class="stype-btn py-1.5 rounded-md font-semibold text-slate-600 dark:text-slate-400 cursor-pointer transition">Daily</button>
+              <button type="button" data-stype="weekly" onclick="setScheduleType('weekly')"
+                class="stype-btn py-1.5 rounded-md font-semibold text-slate-600 dark:text-slate-400 cursor-pointer transition">Weekly</button>
+              <button type="button" data-stype="cron" onclick="setScheduleType('cron')"
+                class="stype-btn py-1.5 rounded-md font-semibold text-slate-600 dark:text-slate-400 cursor-pointer transition">Cron</button>
+              <button type="button" data-stype="once" onclick="setScheduleType('once')"
+                class="stype-btn py-1.5 rounded-md font-semibold text-slate-600 dark:text-slate-400 cursor-pointer transition">Once</button>
+            </div>
+
+            <!-- Interval Controls -->
+            <div id="cfg-interval" class="grid grid-cols-2 gap-2.5">
+              <div>
+                <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Run Every</label>
+                <input type="number" id="schedIntervalValue" min="1" value="60"
+                  class="soc-input w-full text-xs font-mono px-2.5 py-1.5 rounded-lg">
+              </div>
+              <div>
+                <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Unit</label>
+                <select id="schedIntervalUnit" class="soc-input w-full text-xs font-mono px-2.5 py-1.5 rounded-lg">
+                  <option value="1" selected>Minutes</option>
+                  <option value="60">Hours</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Daily / Weekly Time Controls -->
+            <div id="cfg-time" class="hidden space-y-2.5">
+              <div id="cfg-weekly-days" class="hidden">
+                <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Days of Week</label>
+                <div class="flex flex-wrap gap-1.5 font-mono text-[11px]">
+                  <button type="button" data-day="0" onclick="toggleWeekDay(this)" class="dow-btn px-2.5 py-1 rounded border bg-blue-600 text-white border-blue-600 font-bold cursor-pointer">Mon</button>
+                  <button type="button" data-day="1" onclick="toggleWeekDay(this)" class="dow-btn px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer">Tue</button>
+                  <button type="button" data-day="2" onclick="toggleWeekDay(this)" class="dow-btn px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer">Wed</button>
+                  <button type="button" data-day="3" onclick="toggleWeekDay(this)" class="dow-btn px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer">Thu</button>
+                  <button type="button" data-day="4" onclick="toggleWeekDay(this)" class="dow-btn px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer">Fri</button>
+                  <button type="button" data-day="5" onclick="toggleWeekDay(this)" class="dow-btn px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer">Sat</button>
+                  <button type="button" data-day="6" onclick="toggleWeekDay(this)" class="dow-btn px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer">Sun</button>
+                </div>
+              </div>
+              <div>
+                <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Execution Time (Local 24h)</label>
+                <input type="time" id="schedTimeOfDay" value="02:00"
+                  class="soc-input w-full text-xs font-mono px-2.5 py-1.5 rounded-lg">
+              </div>
+            </div>
+
+            <!-- Cron Controls -->
+            <div id="cfg-cron" class="hidden space-y-2">
+              <div>
+                <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-1">5-Field Cron Expression (min hour dom month dow)</label>
+                <input type="text" id="schedCronExpr" value="0 2 * * *" placeholder="0 2 * * *"
+                  class="soc-input w-full text-xs font-mono px-2.5 py-1.5 rounded-lg">
+              </div>
+              <div class="flex flex-wrap gap-1.5 text-[10px] font-mono">
+                <button type="button" onclick="setCronPreset('*/15 * * * *')" class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 cursor-pointer">Every 15m</button>
+                <button type="button" onclick="setCronPreset('0 * * * *')" class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 cursor-pointer">Hourly</button>
+                <button type="button" onclick="setCronPreset('0 2 * * *')" class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 cursor-pointer">Daily 02:00</button>
+                <button type="button" onclick="setCronPreset('0 3 * * 1-5')" class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 cursor-pointer">Weekdays 03:00</button>
+              </div>
+            </div>
+
+            <!-- Once Controls -->
+            <div id="cfg-once" class="hidden">
+              <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Run At (Local Date &amp; Time)</label>
+              <input type="datetime-local" id="schedRunAt"
+                class="soc-input w-full text-xs font-mono px-2.5 py-1.5 rounded-lg">
+            </div>
+          </div>
+
+          <!-- Pipeline Execution Options -->
+          <div class="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 space-y-2.5 text-xs">
+            <div class="font-bold font-mono text-slate-800 dark:text-slate-200 uppercase text-[11px]">Pipeline Options (Per Repo)</div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div>
+                <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">Scanner Engine</label>
+                <select id="schedScannerEngine" class="soc-input w-full text-xs font-mono px-2 py-1.5 rounded-lg">
+                  <option value="all" selected>All Engines (Recommended)</option>
+                  <option value="securescan">SecureScanAI Built-in</option>
+                  <option value="semgrep">Semgrep SAST</option>
+                  <option value="trivy">Trivy Scanner</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">AI Remediation Engine</label>
+                <select id="schedLlmProvider" onchange="handleSchedLlmChange()" class="soc-input w-full text-xs font-mono px-2 py-1.5 rounded-lg">
+                  <option value="ollama" selected>Local Ollama (Auto-Fallback)</option>
+                  <option value="local">Local OpenAI (LM Studio / vLLM)</option>
+                  <option value="auto-fallback">Offline Deterministic Fixer</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">Base Branch</label>
+                <input type="text" id="schedBaseBranch" value="auto" placeholder="auto"
+                  class="soc-input w-full text-xs font-mono px-2 py-1.5 rounded-lg">
+              </div>
+              <div>
+                <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">Remediation Branch</label>
+                <input type="text" id="schedFeatureBranch" value="remediation/airgap-api-compliance"
+                  class="soc-input w-full text-xs font-mono px-2 py-1.5 rounded-lg">
+              </div>
+            </div>
+
+            <div id="schedLlmEndpointGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div>
+                <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">Model Name</label>
+                <input type="text" id="schedLlmModel" value="qwen2.5-coder:3b"
+                  class="soc-input w-full text-xs font-mono px-2 py-1.5 rounded-lg">
+              </div>
+              <div>
+                <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">Local Server Base URL</label>
+                <input type="text" id="schedLlmBaseUrl" value="http://127.0.0.1:11434"
+                  class="soc-input w-full text-xs font-mono px-2 py-1.5 rounded-lg">
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2 pt-1 text-[11px] font-mono text-slate-700 dark:text-slate-300">
+              <label class="flex items-center gap-1.5 cursor-pointer">
+                <input type="checkbox" id="schedBuildTest" checked class="rounded border-slate-300">
+                <span>Run Build &amp; Tests</span>
+              </label>
+              <label class="flex items-center gap-1.5 cursor-pointer">
+                <input type="checkbox" id="schedAutoCommit" checked class="rounded border-slate-300">
+                <span>Auto-Commit Fixes</span>
+              </label>
+              <label class="flex items-center gap-1.5 cursor-pointer">
+                <input type="checkbox" id="schedAutoPr" checked class="rounded border-slate-300">
+                <span>Create Local PR</span>
+              </label>
+              <label class="flex items-center gap-1.5 cursor-pointer">
+                <input type="checkbox" id="schedTimestampBranch" class="rounded border-slate-300">
+                <span>Timestamp Branch</span>
+              </label>
+            </div>
+
+            <label id="runImmediatelyRow" class="flex items-center gap-2 pt-1.5 border-t border-slate-200 dark:border-slate-700 text-xs font-mono font-semibold text-blue-700 dark:text-blue-300 cursor-pointer">
+              <input type="checkbox" id="schedRunImmediately" class="rounded border-slate-300">
+              <span>⚡ Run immediately in background after creating schedule</span>
+            </label>
+          </div>
+
+          <!-- Submit Buttons -->
+          <div class="flex items-center gap-2">
+            <button type="button" id="btnSubmitSchedule" onclick="submitScheduleForm()"
+              class="flex-1 py-2.5 px-4 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold uppercase tracking-wider font-mono transition shadow-md cursor-pointer">
+              ＋ Create Background Schedule
+            </button>
+            <button type="button" id="btnCancelEdit" onclick="resetScheduleForm()"
+              class="hidden py-2.5 px-3.5 rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-700 dark:text-slate-200 text-xs font-mono font-semibold cursor-pointer">
+              Cancel
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- SAVED SCHEDULES LIST -->
+      <section class="xl:col-span-7 soc-panel rounded-xl p-5 space-y-4 border-t-4 border-t-indigo-600">
+        <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3 flex-wrap gap-2">
+          <div>
+            <h2 class="text-sm font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wide font-mono">
+              Configured Batch Schedules
+            </h2>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+              Schedules trigger automatically in the background or can be launched immediately with Run Now
+            </p>
+          </div>
+          <span id="schedulesTotalPill" class="text-[11px] px-2.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 font-mono font-bold">
+            0 Schedules
+          </span>
+        </div>
+
+        <div id="schedulesListContainer" class="space-y-3 max-h-[650px] overflow-y-auto custom-scroll pr-1">
+          <div class="p-8 text-center text-xs text-slate-500 font-mono border border-dashed border-slate-300 dark:border-slate-700 rounded-xl">
+            No schedules configured yet. Create a schedule on the left to automate batch repository remediation.
+          </div>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- BOTTOM SECTION: BACKGROUND EXECUTION QUEUE, REPO-BY-REPO MONITOR & LOGS -->
+    <section class="soc-panel rounded-xl p-5 space-y-4 border-t-4 border-t-emerald-600">
+      <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3 flex-wrap gap-2">
+        <div>
+          <h2 class="text-sm font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wide font-mono flex items-center gap-2">
+            <span>Background Batch Execution Monitor</span>
+            <span id="activeRunBadge" class="hidden px-2 py-0.5 rounded text-[10px] bg-blue-100 dark:bg-blue-900/80 text-blue-700 dark:text-blue-200 border border-blue-300 dark:border-blue-700 font-bold animate-pulse">
+              ● RUNNING IN BACKGROUND
+            </span>
+          </h2>
+          <p class="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+            Live sequential repo-by-repo status, findings resolved, commits, pull requests &amp; per-repo HTML reports
+          </p>
+        </div>
+
+        <button type="button" onclick="clearFinishedRuns()"
+          class="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 text-xs font-mono font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">
+          🧹 Clear Finished Runs
+        </button>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+
+        <!-- LEFT: Run History Selector (4 cols) -->
+        <div class="lg:col-span-4 space-y-2">
+          <div class="text-[11px] font-mono font-bold text-slate-600 dark:text-slate-400 uppercase">Batch Run History</div>
+          <div id="runsHistoryList" class="space-y-2 max-h-[540px] overflow-y-auto custom-scroll pr-1">
+            <div class="p-6 text-center text-xs text-slate-500 font-mono border border-dashed border-slate-300 dark:border-slate-700 rounded-xl">
+              No batch runs recorded yet.
+            </div>
+          </div>
+        </div>
+
+        <!-- RIGHT: Selected Run Details + Repo-by-Repo Sequential Progress + Logs (8 cols) -->
+        <div class="lg:col-span-8 space-y-4">
+          <div id="runDetailHeader" class="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 space-y-3">
+            <div class="flex items-center justify-between flex-wrap gap-2">
+              <div class="min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span id="detailRunTitle" class="text-sm font-bold font-mono text-slate-900 dark:text-slate-100">Select or trigger a batch run</span>
+                  <span id="detailRunStatusPill" class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200">IDLE</span>
+                </div>
+                <div id="detailRunMeta" class="text-[11px] font-mono text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+                  Repositories inside the selected folder are processed sequentially one by one in background.
+                </div>
+              </div>
+              <button type="button" id="btnCancelActiveRun" onclick="cancelSelectedRun()"
+                class="hidden px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-mono font-bold cursor-pointer shadow-sm">
+                ⏹ Cancel Run
+              </button>
+            </div>
+
+            <!-- Overall Progress Bar -->
+            <div class="space-y-1">
+              <div class="flex items-center justify-between text-[11px] font-mono">
+                <span id="detailStepText" class="text-slate-700 dark:text-slate-300 font-semibold">Waiting...</span>
+                <span id="detailProgressText" class="font-bold text-blue-600 dark:text-blue-400">0%</span>
+              </div>
+              <div class="w-full h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+                <div id="detailProgressBar" class="h-full rounded-full bg-gradient-to-r from-blue-500 to-emerald-500 transition-all duration-300" style="width: 0%;"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Repo-by-Repo Queue Cards -->
+          <div class="space-y-2">
+            <div class="text-[11px] font-mono font-bold text-slate-600 dark:text-slate-400 uppercase flex items-center justify-between">
+              <span>Sequential Repository Execution Queue (One by One)</span>
+              <span id="detailReposSummary" class="text-[10px] text-slate-500">0 Repositories</span>
+            </div>
+            <div id="detailReposList" class="space-y-2 max-h-[340px] overflow-y-auto custom-scroll pr-1">
+              <div class="p-6 text-center text-xs text-slate-500 font-mono border border-dashed border-slate-300 dark:border-slate-700 rounded-xl">
+                Trigger a schedule to watch repositories execute sequentially here.
+              </div>
+            </div>
+          </div>
+
+          <!-- Background Worker Log Console -->
+          <div class="space-y-1.5">
+            <div class="text-[11px] font-mono font-bold text-slate-600 dark:text-slate-400 uppercase">Background Execution Logs</div>
+            <div id="detailLogsBox"
+              class="h-44 bg-slate-950 text-slate-200 p-3 rounded-xl border border-slate-800 font-mono text-[11px] overflow-y-auto custom-scroll space-y-1">
+              <div class="text-slate-500 italic">Waiting for background run logs...</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </div>
+
+  <!-- Interactive Folder Explorer Modal -->
+  <div id="folderPickerModal" style="display: none;"
+    class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+    onclick="if(event.target === this) closeFolderPickerModal()">
+    <div class="soc-panel rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden"
+      onclick="event.stopPropagation()">
+      <div class="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900">
+        <div class="flex items-center gap-2.5 min-w-0">
+          <span class="text-xl">📁</span>
+          <div class="min-w-0">
+            <h3 class="text-sm font-bold text-slate-900 dark:text-slate-100 truncate font-mono">Select Parent Folder Containing Repositories</h3>
+            <p class="text-[11px] text-slate-500 font-mono truncate">All repositories inside the selected folder will be processed sequentially</p>
+          </div>
+        </div>
+        <button onclick="closeFolderPickerModal()"
+          class="text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 p-1 rounded-lg text-lg flex-shrink-0 cursor-pointer">✕</button>
+      </div>
+
+      <div class="px-4 py-2.5 bg-slate-100/70 dark:bg-slate-950/40 border-b border-slate-200 dark:border-slate-800 flex items-center gap-2 overflow-x-auto text-[11px] font-mono">
+        <span class="text-slate-500 font-semibold flex-shrink-0">Bookmarks:</span>
+        <button type="button" onclick="loadFolderList('repos')"
+          class="px-2.5 py-1 rounded-md bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-700 hover:bg-blue-200 flex-shrink-0 cursor-pointer font-bold">
+          📦 repos/ (Demo Folder)
+        </button>
+        <div id="modalQuickAccess" class="flex items-center gap-1.5 flex-shrink-0"></div>
+      </div>
+
+      <div class="px-4 py-2 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center gap-2">
+        <button type="button" onclick="navigateParentFolder()" id="btnFolderUp"
+          class="px-2.5 py-1 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-mono font-bold cursor-pointer">
+          ⬆ Up
+        </button>
+        <div id="modalCurrentPathDisplay" class="text-xs font-mono text-slate-700 dark:text-slate-300 truncate flex-1 font-semibold"></div>
+        <button type="button" onclick="refreshFolderList()" class="p-1 rounded text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer text-xs">↻</button>
+      </div>
+
+      <div class="p-3 flex-1 overflow-y-auto custom-scroll space-y-2 bg-slate-50/50 dark:bg-slate-950/20" id="modalFolderListContainer">
+        <div class="text-xs text-slate-500 text-center py-8 font-mono">Loading folders...</div>
+      </div>
+
+      <div class="p-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex items-center justify-between gap-3">
+        <span class="text-[11px] text-slate-500 font-mono">Pick the parent directory holding your repositories.</span>
+        <div class="flex items-center gap-2">
+          <button onclick="confirmCurrentFolder()"
+            class="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs text-white font-mono font-bold cursor-pointer">
+            Select Current Folder
+          </button>
+          <button onclick="closeFolderPickerModal()"
+            class="px-3 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 text-xs text-slate-700 dark:text-slate-300 font-mono cursor-pointer">
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Local PR Viewer Modal -->
+  <div id="localPrModal" style="display: none;"
+    class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+    onclick="if(event.target === this) closeLocalPrModal()">
+    <div class="soc-panel rounded-2xl w-full max-w-3xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden"
+      onclick="event.stopPropagation()">
+      <div class="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900">
+        <div class="flex items-center gap-2.5 min-w-0">
+          <span class="text-xl">📄</span>
+          <div class="min-w-0">
+            <h3 class="text-sm font-bold text-slate-900 dark:text-slate-100 truncate font-mono" id="modalPrTitle">Local Pull Request</h3>
+            <p class="text-[11px] text-slate-500 font-mono truncate" id="modalPrFilePath"></p>
+          </div>
+        </div>
+        <button onclick="closeLocalPrModal()"
+          class="text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 p-1 rounded-lg text-lg flex-shrink-0 cursor-pointer">✕</button>
+      </div>
+      <div class="p-4 flex-1 overflow-y-auto custom-scroll bg-white dark:bg-slate-950">
+        <pre id="modalPrContent"
+          class="w-full bg-slate-50 dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 font-mono text-xs text-slate-800 dark:text-slate-200 whitespace-pre-wrap leading-relaxed custom-scroll"></pre>
+      </div>
+      <div class="p-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex justify-end">
+        <button onclick="closeLocalPrModal()"
+          class="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs text-white font-mono font-bold cursor-pointer">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // =========================================================
+    // Theme & Clock
+    // =========================================================
+    function setPortalTheme(themeName) {
+      const isDark = (themeName === "dark");
+      document.documentElement.classList.toggle("dark", isDark);
+      document.body.classList.toggle("dark", isDark);
+      document.body.classList.toggle("light", !isDark);
+      localStorage.setItem("aegis_portal_theme", isDark ? "dark" : "light");
+
+      const btnLight = document.getElementById("btnThemeLight");
+      const btnDark = document.getElementById("btnThemeDark");
+      if (btnLight && btnDark) {
+        if (isDark) {
+          btnDark.className = "px-2.5 py-1 rounded-md bg-slate-700 text-white font-bold shadow-sm transition flex items-center gap-1.5 cursor-pointer";
+          btnLight.className = "px-2.5 py-1 rounded-md text-slate-400 hover:text-white font-medium transition flex items-center gap-1.5 cursor-pointer";
+        } else {
+          btnLight.className = "px-2.5 py-1 rounded-md bg-white text-slate-900 font-bold shadow-sm transition flex items-center gap-1.5 cursor-pointer";
+          btnDark.className = "px-2.5 py-1 rounded-md text-slate-400 hover:text-white font-medium transition flex items-center gap-1.5 cursor-pointer";
+        }
+      }
+    }
+
+    (function initSavedTheme() {
+      const saved = localStorage.getItem("aegis_portal_theme") || "dark";
+      setPortalTheme(saved === "light" ? "light" : "dark");
+    })();
+
+    function updateSocClock() {
+      const el = document.getElementById("socClockDisplay");
+      if (el) {
+        const now = new Date();
+        el.textContent = `SOC TIME: ${now.toISOString().replace("T", " ").slice(0, 19)} UTC`;
+      }
+    }
+    setInterval(updateSocClock, 1000);
+    updateSocClock();
+
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return "";
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    async function apiGet(endpoint) {
+      const res = await fetch(endpoint);
+      const data = await res.json();
+      if (!res.ok && !data.error) data.error = `HTTP ${res.status}`;
+      return data;
+    }
+
+    async function apiPost(endpoint, payload) {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload || {})
+      });
+      const data = await res.json();
+      if (!res.ok && !data.error) data.error = `HTTP ${res.status}`;
+      return data;
+    }
+
+    // =========================================================
+    // Schedule Form State & Discovery
+    // =========================================================
+    let currentScheduleType = "interval";
+    let discoverTimer = null;
+    let latestOverview = null;
+    let selectedRunId = null;
+
+    function setScheduleType(stype) {
+      currentScheduleType = stype;
+      document.querySelectorAll(".stype-btn").forEach(btn => {
+        const active = btn.getAttribute("data-stype") === stype;
+        btn.className = active
+          ? "stype-btn py-1.5 rounded-md font-bold bg-blue-600 text-white cursor-pointer transition"
+          : "stype-btn py-1.5 rounded-md font-semibold text-slate-600 dark:text-slate-400 cursor-pointer transition";
+      });
+
+      document.getElementById("cfg-interval").classList.toggle("hidden", stype !== "interval");
+      document.getElementById("cfg-time").classList.toggle("hidden", stype !== "daily" && stype !== "weekly");
+      document.getElementById("cfg-weekly-days").classList.toggle("hidden", stype !== "weekly");
+      document.getElementById("cfg-cron").classList.toggle("hidden", stype !== "cron");
+      document.getElementById("cfg-once").classList.toggle("hidden", stype !== "once");
+
+      if (stype === "once" && !document.getElementById("schedRunAt").value) {
+        const dt = new Date(Date.now() + 5 * 60000);
+        const pad = n => String(n).padStart(2, "0");
+        document.getElementById("schedRunAt").value =
+          `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+      }
+    }
+
+    function toggleWeekDay(btn) {
+      const active = btn.getAttribute("data-active") === "true" || btn.classList.contains("bg-blue-600");
+      if (active) {
+        btn.setAttribute("data-active", "false");
+        btn.className = "dow-btn px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer";
+      } else {
+        btn.setAttribute("data-active", "true");
+        btn.className = "dow-btn px-2.5 py-1 rounded border bg-blue-600 text-white border-blue-600 font-bold cursor-pointer";
+      }
+    }
+
+    function getSelectedWeekDays() {
+      const days = [];
+      document.querySelectorAll(".dow-btn").forEach(btn => {
+        if (btn.classList.contains("bg-blue-600")) {
+          days.push(parseInt(btn.getAttribute("data-day"), 10));
+        }
+      });
+      return days;
+    }
+
+    function setSelectedWeekDays(daysList) {
+      const set = new Set((daysList || [0]).map(Number));
+      document.querySelectorAll(".dow-btn").forEach(btn => {
+        const d = parseInt(btn.getAttribute("data-day"), 10);
+        if (set.has(d)) {
+          btn.className = "dow-btn px-2.5 py-1 rounded border bg-blue-600 text-white border-blue-600 font-bold cursor-pointer";
+        } else {
+          btn.className = "dow-btn px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer";
+        }
+      });
+    }
+
+    function setCronPreset(expr) {
+      document.getElementById("schedCronExpr").value = expr;
+    }
+
+    function handleSchedLlmChange() {
+      const prov = document.getElementById("schedLlmProvider").value;
+      const modelEl = document.getElementById("schedLlmModel");
+      const urlEl = document.getElementById("schedLlmBaseUrl");
+      const grid = document.getElementById("schedLlmEndpointGrid");
+      if (prov === "ollama") {
+        modelEl.value = "qwen2.5-coder:3b";
+        urlEl.value = "http://127.0.0.1:11434";
+        grid.classList.remove("hidden");
+      } else if (prov === "local") {
+        modelEl.value = "qwen2.5-coder-7b-instruct";
+        urlEl.value = "http://localhost:1234/v1";
+        grid.classList.remove("hidden");
+      } else {
+        modelEl.value = "rule-based-security-fixer";
+        grid.classList.add("hidden");
+      }
+    }
+
+    function debouncedDiscoverRepos() {
+      clearTimeout(discoverTimer);
+      discoverTimer = setTimeout(discoverReposNow, 300);
+    }
+
+    async function discoverReposNow() {
+      const folderPath = document.getElementById("schedFolderPath").value.trim();
+      const badge = document.getElementById("discoveredCountBadge");
+      const list = document.getElementById("discoveredReposList");
+      if (!folderPath) {
+        badge.textContent = "Enter a folder path";
+        badge.className = "px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-[10px]";
+        list.innerHTML = "Select or enter a folder to preview repositories that will run one by one.";
+        return;
+      }
+
+      badge.textContent = "Scanning...";
+      try {
+        const res = await apiPost("/api/scheduler/discover", {
+          folder_path: folderPath,
+          recursive: document.getElementById("schedRecursive").checked,
+          include_non_git: document.getElementById("schedIncludeNonGit").checked
+        });
+        if (res.error) {
+          badge.textContent = "Invalid Path";
+          badge.className = "px-2 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-bold text-[10px]";
+          list.innerHTML = `<div class="text-rose-600 dark:text-rose-400">${escapeHtml(res.error)}</div>`;
+          return;
+        }
+        const repos = res.repos || [];
+        badge.textContent = `${repos.length} Repo${repos.length === 1 ? "" : "s"} Found`;
+        badge.className = repos.length > 0
+          ? "px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 border border-emerald-300 font-bold text-[10px]"
+          : "px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 border border-amber-300 font-bold text-[10px]";
+
+        if (repos.length === 0) {
+          list.innerHTML = `<div class="text-amber-700 dark:text-amber-300">No repositories detected inside this folder. Enable "Auto-init non-Git folders" or pick a folder containing Git repos.</div>`;
+          return;
+        }
+        list.innerHTML = repos.map((r, i) => `
+          <div class="flex items-center justify-between gap-2 px-2 py-1 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+            <div class="flex items-center gap-1.5 min-w-0">
+              <span class="text-slate-400 font-bold">#${i + 1}</span>
+              <span>${r.has_git ? "📦" : "📁"}</span>
+              <span class="font-bold text-slate-800 dark:text-slate-200 truncate">${escapeHtml(r.relative_path || r.name)}</span>
+            </div>
+            <span class="text-[10px] px-1.5 py-0.5 rounded ${r.has_git ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300" : "bg-amber-100 text-amber-800"} flex-shrink-0">
+              ${r.has_git ? escapeHtml(r.current_branch || "git") : "auto-init"}
+            </span>
+          </div>
+        `).join("");
+      } catch (err) {
+        badge.textContent = "Error";
+        list.innerHTML = `<div class="text-rose-600">${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    function selectDemoReposFolder() {
+      document.getElementById("schedFolderPath").value = "repos";
+      discoverReposNow();
+    }
+
+    function showFormError(msg) {
+      const box = document.getElementById("schedFormError");
+      if (!msg) {
+        box.classList.add("hidden");
+        box.textContent = "";
+      } else {
+        box.textContent = msg;
+        box.classList.remove("hidden");
+      }
+    }
+
+    async function submitScheduleForm() {
+      showFormError("");
+      const editingId = document.getElementById("editingScheduleId").value.trim();
+      const intervalVal = parseInt(document.getElementById("schedIntervalValue").value || "60", 10);
+      const intervalUnit = parseInt(document.getElementById("schedIntervalUnit").value || "1", 10);
+
+      const payload = {
+        name: document.getElementById("schedName").value.trim(),
+        folder_path: document.getElementById("schedFolderPath").value.trim(),
+        schedule_type: currentScheduleType,
+        interval_minutes: Math.max(1, intervalVal * intervalUnit),
+        time_of_day: document.getElementById("schedTimeOfDay").value || "02:00",
+        days_of_week: getSelectedWeekDays(),
+        cron_expression: document.getElementById("schedCronExpr").value.trim(),
+        run_at: document.getElementById("schedRunAt").value || null,
+        scanner_engine: document.getElementById("schedScannerEngine").value,
+        llm_provider: document.getElementById("schedLlmProvider").value,
+        llm_model: document.getElementById("schedLlmModel").value.trim() || null,
+        llm_base_url: document.getElementById("schedLlmBaseUrl").value.trim() || null,
+        base_branch: document.getElementById("schedBaseBranch").value.trim() || "auto",
+        feature_branch: document.getElementById("schedFeatureBranch").value.trim() || "remediation/airgap-api-compliance",
+        recursive: document.getElementById("schedRecursive").checked,
+        include_non_git: document.getElementById("schedIncludeNonGit").checked,
+        run_build_test: document.getElementById("schedBuildTest").checked,
+        auto_commit: document.getElementById("schedAutoCommit").checked,
+        auto_pr: document.getElementById("schedAutoPr").checked,
+        timestamp_branch: document.getElementById("schedTimestampBranch").checked,
+        run_immediately: editingId ? false : document.getElementById("schedRunImmediately").checked
+      };
+
+      const btn = document.getElementById("btnSubmitSchedule");
+      btn.disabled = true;
+      try {
+        const endpoint = editingId ? "/api/scheduler/schedules/update" : "/api/scheduler/schedules";
+        if (editingId) payload.id = editingId;
+        const res = await apiPost(endpoint, payload);
+        if (res.error) {
+          showFormError(res.error);
+          return;
+        }
+        if (res.triggered_run && res.triggered_run.run_id) {
+          selectedRunId = res.triggered_run.run_id;
+        }
+        resetScheduleForm();
+        await refreshSchedulerOverview();
+      } catch (err) {
+        showFormError(err.message);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    function editSchedule(schedId) {
+      const sched = (latestOverview?.schedules || []).find(s => s.id === schedId);
+      if (!sched) return;
+      showFormError("");
+      document.getElementById("editingScheduleId").value = sched.id;
+      document.getElementById("formHeading").textContent = `Edit Schedule: ${sched.name}`;
+      document.getElementById("editingBadge").classList.remove("hidden");
+      document.getElementById("btnSubmitSchedule").textContent = "💾 Save Schedule Changes";
+      document.getElementById("btnCancelEdit").classList.remove("hidden");
+      document.getElementById("runImmediatelyRow").classList.add("hidden");
+
+      document.getElementById("schedName").value = sched.name || "";
+      document.getElementById("schedFolderPath").value = sched.folder_path || "";
+      setScheduleType(sched.schedule_type || "interval");
+
+      const mins = Number(sched.interval_minutes || 60);
+      if (mins >= 60 && mins % 60 === 0) {
+        document.getElementById("schedIntervalValue").value = String(mins / 60);
+        document.getElementById("schedIntervalUnit").value = "60";
+      } else {
+        document.getElementById("schedIntervalValue").value = String(mins);
+        document.getElementById("schedIntervalUnit").value = "1";
+      }
+      document.getElementById("schedTimeOfDay").value = sched.time_of_day || "02:00";
+      setSelectedWeekDays(sched.days_of_week || [0]);
+      document.getElementById("schedCronExpr").value = sched.cron_expression || "0 2 * * *";
+      if (sched.run_at) {
+        document.getElementById("schedRunAt").value = String(sched.run_at).slice(0, 16);
+      }
+
+      document.getElementById("schedScannerEngine").value = sched.scanner_engine || "all";
+      document.getElementById("schedLlmProvider").value = sched.llm_provider || "ollama";
+      handleSchedLlmChange();
+      if (sched.llm_model) document.getElementById("schedLlmModel").value = sched.llm_model;
+      if (sched.llm_base_url) document.getElementById("schedLlmBaseUrl").value = sched.llm_base_url;
+      document.getElementById("schedBaseBranch").value = sched.base_branch || "auto";
+      document.getElementById("schedFeatureBranch").value = sched.feature_branch || "remediation/airgap-api-compliance";
+
+      document.getElementById("schedRecursive").checked = Boolean(sched.recursive);
+      document.getElementById("schedIncludeNonGit").checked = Boolean(sched.include_non_git);
+      document.getElementById("schedBuildTest").checked = sched.run_build_test !== false;
+      document.getElementById("schedAutoCommit").checked = sched.auto_commit !== false;
+      document.getElementById("schedAutoPr").checked = sched.auto_pr !== false;
+      document.getElementById("schedTimestampBranch").checked = Boolean(sched.timestamp_branch);
+
+      discoverReposNow();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function resetScheduleForm() {
+      showFormError("");
+      document.getElementById("editingScheduleId").value = "";
+      document.getElementById("formHeading").textContent = "Create Background Folder Schedule";
+      document.getElementById("editingBadge").classList.add("hidden");
+      document.getElementById("btnSubmitSchedule").textContent = "＋ Create Background Schedule";
+      document.getElementById("btnCancelEdit").classList.add("hidden");
+      document.getElementById("runImmediatelyRow").classList.remove("hidden");
+      document.getElementById("schedName").value = "";
+      document.getElementById("schedRunImmediately").checked = false;
+    }
+
+    async function toggleSchedule(schedId) {
+      await apiPost("/api/scheduler/schedules/toggle", { id: schedId });
+      await refreshSchedulerOverview();
+    }
+
+    async function deleteSchedule(schedId) {
+      if (!confirm("Delete this schedule?")) return;
+      if (document.getElementById("editingScheduleId").value === schedId) {
+        resetScheduleForm();
+      }
+      await apiPost("/api/scheduler/schedules/delete", { id: schedId });
+      await refreshSchedulerOverview();
+    }
+
+    async function runScheduleNow(schedId) {
+      const res = await apiPost("/api/scheduler/schedules/run-now", { id: schedId });
+      if (res.error) {
+        alert(res.error);
+        return;
+      }
+      if (res.run && res.run.run_id) {
+        selectedRunId = res.run.run_id;
+      }
+      await refreshSchedulerOverview();
+    }
+
+    async function cancelSelectedRun() {
+      if (!selectedRunId) return;
+      const btn = document.getElementById("btnCancelActiveRun");
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "⏳ Cancelling...";
+      }
+      try {
+        await apiPost("/api/scheduler/runs/cancel", { run_id: selectedRunId });
+        await refreshSchedulerOverview();
+        setTimeout(refreshSchedulerOverview, 250);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = "⏹ Cancel Run";
+        }
+      }
+    }
+
+    async function clearFinishedRuns() {
+      await apiPost("/api/scheduler/runs/clear", {});
+      selectedRunId = null;
+      await refreshSchedulerOverview();
+    }
+
+    // =========================================================
+    // Rendering & Live Polling
+    // =========================================================
+    function formatRelativeTime(isoStr) {
+      if (!isoStr) return "—";
+      const target = new Date(isoStr);
+      if (Number.isNaN(target.getTime())) return isoStr;
+      const diffMs = target.getTime() - Date.now();
+      const absSec = Math.round(Math.abs(diffMs) / 1000);
+      let label = "";
+      if (absSec < 60) label = `${absSec}s`;
+      else if (absSec < 3600) label = `${Math.floor(absSec / 60)}m ${absSec % 60}s`;
+      else if (absSec < 86400) label = `${Math.floor(absSec / 3600)}h ${Math.floor((absSec % 3600) / 60)}m`;
+      else label = `${Math.floor(absSec / 86400)}d`;
+      return diffMs >= 0 ? `in ${label}` : `${label} ago`;
+    }
+
+    function formatLocalTime(isoStr) {
+      if (!isoStr) return "—";
+      const d = new Date(isoStr);
+      if (Number.isNaN(d.getTime())) return isoStr;
+      return d.toLocaleString();
+    }
+
+    function statusBadgeHtml(status) {
+      const st = (status || "PENDING").toUpperCase();
+      if (st === "RUNNING") {
+        return `<span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-blue-100 dark:bg-blue-900/70 text-blue-800 dark:text-blue-200 border border-blue-300 dark:border-blue-700 animate-pulse">● RUNNING</span>`;
+      }
+      if (st === "CANCELLING") {
+        return `<span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-100 dark:bg-amber-900/70 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-700 animate-pulse">● CANCELLING...</span>`;
+      }
+      if (st === "QUEUED" || st === "PENDING") {
+        return `<span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600">${st}</span>`;
+      }
+      if (st === "COMPLETED" || st === "NO_CHANGES") {
+        const lbl = st === "NO_CHANGES" ? "COMPLIANT (NO CHANGES)" : "COMPLETED ✓";
+        return `<span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-100 dark:bg-emerald-900/70 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700">${lbl}</span>`;
+      }
+      if (st === "COMPLETED_WITH_ERRORS") {
+        return `<span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-100 dark:bg-amber-900/70 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-700">PARTIAL</span>`;
+      }
+      if (st === "CANCELLED" || st === "INTERRUPTED") {
+        return `<span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-100 dark:bg-amber-900/70 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-700">${st}</span>`;
+      }
+      return `<span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-rose-100 dark:bg-rose-900/70 text-rose-800 dark:text-rose-200 border border-rose-300 dark:border-rose-700">${st}</span>`;
+    }
+
+    function renderSchedules(schedules) {
+      const container = document.getElementById("schedulesListContainer");
+      const pill = document.getElementById("schedulesTotalPill");
+      pill.textContent = `${schedules.length} Schedule${schedules.length === 1 ? "" : "s"}`;
+
+      if (!schedules.length) {
+        container.innerHTML = `<div class="p-8 text-center text-xs text-slate-500 font-mono border border-dashed border-slate-300 dark:border-slate-700 rounded-xl">No schedules configured yet. Create a folder schedule on the left.</div>`;
+        return;
+      }
+
+      container.innerHTML = schedules.map(s => {
+        const enabled = Boolean(s.enabled);
+        const sid = escapeHtml(s.id);
+        return `
+          <div class="p-3.5 rounded-xl border ${enabled ? "border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/40" : "border-slate-200 dark:border-slate-800 bg-slate-100/60 dark:bg-slate-900/40 opacity-80"} space-y-2.5">
+            <div class="flex items-start justify-between gap-2 flex-wrap">
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="font-bold text-sm text-slate-900 dark:text-slate-100 font-mono truncate">${escapeHtml(s.name)}</span>
+                  ${enabled
+                    ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700">ACTIVE</span>`
+                    : `<span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300">PAUSED</span>`
+                  }
+                  <span class="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200">
+                    ${escapeHtml(s.description || s.schedule_type)}
+                  </span>
+                </div>
+                <div class="text-[11px] font-mono text-slate-600 dark:text-slate-400 mt-1 truncate" title="${escapeHtml(s.folder_path)}">
+                  📁 ${escapeHtml(s.folder_path)}
+                </div>
+              </div>
+
+              <div class="flex items-center gap-1.5 flex-shrink-0 font-mono text-[11px]">
+                <button type="button" onclick="runScheduleNow('${sid}')"
+                  class="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white font-bold cursor-pointer shadow-sm transition">
+                  ▶ Run Now
+                </button>
+                <button type="button" onclick="toggleSchedule('${sid}')"
+                  class="px-2.5 py-1 rounded-md bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 font-semibold cursor-pointer">
+                  ${enabled ? "⏸ Pause" : "▶ Resume"}
+                </button>
+                <button type="button" onclick="editSchedule('${sid}')"
+                  class="px-2 py-1 rounded-md bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 cursor-pointer" title="Edit">
+                  ✏️
+                </button>
+                <button type="button" onclick="deleteSchedule('${sid}')"
+                  class="px-2 py-1 rounded-md bg-white dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/50 border border-slate-300 dark:border-slate-600 text-rose-600 dark:text-rose-400 cursor-pointer" title="Delete">
+                  🗑️
+                </button>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-slate-200 dark:border-slate-700/70 text-[10px] font-mono text-slate-600 dark:text-slate-400">
+              <div>
+                <span class="text-slate-400">NEXT RUN:</span>
+                <strong class="text-slate-800 dark:text-slate-200">${enabled && s.next_run_at ? `${formatRelativeTime(s.next_run_at)} (${formatLocalTime(s.next_run_at)})` : "Paused / None"}</strong>
+              </div>
+              <div>
+                <span class="text-slate-400">LAST RUN:</span>
+                <strong class="text-slate-800 dark:text-slate-200">${s.last_run_at ? `${formatRelativeTime(s.last_run_at)} • ${escapeHtml(s.last_run_status || "")}` : "Never"}</strong>
+              </div>
+              <div>
+                <span class="text-slate-400">ENGINE:</span>
+                <strong class="text-slate-800 dark:text-slate-200">${escapeHtml(s.scanner_engine || "all")} • ${escapeHtml(s.llm_provider || "ollama")}</strong>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function renderRunsHistory(runs) {
+      const container = document.getElementById("runsHistoryList");
+      if (!runs.length) {
+        container.innerHTML = `<div class="p-6 text-center text-xs text-slate-500 font-mono border border-dashed border-slate-300 dark:border-slate-700 rounded-xl">No batch runs recorded yet.</div>`;
+        return;
+      }
+
+      container.innerHTML = runs.map(r => {
+        const isSelected = r.run_id === selectedRunId;
+        const rid = escapeHtml(r.run_id);
+        return `
+          <div onclick="selectRun('${rid}')"
+            class="p-3 rounded-xl border cursor-pointer transition space-y-1.5 ${isSelected ? "border-blue-500 bg-blue-50/70 dark:bg-blue-950/30 ring-1 ring-blue-500/40" : "border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/30 hover:border-blue-400"}">
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-xs font-bold font-mono text-slate-900 dark:text-slate-100 truncate">${escapeHtml(r.schedule_name || "Batch Run")}</span>
+              ${statusBadgeHtml(r.status)}
+            </div>
+            <div class="text-[10px] font-mono text-slate-500 dark:text-slate-400 truncate">📁 ${escapeHtml(r.folder_path)}</div>
+            <div class="flex items-center justify-between text-[10px] font-mono text-slate-600 dark:text-slate-400">
+              <span>${r.completed_repos || 0}/${r.total_repos || 0} repos • ${r.total_remediated || 0} fixed</span>
+              <span>${formatRelativeTime(r.created_at)}</span>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function selectRun(runId) {
+      selectedRunId = runId;
+      refreshSelectedRunDetail();
+      if (latestOverview?.runs) renderRunsHistory(latestOverview.runs);
+    }
+
+    function renderRunDetail(detail) {
+      const titleEl = document.getElementById("detailRunTitle");
+      const statusEl = document.getElementById("detailRunStatusPill");
+      const metaEl = document.getElementById("detailRunMeta");
+      const cancelBtn = document.getElementById("btnCancelActiveRun");
+      const stepEl = document.getElementById("detailStepText");
+      const pctEl = document.getElementById("detailProgressText");
+      const barEl = document.getElementById("detailProgressBar");
+      const reposSummary = document.getElementById("detailReposSummary");
+      const reposList = document.getElementById("detailReposList");
+      const logsBox = document.getElementById("detailLogsBox");
+
+      if (!detail) {
+        titleEl.textContent = "Select or trigger a batch run";
+        statusEl.innerHTML = `<span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200">IDLE</span>`;
+        metaEl.textContent = "Repositories inside the selected folder are processed sequentially one by one in background.";
+        cancelBtn.classList.add("hidden");
+        stepEl.textContent = "Waiting...";
+        pctEl.textContent = "0%";
+        barEl.style.width = "0%";
+        reposSummary.textContent = "0 Repositories";
+        reposList.innerHTML = `<div class="p-6 text-center text-xs text-slate-500 font-mono border border-dashed border-slate-300 dark:border-slate-700 rounded-xl">Trigger a schedule to watch repositories execute sequentially here.</div>`;
+        logsBox.innerHTML = `<div class="text-slate-500 italic">Waiting for background run logs...</div>`;
+        return;
+      }
+
+      titleEl.textContent = `${detail.schedule_name || "Batch Run"} (${detail.run_id})`;
+      statusEl.innerHTML = statusBadgeHtml(detail.status);
+      metaEl.textContent = `Folder: ${detail.folder_path} • Trigger: ${detail.trigger_source || "scheduled"} • Started: ${detail.started_at ? formatLocalTime(detail.started_at) : "Queued"}`;
+
+      const canCancel = detail.status === "RUNNING" || detail.status === "QUEUED";
+      cancelBtn.classList.toggle("hidden", !canCancel);
+
+      const pct = Number(detail.progress_percent || 0);
+      stepEl.textContent = detail.current_repo_name
+        ? `Processing ${detail.current_repo_name} (${detail.current_step || "RUNNING"})`
+        : `Stage: ${detail.current_step || detail.status}`;
+      pctEl.textContent = `${pct}%`;
+      barEl.style.width = `${pct}%`;
+
+      const repos = detail.repos || [];
+      reposSummary.textContent = `${detail.completed_repos || 0} / ${detail.total_repos || repos.length} Repositories`;
+
+      if (!repos.length) {
+        reposList.innerHTML = `<div class="p-4 text-center text-xs text-slate-500 font-mono border border-dashed border-slate-300 dark:border-slate-700 rounded-xl">${detail.status === "QUEUED" ? "Waiting in background queue..." : "No repositories discovered in folder."}</div>`;
+      } else {
+        reposList.innerHTML = repos.map((repo, idx) => {
+          const scoreBadge = (repo.post_posture_score !== null && repo.post_posture_score !== undefined)
+            ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-200">${repo.post_posture_score}/100 (${escapeHtml(repo.post_posture_grade || "A+")})</span>`
+            : "";
+          const reportBtns = [];
+          if (repo.remediation_report_path) {
+            reportBtns.push(`<a href="/api/scheduler/runs/report?run_id=${encodeURIComponent(detail.run_id)}&repo=${idx}&type=remediation" target="_blank" class="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-mono font-semibold">📄 Audit Report</a>`);
+          }
+          if (repo.scan_report_path) {
+            reportBtns.push(`<a href="/api/scheduler/runs/report?run_id=${encodeURIComponent(detail.run_id)}&repo=${idx}&type=scan" target="_blank" class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-800 dark:text-slate-100 text-[10px] font-mono font-semibold">🔍 Scan</a>`);
+          }
+          if (repo.pr_file_path) {
+            reportBtns.push(`<button type="button" onclick="openBatchPrModal(decodeURIComponent('${encodeURIComponent(detail.run_id)}'), ${idx}, decodeURIComponent('${encodeURIComponent(repo.name || '')}'))" class="px-2 py-0.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-mono font-semibold cursor-pointer">📋 PR #${repo.pr_number || 1}</button>`);
+          }
+
+          return `
+            <div class="p-3 rounded-xl border ${repo.status === "RUNNING" ? "border-blue-400 bg-blue-50/50 dark:bg-blue-950/20" : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900/60"} space-y-1.5">
+              <div class="flex items-center justify-between gap-2 flex-wrap">
+                <div class="flex items-center gap-2 min-w-0">
+                  <span class="text-xs font-mono font-bold text-slate-400">#${idx + 1}</span>
+                  <span class="text-xs font-mono font-bold text-slate-900 dark:text-slate-100 truncate">${escapeHtml(repo.relative_path || repo.name)}</span>
+                  ${repo.feature_branch ? `<span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">${escapeHtml(repo.feature_branch)}</span>` : ""}
+                </div>
+                <div class="flex items-center gap-1.5 flex-shrink-0">
+                  ${scoreBadge}
+                  ${statusBadgeHtml(repo.status)}
+                </div>
+              </div>
+
+              <div class="text-[11px] font-mono text-slate-600 dark:text-slate-400">
+                <strong class="text-slate-700 dark:text-slate-300">[${escapeHtml(repo.current_step || "QUEUED")}]</strong>
+                ${escapeHtml(repo.step_detail || repo.error || "")}
+              </div>
+
+              <div class="flex items-center justify-between gap-2 flex-wrap pt-1 text-[10px] font-mono text-slate-500 dark:text-slate-400">
+                <div class="flex items-center gap-3 flex-wrap">
+                  <span>Findings: <b>${repo.initial_findings_count || 0}</b> → <b>${(repo.post_findings_count !== null && repo.post_findings_count !== undefined) ? repo.post_findings_count : "..."}</b></span>
+                  <span>Modified: <b>${(repo.files_modified || []).length}</b></span>
+                  ${repo.commit_hash ? `<span>Commit: <b>${escapeHtml(repo.commit_hash.slice(0, 7))}</b></span>` : ""}
+                </div>
+                <div class="flex items-center gap-1.5">${reportBtns.join("")}</div>
+              </div>
+            </div>
+          `;
+        }).join("");
+      }
+
+      const logs = detail.logs || [];
+      if (!logs.length) {
+        logsBox.innerHTML = `<div class="text-slate-500 italic">No logs yet.</div>`;
+      } else {
+        logsBox.innerHTML = logs.map(entry => {
+          const t = (entry.timestamp || "").slice(11, 19);
+          let color = "text-slate-300";
+          if (entry.level === "success") color = "text-emerald-400";
+          else if (entry.level === "warn") color = "text-amber-400";
+          else if (entry.level === "error") color = "text-rose-400";
+          return `<div class="${color}">[${escapeHtml(t)}] [${escapeHtml(entry.repo || "Scheduler")}] ${escapeHtml(entry.message)}</div>`;
+        }).join("");
+        logsBox.scrollTop = logsBox.scrollHeight;
+      }
+    }
+
+    async function refreshSelectedRunDetail() {
+      if (!selectedRunId) {
+        renderRunDetail(null);
+        return;
+      }
+      try {
+        const detail = await apiGet(`/api/scheduler/runs/detail?run_id=${encodeURIComponent(selectedRunId)}`);
+        if (!detail.error) renderRunDetail(detail);
+      } catch (e) { }
+    }
+
+    async function refreshSchedulerOverview() {
+      try {
+        const data = await apiGet("/api/scheduler/overview");
+        latestOverview = data;
+
+        const schedules = data.schedules || [];
+        const runs = data.runs || [];
+        const activeRun = data.active_run || null;
+        const isActive = Boolean(activeRun && (activeRun.status === "RUNNING" || activeRun.status === "QUEUED" || activeRun.status === "CANCELLING"));
+
+        document.getElementById("navSchedulerLiveDot").classList.toggle("hidden", !isActive);
+        document.getElementById("activeRunBadge").classList.toggle("hidden", !isActive);
+
+        const daemonBadge = document.getElementById("daemonStatusBadge");
+        daemonBadge.textContent = data.scheduler_running ? "BACKGROUND DAEMON ONLINE" : "BACKGROUND DAEMON READY";
+
+        const workerBadge = document.getElementById("kpiWorkerBadge");
+        const workerStatus = document.getElementById("kpiWorkerStatus");
+        const queueText = document.getElementById("kpiQueueText");
+        queueText.textContent = `Queue: ${data.queued_runs || 0}`;
+
+        if (activeRun && (activeRun.status === "RUNNING" || activeRun.status === "CANCELLING")) {
+          workerBadge.textContent = activeRun.status;
+          workerBadge.className = "px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/70 text-blue-800 dark:text-blue-200 font-bold text-[10px] animate-pulse";
+          workerStatus.textContent = activeRun.current_repo_name
+            ? `${activeRun.current_repo_name} (${activeRun.completed_repos || 0}/${activeRun.total_repos || 0})`
+            : `${activeRun.schedule_name || "Batch Run"}`;
+        } else {
+          workerBadge.textContent = "IDLE";
+          workerBadge.className = "px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-[10px]";
+          workerStatus.textContent = "Standby (Background Active)";
+        }
+
+        // Next upcoming schedule KPI
+        const activeScheds = schedules.filter(s => s.enabled && s.next_run_at);
+        document.getElementById("kpiSchedCountBadge").textContent = `${schedules.filter(s => s.enabled).length} ACTIVE`;
+        if (activeScheds.length > 0) {
+          activeScheds.sort((a, b) => new Date(a.next_run_at) - new Date(b.next_run_at));
+          const nextS = activeScheds[0];
+          document.getElementById("kpiNextRunText").textContent = formatLocalTime(nextS.next_run_at);
+          document.getElementById("kpiNextCountdown").textContent = formatRelativeTime(nextS.next_run_at);
+          document.getElementById("kpiNextScheduleName").textContent = `${nextS.name} (${nextS.folder_path})`;
+        } else {
+          document.getElementById("kpiNextRunText").textContent = "No upcoming schedule";
+          document.getElementById("kpiNextCountdown").textContent = "";
+          document.getElementById("kpiNextScheduleName").textContent = schedules.length ? "All schedules are currently paused" : "Create a folder schedule below";
+        }
+
+        // Totals KPI
+        const totalFixed = runs.reduce((acc, r) => acc + Number(r.total_remediated || 0), 0);
+        const totalRepos = runs.reduce((acc, r) => acc + Number(r.completed_repos || 0), 0);
+        document.getElementById("kpiRunsTotalBadge").textContent = `${runs.length} RUN${runs.length === 1 ? "" : "S"}`;
+        document.getElementById("kpiTotalRemediated").textContent = `${totalFixed} Issues Fixed`;
+        document.getElementById("kpiTotalRepos").textContent = `${totalRepos} Repos Processed`;
+        document.getElementById("kpiLatestRunSummary").textContent = runs.length
+          ? `Latest: ${runs[0].schedule_name} (${runs[0].status})`
+          : "No batch runs executed yet";
+
+        renderSchedules(schedules);
+
+        if (!selectedRunId || !runs.some(r => r.run_id === selectedRunId)) {
+          selectedRunId = activeRun?.run_id || (runs[0]?.run_id || null);
+        }
+        renderRunsHistory(runs);
+
+        if (activeRun && activeRun.run_id === selectedRunId) {
+          renderRunDetail(activeRun);
+        } else {
+          await refreshSelectedRunDetail();
+        }
+      } catch (err) {
+        console.debug("Overview poll failed:", err);
+      }
+    }
+
+    // =========================================================
+    // Interactive Folder Browser & Modals
+    // =========================================================
+    let currentModalPath = "";
+    let modalParentPath = null;
+
+    function openFolderPickerModal() {
+      document.getElementById("folderPickerModal").style.display = "flex";
+      loadFolderList(document.getElementById("schedFolderPath").value.trim() || "");
+    }
+
+    function closeFolderPickerModal() {
+      document.getElementById("folderPickerModal").style.display = "none";
+    }
+
+    async function loadFolderList(targetPath = "") {
+      const container = document.getElementById("modalFolderListContainer");
+      container.innerHTML = `<div class="text-xs text-slate-500 text-center py-8 font-mono">Loading folders...</div>`;
+      try {
+        const res = await apiPost("/api/fs/list", { path: targetPath });
+        currentModalPath = res.current_path || targetPath;
+        modalParentPath = res.parent_path || null;
+        document.getElementById("modalCurrentPathDisplay").textContent = currentModalPath;
+
+        const upBtn = document.getElementById("btnFolderUp");
+        upBtn.disabled = !modalParentPath;
+        upBtn.classList.toggle("opacity-50", !modalParentPath);
+
+        const qa = document.getElementById("modalQuickAccess");
+        if (qa && res.quick_access) {
+          qa.innerHTML = res.quick_access.map(item => {
+            const enc = encodeURIComponent(item.path);
+            return `<button type="button" onclick="loadFolderList(decodeURIComponent('${enc}'))" class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 text-slate-700 dark:text-slate-300 text-[10px] font-mono cursor-pointer">${escapeHtml(item.label)}</button>`;
+          }).join("");
+        }
+
+        if (!res.folders || !res.folders.length) {
+          container.innerHTML = `<div class="text-xs text-slate-500 text-center py-8 font-mono">No subdirectories in this folder.</div>`;
+          return;
+        }
+
+        container.innerHTML = res.folders.map(f => {
+          const enc = encodeURIComponent(f.path);
+          return `
+            <div class="p-2.5 rounded-lg border ${f.has_git ? "border-emerald-300 bg-emerald-50/70 dark:bg-emerald-950/30 dark:border-emerald-700" : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"} flex items-center justify-between gap-3">
+              <div class="flex items-center gap-2.5 min-w-0 cursor-pointer flex-1" onclick="loadFolderList(decodeURIComponent('${enc}'))">
+                <span class="text-lg">${f.has_git ? "📦" : "📁"}</span>
+                <div class="truncate">
+                  <div class="text-xs font-mono font-semibold text-slate-800 dark:text-slate-200 truncate">${escapeHtml(f.name)}</div>
+                  <div class="text-[10px] text-slate-500 truncate font-mono">${escapeHtml(f.path)}</div>
+                </div>
+              </div>
+              <div class="flex items-center gap-1.5 flex-shrink-0">
+                <button type="button" onclick="chooseFolder(decodeURIComponent('${enc}'))" class="px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs font-mono cursor-pointer">Select</button>
+                <button type="button" onclick="loadFolderList(decodeURIComponent('${enc}'))" class="px-2 py-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-500 text-xs cursor-pointer">➔</button>
+              </div>
+            </div>
+          `;
+        }).join("");
+      } catch (err) {
+        container.innerHTML = `<div class="text-xs text-rose-600 text-center py-6 font-mono">Failed to load folders: ${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    function navigateParentFolder() { if (modalParentPath) loadFolderList(modalParentPath); }
+    function refreshFolderList() { loadFolderList(currentModalPath); }
+    function chooseFolder(path) {
+      document.getElementById("schedFolderPath").value = path;
+      closeFolderPickerModal();
+      discoverReposNow();
+    }
+    function confirmCurrentFolder() { if (currentModalPath) chooseFolder(currentModalPath); }
+
+    async function openBatchPrModal(runId, repoIdx, repoName) {
+      try {
+        const res = await apiGet(`/api/scheduler/runs/pr?run_id=${encodeURIComponent(runId)}&repo=${repoIdx}`);
+        if (res.error) {
+          alert(res.error);
+          return;
+        }
+        document.getElementById("modalPrTitle").textContent = `${repoName} • ${res.filename || "Local PR"}`;
+        document.getElementById("modalPrFilePath").textContent = res.file_path || "";
+        document.getElementById("modalPrContent").textContent = res.content || "";
+        document.getElementById("localPrModal").style.display = "flex";
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    function closeLocalPrModal() {
+      document.getElementById("localPrModal").style.display = "none";
+    }
+
+    window.addEventListener("keydown", e => {
+      if (e.key === "Escape") {
+        closeFolderPickerModal();
+        closeLocalPrModal();
+      }
+    });
+
+    // Init
+    setScheduleType("interval");
+    refreshSchedulerOverview();
+    setInterval(refreshSchedulerOverview, 1000);
+  </script>
+</body>
+
+</html>

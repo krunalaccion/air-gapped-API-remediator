@@ -13,7 +13,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Callable, Dict, Any, List, Optional
 
 from agents.base import BaseAgent
 from .external_scanners import get_scanner_tools_status
@@ -126,6 +126,7 @@ class ScannerAgent(BaseAgent):
         self,
         workspace_path: Optional[Path] = None,
         scanner_engine: str = "all",
+        cancel_check: Optional[Callable[[], bool]] = None,
     ) -> Dict[str, Any]:
         """
         Runs the SecureScanPipeline (including Semgrep and Trivy if requested/available)
@@ -158,8 +159,14 @@ class ScannerAgent(BaseAgent):
             }
 
         try:
-            bundle = self.securescan_pipeline.run_scan(target_project_dir=target_dir, scanner_engine=scanner_engine)
+            bundle = self.securescan_pipeline.run_scan(
+                target_project_dir=target_dir,
+                scanner_engine=scanner_engine,
+                cancel_check=cancel_check,
+            )
             self.last_bundle = bundle
+        except InterruptedError:
+            raise
         except Exception as exc:
             logger.warning("SecureScanPipeline error on %s: %s", target_dir, exc)
             return {
@@ -435,9 +442,14 @@ class ScannerAgent(BaseAgent):
         ws_path_str = context.get("workspace_path") or context.get("repo_path")
         ws_path = Path(ws_path_str) if ws_path_str else None
         scanner_engine = (context.get("scanner_engine") or context.get("engine") or "all").lower().strip()
+        cancel_check = context.get("cancel_check")
         self.last_engine = scanner_engine
 
-        securescan_data = self.run_securescan_ai(ws_path, scanner_engine=scanner_engine)
+        securescan_data = self.run_securescan_ai(
+            ws_path,
+            scanner_engine=scanner_engine,
+            cancel_check=cancel_check,
+        )
         securescan_findings = securescan_data.get("securescan_findings", [])
 
         effective_scan_dir = ws_path

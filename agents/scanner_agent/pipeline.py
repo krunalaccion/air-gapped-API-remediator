@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 import html
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from .inspectors import (
     AspNetContextInspector,
@@ -68,6 +68,7 @@ class SecureScanPipeline:
         target_project_dir: Path,
         report_prefix: str = "securescan_portal_audit",
         scanner_engine: str = "all",
+        cancel_check: Optional[Callable[[], bool]] = None,
     ) -> ScanReportBundle:
         target_path = Path(target_project_dir).resolve()
         if not target_path.exists():
@@ -92,6 +93,8 @@ class SecureScanPipeline:
                 context_inspector = AspNetContextInspector()
 
                 for src_file in profile.source_files:
+                    if cancel_check and cancel_check():
+                        raise InterruptedError("Scan cancelled")
                     findings.extend(lexical_analyzer.analyze_file(src_file, project_root=target_path))
                 findings.extend(context_inspector.inspect_project(profile))
 
@@ -117,6 +120,8 @@ class SecureScanPipeline:
             if profile.js_files:
                 js_analyzer = JavaScriptLexicalAnalyzer()
                 for js_file in profile.js_files:
+                    if cancel_check and cancel_check():
+                        raise InterruptedError("Scan cancelled")
                     findings.extend(js_analyzer.analyze_file(js_file, project_root=target_path))
 
                 scanner_statuses.append(
@@ -142,14 +147,18 @@ class SecureScanPipeline:
         # 3. Run Semgrep Scanner (if engine is "all" or "semgrep")
         run_semgrep = scanner_engine_norm in ("all", "semgrep", "auto")
         if run_semgrep:
-            sem_findings, sem_status = self.semgrep_scanner.scan(target_path)
+            if cancel_check and cancel_check():
+                raise InterruptedError("Scan cancelled")
+            sem_findings, sem_status = self.semgrep_scanner.scan(target_path, cancel_check=cancel_check)
             findings = self._merge_findings(findings, sem_findings)
             scanner_statuses.append(sem_status)
 
         # 4. Run Trivy Scanner (if engine is "all" or "trivy")
         run_trivy = scanner_engine_norm in ("all", "trivy", "auto")
         if run_trivy:
-            trivy_findings, trivy_status = self.trivy_scanner.scan(target_path)
+            if cancel_check and cancel_check():
+                raise InterruptedError("Scan cancelled")
+            trivy_findings, trivy_status = self.trivy_scanner.scan(target_path, cancel_check=cancel_check)
             findings = self._merge_findings(findings, trivy_findings)
             scanner_statuses.append(trivy_status)
 

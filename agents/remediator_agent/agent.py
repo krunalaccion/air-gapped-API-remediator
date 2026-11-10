@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Callable, Dict, Any, List, Optional, Set
 
 from agents.base import BaseAgent
 from .fixer_agent import BugFixerAgent
@@ -339,6 +339,7 @@ class RemediatorAgent(BaseAgent):
         provider: Optional[str] = None,
         model: Optional[str] = None,
         base_url: Optional[str] = None,
+        cancel_check: Optional[Callable[[], bool]] = None,
     ) -> Dict[str, Any]:
         """
         Executes BugFixerAgent (from fixer_agent.py) against a single finding dict.
@@ -405,6 +406,7 @@ class RemediatorAgent(BaseAgent):
             provider=effective_provider,
             model=effective_model,
             base_url=effective_base_url,
+            cancel_check=cancel_check,
         )
         fixer = BugFixerAgent(
             repos_root=effective_repos_root,
@@ -634,6 +636,8 @@ class RemediatorAgent(BaseAgent):
         provider: Optional[str] = None,
         model: Optional[str] = None,
         base_url: Optional[str] = None,
+        progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+        cancel_check: Optional[Callable[[], bool]] = None,
     ) -> Dict[str, Any]:
         """
         Applies both:
@@ -773,6 +777,9 @@ class RemediatorAgent(BaseAgent):
         total_progress_items = max(len(progress_items), 1)
 
         for idx, finding_dict in enumerate(valid_findings):
+            if cancel_check and cancel_check():
+                raise InterruptedError("Cancelled during remediation")
+
             fid = finding_dict.get("finding_id")
             f_rel = finding_dict.get("file_path", "")
             fname = Path(f_rel).name if f_rel else "source"
@@ -787,6 +794,13 @@ class RemediatorAgent(BaseAgent):
             self.current_progress["phase"] = f"Patching {fname}"
             self.current_progress["message"] = f"Remediating {fid} in {fname}..."
             self.current_progress["percent"] = int(5 + (idx / total_progress_items) * 70)
+            if progress_callback:
+                progress_callback({
+                    "files_modified": sorted(list(self.accumulated_modified_files.union(set(files_modified)))),
+                    "remediated_count": len(self.accumulated_threats),
+                    "current_file": f_rel or fname,
+                    "message": f"Patching {fid} in {f_rel or fname} ({idx + 1}/{len(valid_findings)})...",
+                })
 
             try:
                 bf_res = self.fix_finding(
@@ -796,6 +810,7 @@ class RemediatorAgent(BaseAgent):
                     provider=effective_provider,
                     model=effective_model,
                     base_url=effective_base_url,
+                    cancel_check=cancel_check,
                 )
                 bug_fixes.append(bf_res)
                 if bf_res.get("diff"):
@@ -818,6 +833,15 @@ class RemediatorAgent(BaseAgent):
                 self.current_progress["completed_targets"] += 1
                 self.current_progress["percent"] = int(5 + ((idx + 1) / total_progress_items) * 70)
                 self.current_progress["message"] = f"Remediated {fid} in {fname}"
+                if progress_callback:
+                    progress_callback({
+                        "files_modified": sorted(list(self.accumulated_modified_files.union(set(files_modified)))),
+                        "remediated_count": len(self.accumulated_threats),
+                        "current_file": f_rel or fname,
+                        "message": f"Remediated {fid} in {f_rel or fname} ({idx + 1}/{len(valid_findings)})",
+                    })
+            except InterruptedError:
+                raise
             except Exception as exc:
                 logger.warning("BugFixerAgent could not remediate finding %s: %s", finding_dict.get("finding_id"), exc)
                 for itm in self.current_progress["items"]:
@@ -918,6 +942,8 @@ This automated remediation replaces external outbound network API calls with com
         }
 
         if workspace_path and workspace_path.exists():
+            if cancel_check and cancel_check():
+                raise InterruptedError("Cancelled during remediation")
             # Harden Program.cs and appsettings.json if present in the workspace
             prog_file = workspace_path / "Program.cs"
             if prog_file.exists():
@@ -1062,6 +1088,8 @@ This automated remediation replaces external outbound network API calls with com
             provider=context.get("provider"),
             model=context.get("model"),
             base_url=context.get("base_url"),
+            progress_callback=context.get("progress_callback"),
+            cancel_check=context.get("cancel_check"),
         )
         result = {
             "agent": self.name,
