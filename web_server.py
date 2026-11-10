@@ -843,11 +843,29 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                             old_r.unlink()
                         except Exception:
                             pass
-                if path == "/api/reset-all":
-                    ACTIVE_GIT_AGENT = None
-                elif ACTIVE_GIT_AGENT:
-                    result["status_summary"] = ACTIVE_GIT_AGENT.get_status()
-                    result["git_diff"] = ACTIVE_GIT_AGENT.get_diff()
+                if ACTIVE_GIT_AGENT:
+                    try:
+                        ACTIVE_GIT_AGENT.cleanup()
+                    except Exception:
+                        pass
+                ACTIVE_GIT_AGENT = None
+                AgentRegistry.register(
+                    "git",
+                    GitSubAgent(GitAgentConfig(repo_url="", provider=ProviderType.GENERIC)),
+                )
+                result = {
+                    "status": "success",
+                    "message": "Reset all pipeline steps, workspace references, and findings cache",
+                    "workspace_path": "",
+                    "repo_name": "",
+                    "status_summary": {
+                        "branch": "none",
+                        "clean": True,
+                        "modified_files": [],
+                        "untracked_files": [],
+                    },
+                    "git_diff": "",
+                }
                 result["telemetry"] = _build_telemetry_payload()
                 self._send_json(result)
                 return

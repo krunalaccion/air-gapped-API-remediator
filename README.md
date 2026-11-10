@@ -11,14 +11,14 @@ A production-ready, autonomous multi-agent security remediation system designed 
 ## 🌟 Key Capabilities & Features
 
 - **Hybrid SAST & Air-Gap Egress Scanning (`ScannerAgent`)**:
-  - Recursively audits source code (`.cs`, `.py`, `.js`, `.ts`, `.json`, `.yaml`, `.yml`, `.env`, `.config`, etc.) for unauthorized outbound HTTP/HTTPS calls, cloud SDK endpoints, and external telemetry (`AIRGAP-001`, `AIRGAP-002`, `AIRGAP-003`).
-  - Deep heuristic SAST detection for SQL Injection (`SQLI-001`, `SQLI-002`), Insecure Deserialization (`DESERIAL-004`), Deprecated / Insecure Cryptography (`CRYPTO-007` MD5, `CRYPTO-008` SHA1, `CRYPTO-009` DES), command injections, and exposed secrets.
-  - Built-in integration with external industry scanners: **Semgrep** and **Trivy** CLI detection with automatic fallbacks (`/api/scanner/tools`).
+  - Recursively audits source code (`.cs`, `.py`, `.js`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.json`, `.yaml`, `.yml`, `.env`, `.config`, etc.) for unauthorized outbound HTTP/HTTPS calls, cloud SDK endpoints, and external telemetry (`AIRGAP-001`, `AIRGAP-002`, `AIRGAP-003`), automatically excluding dependency lockfiles (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, etc.) and registry domains.
+  - Multi-language heuristic SAST engines across **C#/.NET** and **Node.js / Express (`JavaScriptLexicalAnalyzer`)**: SQL Injection (`CWE-89`), OS Command Injection (`CWE-78`), Dynamic Code Evaluation (`CWE-95`), IDOR (`CWE-639`), Path Traversal (`CWE-22`), Auth Bypass (`CWE-287`), Hardcoded Secrets (`CWE-798`), Plaintext Passwords (`CWE-256`), Sensitive PII Exposure (`CWE-359`), Stack Trace Leakage (`CWE-209`), Permissive CORS (`CWE-942`), Prototype Pollution (`CWE-1321`), SSRF (`CWE-918`), Open Redirect (`CWE-601`), Insecure Deserialization (`DESERIAL-004`), and Deprecated Cryptography (`CRYPTO-007/008/009`).
+  - Built-in integration with external industry scanners: offline **Semgrep** (`airgap_rules.yaml`, `nodejs_rules.yaml`) and **Trivy** CLI detection with automatic fallbacks (`/api/scanner/tools`).
   - Interactive **Security Scanner HTML/JSON Audit Report** generation (`/api/scanner/report?format=html`) with verified threat counts and compliance verdicts.
 
 - **Autonomous Code Patching & Remediation Studio (`RemediatorAgent` & `BugFixerAgent`)**:
-  - Dual-mode remediation: 100% offline deterministic rule-based fixer (`AIR-GAP OFFLINE`) or local AI engines (**Local Ollama**, **Local OpenAI-compatible LLMs** such as LM Studio or vLLM).
-  - Remediates all detected security flaws and egress calls in C#, Python, and JS/TS codebases.
+  - Dual-mode remediation: 100% offline deterministic rule-based fixers (`.NET/C#`, **Node.js/Express** via `js_fixer.py`, Python, Config/JSON — `AIR-GAP OFFLINE`) or local AI engines (**Local Ollama**, **Local OpenAI-compatible LLMs** such as LM Studio or vLLM).
+  - Remediates all detected security flaws and egress calls in C#, Python, and JS/TS codebases with zero residual threats verified on post-scan.
   - Injects compliant internal proxy routing (`config/airgap_proxy.json`) redirecting egress to `proxy.airgap.internal:8080` with offline mock fallbacks.
   - Interactive Web Studio with Queued Targets, Side-by-Side (Split) Diff, Unified Diff, and live code editing.
   - Automatic post-remediation verification scans updating posture scores (e.g. 100/100 A+).
@@ -341,9 +341,9 @@ python3 -m unittest discover tests
 Output:
 ```
 ----------------------------------------------------------------------
-Ran 69 tests in 8.887s
+Ran 73 tests in 13.454s
 
 OK
 ```
 
-All **69 unit and integration tests** pass cleanly with 100% pass rate.
+All **73 unit and integration tests** pass cleanly with 100% pass rate.

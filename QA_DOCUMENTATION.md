@@ -14,7 +14,7 @@
 | **Version** | `2.0.0` |
 | **Target Release** | Production Release v2.0 / Air-Gap Enclave Certified |
 | **Document Classification** | Engineering & Quality Assurance |
-| **Automated Test Coverage** | 69 Automated Unit & Integration Tests across 10 Test Modules |
+| **Automated Test Coverage** | 73 Automated Unit & Integration Tests across 9 Test Modules |
 | **Sign-Off Status** | **PASSED & CERTIFIED** (100% Pass Rate) |
 
 ---
@@ -28,11 +28,11 @@ This document provides the exhaustive Quality Assurance (QA) verification protoc
 The test scope validates the 7 core sub-systems:
 1. **Agent Fleet & Registry**: [`BaseAgent`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/base.py#L15) contract, dynamic registration, status tracking, and discovery via [`AgentRegistry`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/base.py#L53).
 2. **ScannerAgent & External Scanners**:
-   - Static analysis detecting external egress (`AIRGAP-001`, `AIRGAP-002`, `AIRGAP-003`), SQL injection (`SQLI-001`, `SQLI-002`), Insecure Deserialization (`DESERIAL-004`), Deprecated Cryptography (`CRYPTO-007` MD5, `CRYPTO-008` SHA1, `CRYPTO-009` DES), command injections, and secrets.
-   - External scanner adapters for **Semgrep** and **Trivy** CLI detection and automatic fallbacks ([`agents/scanner_agent/external_scanners.py`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/scanner_agent/external_scanners.py)).
+   - Multi-language static analysis across C#/.NET and Node.js/Express ([`JavaScriptLexicalAnalyzer`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/scanner_agent/js_inspector.py)), detecting external egress (`AIRGAP-001`, `AIRGAP-002`, `AIRGAP-003`), SQL injection (`SQLI-001`, `SQLI-002`, `CWE-89`), OS command injection (`CWE-78`), dynamic `eval()` (`CWE-95`), IDOR (`CWE-639`), path traversal (`CWE-22`), auth bypass (`CWE-287`), hardcoded secrets (`CWE-798`), plaintext passwords (`CWE-256`), PII exposure (`CWE-359`), stack trace leakage (`CWE-209`), permissive CORS (`CWE-942`), prototype pollution (`CWE-1321`), SSRF (`CWE-918`), open redirect (`CWE-601`), Insecure Deserialization (`DESERIAL-004`), and Deprecated Cryptography (`CRYPTO-007/008/009`), while excluding dependency lockfiles (`package-lock.json`, `yarn.lock`, etc.).
+   - External scanner adapters for offline **Semgrep** (`airgap_rules.yaml`, `nodejs_rules.yaml`) and **Trivy** CLI detection with automatic fallbacks ([`agents/scanner_agent/external_scanners.py`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/scanner_agent/external_scanners.py)).
    - Interactive HTML and JSON security audit report generation ([`agents/scanner_agent/pipeline.py`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/scanner_agent/pipeline.py)).
 3. **RemediatorAgent & BugFixerAgent**:
-   - Dual-mode code remediation: 100% offline deterministic rule-based fixer (`AIR-GAP OFFLINE`) and local AI engines (**Local Ollama**, **Local OpenAI-compatible LLMs** such as LM Studio or vLLM).
+   - Dual-mode code remediation: 100% offline deterministic rule-based fixers (including Node.js/Express via [`js_fixer.py`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/remediator_agent/js_fixer.py), C#/.NET, Python — `AIR-GAP OFFLINE`) and local AI engines (**Local Ollama**, **Local OpenAI-compatible LLMs** such as LM Studio or vLLM).
    - Gateway proxy interceptor generation ([`config/airgap_proxy.json`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/remediator_agent/agent.py#L58)) and audit documentation ([`AIRGAP_SECURITY_AUDIT.md`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/remediator_agent/agent.py#L37)).
    - Automated post-remediation verification scans and posture score calculations.
    - Executive **Remediation & Compliance Dossier** generation ([`REMEDIATION_AUDIT_REPORT.html`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/remediator_agent/reporter.py)) with strict UI gating.
@@ -83,7 +83,7 @@ python3 -m unittest discover tests
 Expected Output:
 ```
 ----------------------------------------------------------------------
-Ran 69 tests in 8.887s
+Ran 73 tests in 13.454s
 
 OK
 ```
@@ -206,7 +206,7 @@ git branch -M main
 | **TC-021** | Web UI Dashboard | Browser Dashboard Layout, Dark/Light Mode & Badges | High | UI / UX |
 | **TC-022** | MCP Protocol | Model Context Protocol JSON-RPC 2.0 stdio Interface | High | Integration |
 | **TC-023** | Security | Token Scrubbing & Credential Masking in Terminal Logs | Critical | Security |
-| **TC-024** | Regression | Full Automated Regression Test Suite (69 Tests) | Critical | Automated Unit Test |
+| **TC-024** | Regression | Full Automated Regression Test Suite (73 Tests) | Critical | Automated Unit Test |
 | **TC-025** | External Scanners | External Scanner CLI Detection & Availability (`/api/scanner/tools`) | Medium | Functional |
 | **TC-026** | Audit Reports | Security Scanner HTML/JSON Audit Report Generation | High | Functional |
 | **TC-027** | Remediator | Post-Scan Verification & Posture Score Calculation | High | Functional |
@@ -217,6 +217,7 @@ git branch -M main
 | **TC-032** | Path Validation | Non-Git Directory Path Validation (`allow_non_git: true`) | High | Functional |
 | **TC-033** | Auto-Init | Auto-Initialization of Plain Local Directory (`auto_init: true`) | Critical | Functional |
 | **TC-034** | Pipeline | 5-Stage Remediation on Unlinked Local Project (No Remote) | Critical | Integration |
+| **TC-035** | Workspace Reset | Reset Removes Folder Name & References (`/api/reset-all`) | Critical | Functional / Security |
 
 ---
 
@@ -579,25 +580,25 @@ git branch -M main
 
 ---
 
-### TC-024: Full Automated Regression Test Suite (56 Tests)
-- **Objective**: Execute all 56 automated unit tests across the codebase.
+### TC-024: Full Automated Regression Test Suite (73 Tests)
+- **Objective**: Execute all 73 automated unit and integration tests across the codebase.
 - **Test Steps**:
   ```bash
   python3 -m unittest discover tests
   ```
 - **Expected Outcome**:
-  - Test runner executes 56 tests across 9 test modules:
-    - `test_agent.py` (4 tests)
-    - `test_config.py` (7 tests)
-    - `test_external_scanners.py` (3 tests)
+  - Test runner executes 73 tests across 9 test modules:
+    - `test_agent.py` (3 tests)
+    - `test_config.py` (11 tests)
+    - `test_external_scanners.py` (4 tests)
     - `test_mcp_server.py` (5 tests)
-    - `test_multi_agent.py` (7 tests)
-    - `test_providers.py` (4 tests)
-    - `test_remediation_report.py` (3 tests)
-    - `test_web_server.py` (22 tests)
+    - `test_multi_agent.py` (6 tests)
+    - `test_providers.py` (11 tests)
+    - `test_remediation_report.py` (2 tests)
+    - `test_web_server.py` (30 tests)
     - `test_workspace.py` (1 test)
   - Final status: `OK`. Exit code: `0`.
-- **Pass / Fail Criteria**: Pass if 56/56 tests pass with 0 failures and 0 errors.
+- **Pass / Fail Criteria**: Pass if 73/73 tests pass with 0 failures and 0 errors.
 
 ---
 
@@ -756,12 +757,30 @@ git branch -M main
 
 ---
 
+### TC-035: Workspace Reset - Remove Folder Name & References (`/api/reset-all`)
+- **Objective**: Verify that triggering reset (via Web UI `↻ Reset` button, `↺ Reset Repo` in Step 3, or `POST /api/reset-all`) resets all pipeline steps, wipes the repository input field, and completely removes all folder names, path labels, branch indicators, and workspace references from both UI and telemetry.
+- **Pre-Conditions**: A local or remote repository prepared via Step 01.
+- **Test Steps**:
+  1. Prepare a project workspace via `POST /api/prepare`.
+  2. Verify that telemetry contains the active workspace path and repository name.
+  3. Send `POST http://localhost:8080/api/reset-all`.
+  4. Inspect the API response and telemetry snapshot.
+- **Expected Outcome**:
+  - HTTP Status: `200 OK`
+  - Response contains `workspace_path: ""`, `repo_name: ""`, `status_summary.branch: "none"`.
+  - Returned telemetry has `git.prepared: false`, `git.repo_name: ""`, `git.context: null`, `active_workspace_path: ""`, `workspace_files: []`.
+  - In the Web UI: `#repoUrl` input is cleared, `#targetModeBadge` displays "Ready", `#currentBranchDisplay` displays "none", `#kpiPerimeterStatus` displays "NOT INITIALIZED", and `#activeWorkspaceHeaderText` displays "(Pending Step 01)".
+- **Pass / Fail Criteria**: Pass if all folder names and references are completely eliminated and pipeline returns cleanly to Step 01.
+
+---
+
 ## 5. QA Verification Checklist & Sign-Off Sheet
 
 | Checklist Item | Target Standard | Status | Verified By |
 | :--- | :--- | :--- | :--- |
 | **Zero Runtime Pip Dependencies** | Standard Library only | `[x] PASS` | Automated Suite |
-| **All 69 Unit & Integration Tests Passing** | 100% Pass Rate (69/69) | `[x] PASS` | Automated Suite |
+| **All 73 Unit & Integration Tests Passing** | 100% Pass Rate (73/73) | `[x] PASS` | Automated Suite |
+| **Reset Removes Folder Name & References** | Clears UI, state & telemetry references | `[x] PASS` | Web Server & UI |
 | **Unlinked Local Project Remediation** | Supports repos with no remote origin | `[x] PASS` | LocalProvider & Pipeline |
 | **Auto-Init Plain Codebase Folders** | Auto-inits git with baseline commit | `[x] PASS` | LocalProvider & API |
 | **Egress URL Detection Accuracy** | Detects HTTP/HTTPS egress | `[x] PASS` | ScannerAgent |

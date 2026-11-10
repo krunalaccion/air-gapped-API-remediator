@@ -16,6 +16,7 @@ import re
 from typing import Dict, List, Optional, Set, Tuple
 import xml.etree.ElementTree as ET
 
+from .js_inspector import JavaScriptLexicalAnalyzer
 from .models import (
     DependencyManifestAudit,
     DependencyRecord,
@@ -35,6 +36,13 @@ EXCLUDED_DIRECTORIES: Set[str] = {
     "__pycache__",
     "reports",
     "findings",
+    "dist",
+    "build",
+    "coverage",
+    ".next",
+    ".nuxt",
+    "venv",
+    ".venv",
 }
 
 SECURITY_KEYWORDS = ("token", "password", "pwd", "secret", "key", "salt", "auth", "nonce", "otp", "credential")
@@ -49,12 +57,14 @@ class ProjectProfile:
     target_frameworks: List[str] = field(default_factory=list)
     project_topology: str = "ASP.NET Core Web API"
     source_files: List[Path] = field(default_factory=list)
+    js_files: List[Path] = field(default_factory=list)
+    node_manifests: List[Path] = field(default_factory=list)
     config_files: List[Path] = field(default_factory=list)
     dependency_manifests: List[Path] = field(default_factory=list)
 
 
 class ProjectInspector:
-    """Inspects project structure, .csproj target frameworks, and NuGet dependencies."""
+    """Inspects project structure, frameworks (.NET, Node.js), and dependencies."""
 
     def __init__(self, project_path: Path):
         self.project_root = Path(project_path).resolve()
@@ -69,8 +79,13 @@ class ProjectInspector:
                 lower_name = file_name.lower()
                 if lower_name.endswith(".cs"):
                     profile.source_files.append(file_path)
+                elif lower_name.endswith((".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx")) and not lower_name.endswith((".min.js", ".d.ts")):
+                    profile.js_files.append(file_path)
                 elif (lower_name.startswith("appsettings") and lower_name.endswith(".json")) or lower_name == "web.config":
                     profile.config_files.append(file_path)
+                elif lower_name == "package.json":
+                    profile.node_manifests.append(file_path)
+                    profile.dependency_manifests.append(file_path)
                 elif lower_name.endswith((".csproj", "packages.lock.json", "packages.config")):
                     profile.dependency_manifests.append(file_path)
                     if lower_name.endswith(".csproj"):
@@ -89,14 +104,44 @@ class ProjectInspector:
             except Exception:
                 continue
 
-        profile.target_frameworks = sorted(tfms) if tfms else ["net8.0"]
-        profile.project_topology = "Web API" if profile.source_files else "Multi-Language Repository"
+        has_express = False
+        for pkg_json in profile.node_manifests:
+            try:
+                pkg_data = json.loads(pkg_json.read_text(encoding="utf-8", errors="ignore"))
+                deps = {**(pkg_data.get("dependencies") or {}), **(pkg_data.get("devDependencies") or {})}
+                if "express" in deps:
+                    has_express = True
+                    tfms.add(f"Node.js (Express {deps['express']})")
+                else:
+                    tfms.add("Node.js")
+            except Exception:
+                tfms.add("Node.js")
+
+        if tfms:
+            profile.target_frameworks = sorted(tfms)
+        elif profile.source_files or profile.project_files:
+            profile.target_frameworks = ["net8.0"]
+        elif profile.js_files:
+            profile.target_frameworks = ["Node.js / JavaScript"]
+        else:
+            profile.target_frameworks = ["Multi-Language"]
+
+        if profile.source_files and profile.js_files:
+            profile.project_topology = "Polyglot (.NET + Node.js) API"
+        elif profile.js_files or profile.node_manifests:
+            profile.project_topology = "Node.js / Express REST API" if has_express else "Node.js / JavaScript Application"
+        elif profile.source_files:
+            profile.project_topology = "Web API"
+        else:
+            profile.project_topology = "Multi-Language Repository"
         return profile
 
     def extract_dependencies(self) -> DependencyManifestAudit:
         records: List[DependencyRecord] = []
         rel_manifests: List[str] = []
-        for csproj_path in self.inspect().project_files:
+        profile = self.inspect()
+
+        for csproj_path in profile.project_files:
             rel_path = str(csproj_path.relative_to(self.project_root)).replace("\\", "/")
             rel_manifests.append(rel_path)
             try:
@@ -117,10 +162,30 @@ class ProjectInspector:
             except Exception:
                 continue
 
+        for pkg_path in profile.node_manifests:
+            rel_path = str(pkg_path.relative_to(self.project_root)).replace("\\", "/")
+            rel_manifests.append(rel_path)
+            try:
+                pkg_data = json.loads(pkg_path.read_text(encoding="utf-8", errors="ignore"))
+                for dep_section in ("dependencies", "devDependencies"):
+                    deps = pkg_data.get(dep_section) or {}
+                    if isinstance(deps, dict):
+                        for pkg_name, pkg_ver in deps.items():
+                            records.append(
+                                DependencyRecord(
+                                    package_name=str(pkg_name).strip(),
+                                    version=str(pkg_ver).strip() if pkg_ver else None,
+                                    manifest_path=rel_path,
+                                    manifest_type="npm",
+                                )
+                            )
+            except Exception:
+                continue
+
         summary = (
             f"Audited {len(rel_manifests)} manifest(s) ({len(records)} dependency entries)."
             if rel_manifests
-            else "No .csproj manifests found."
+            else "No dependency manifests found."
         )
         return DependencyManifestAudit(
             found_manifests=rel_manifests,

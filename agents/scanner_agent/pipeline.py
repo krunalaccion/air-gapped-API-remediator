@@ -14,7 +14,12 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .inspectors import AspNetContextInspector, CSharpLexicalAnalyzer, ProjectInspector
+from .inspectors import (
+    AspNetContextInspector,
+    CSharpLexicalAnalyzer,
+    JavaScriptLexicalAnalyzer,
+    ProjectInspector,
+)
 from .external_scanners import SemgrepScanner, TrivyScanner
 from .models import (
     RawSecurityFinding,
@@ -36,6 +41,27 @@ class SecureScanPipeline:
         self.findings_dir.mkdir(parents=True, exist_ok=True)
         self.semgrep_scanner = SemgrepScanner()
         self.trivy_scanner = TrivyScanner()
+
+    @staticmethod
+    def _merge_findings(
+        existing: List[RawSecurityFinding], incoming: List[RawSecurityFinding]
+    ) -> List[RawSecurityFinding]:
+        """Merges findings from multiple engines without creating overlapping duplicate CWE reports."""
+        merged = list(existing)
+        for inc in incoming:
+            inc_file = (inc.file_path or "").replace("\\", "/").lstrip("./")
+            inc_cwe = (inc.cwe_id or "").strip().upper()
+            is_dup = False
+            for cur in merged:
+                cur_file = (cur.file_path or "").replace("\\", "/").lstrip("./")
+                cur_cwe = (cur.cwe_id or "").strip().upper()
+                if cur_file == inc_file and cur_cwe and inc_cwe and cur_cwe == inc_cwe:
+                    if inc.line_start <= (cur.line_end + 2) and inc.line_end >= (cur.line_start - 2):
+                        is_dup = True
+                        break
+            if not is_dup:
+                merged.append(inc)
+        return merged
 
     def run_scan(
         self,
@@ -61,34 +87,51 @@ class SecureScanPipeline:
         # 2. Run Built-in SecureScanAI Inspectors (if engine is "all" or "securescan")
         run_securescan = scanner_engine_norm in ("all", "securescan", "builtin", "auto")
         if run_securescan:
-            lexical_analyzer = CSharpLexicalAnalyzer()
-            context_inspector = AspNetContextInspector()
+            if profile.source_files or profile.config_files or profile.project_files or not profile.js_files:
+                lexical_analyzer = CSharpLexicalAnalyzer()
+                context_inspector = AspNetContextInspector()
 
-            for src_file in profile.source_files:
-                findings.extend(lexical_analyzer.analyze_file(src_file, project_root=target_path))
-            findings.extend(context_inspector.inspect_project(profile))
+                for src_file in profile.source_files:
+                    findings.extend(lexical_analyzer.analyze_file(src_file, project_root=target_path))
+                findings.extend(context_inspector.inspect_project(profile))
+
+                scanner_statuses.append(
+                    ScannerExecutionStatus(
+                        scanner_name="C# Lexical & SAST Analyzer",
+                        available=True,
+                        executed=True,
+                        rules_or_db_status="ACTIVE (SQLi, XSS, Secrets, Crypto, Deserialization)",
+                        status_code="SUCCESS",
+                    )
+                )
+                scanner_statuses.append(
+                    ScannerExecutionStatus(
+                        scanner_name="ASP.NET Context & Config Inspector",
+                        available=True,
+                        executed=True,
+                        rules_or_db_status="ACTIVE (Middleware, HSTS, CORS, appsettings.json)",
+                        status_code="SUCCESS",
+                    )
+                )
+
+            if profile.js_files:
+                js_analyzer = JavaScriptLexicalAnalyzer()
+                for js_file in profile.js_files:
+                    findings.extend(js_analyzer.analyze_file(js_file, project_root=target_path))
+
+                scanner_statuses.append(
+                    ScannerExecutionStatus(
+                        scanner_name="JavaScript / Node.js Lexical & SAST Analyzer",
+                        available=True,
+                        executed=True,
+                        rules_or_db_status="ACTIVE (SQLi, CMDi, eval, IDOR, Path Traversal, Auth Bypass, SSRF, CORS, Prototype Pollution)",
+                        status_code="SUCCESS",
+                    )
+                )
 
             scanner_statuses.append(
                 ScannerExecutionStatus(
-                    scanner_name="C# Lexical & SAST Analyzer",
-                    available=True,
-                    executed=True,
-                    rules_or_db_status="ACTIVE (SQLi, XSS, Secrets, Crypto, Deserialization)",
-                    status_code="SUCCESS",
-                )
-            )
-            scanner_statuses.append(
-                ScannerExecutionStatus(
-                    scanner_name="ASP.NET Context & Config Inspector",
-                    available=True,
-                    executed=True,
-                    rules_or_db_status="ACTIVE (Middleware, HSTS, CORS, appsettings.json)",
-                    status_code="SUCCESS",
-                )
-            )
-            scanner_statuses.append(
-                ScannerExecutionStatus(
-                    scanner_name="Project & NuGet Dependency Inspector",
+                    scanner_name="Project & Dependency Inspector",
                     available=True,
                     executed=True,
                     rules_or_db_status=dep_audit.coverage_summary,
@@ -100,14 +143,14 @@ class SecureScanPipeline:
         run_semgrep = scanner_engine_norm in ("all", "semgrep", "auto")
         if run_semgrep:
             sem_findings, sem_status = self.semgrep_scanner.scan(target_path)
-            findings.extend(sem_findings)
+            findings = self._merge_findings(findings, sem_findings)
             scanner_statuses.append(sem_status)
 
         # 4. Run Trivy Scanner (if engine is "all" or "trivy")
         run_trivy = scanner_engine_norm in ("all", "trivy", "auto")
         if run_trivy:
             trivy_findings, trivy_status = self.trivy_scanner.scan(target_path)
-            findings.extend(trivy_findings)
+            findings = self._merge_findings(findings, trivy_findings)
             scanner_statuses.append(trivy_status)
 
         # 5. Compute severity counts (both lowercase and uppercase for robust cross-component compatibility)

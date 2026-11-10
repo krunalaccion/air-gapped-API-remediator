@@ -8,6 +8,7 @@ import urllib.request
 import urllib.error
 from typing import Dict, Any, Optional
 
+from .js_fixer import generate_deterministic_js_fix
 from .models import Finding, FixProposal
 
 logger = logging.getLogger("agents.remediator_agent.llm_client")
@@ -125,8 +126,12 @@ class CloudLLMClient:
 
         if "allowedhosts" in clean_snip:
             is_vuln_in_orig = bool(re.search(r'\"AllowedHosts\"\s*:\s*\"\*\"', file_content))
-        elif "connectionstring" in finding.rule_id.lower() or "cwe-798" in (finding.cwe_id or "").lower() or "***redacted***" in clean_snip:
+        elif "connectionstring" in finding.rule_id.lower() or ("cwe-798" in (finding.cwe_id or "").lower() and "appsettings" in finding.file_path.lower()) or "***redacted***" in clean_snip:
             is_vuln_in_orig = bool(re.search(r'(?i)\b(password|pwd)\s*=\s*[^;]+', file_content))
+        elif (finding.cwe_id or "").upper() == "CWE-89" and finding.file_path.lower().endswith((".js", ".ts", ".mjs", ".cjs")):
+            is_vuln_in_orig = bool(
+                re.search(r"\brawQuery\s*\(|(?i:SELECT|INSERT|UPDATE|DELETE)\b[^\n`;]*\$\{", file_content)
+            )
         else:
             is_vuln_in_orig = snippet_core in file_content or (
                 len(clean_snip) > 6 and clean_snip in clean_orig
@@ -372,6 +377,11 @@ Return the JSON object containing `explanation`, `remediation_summary`, `confide
         used when running in offline/mock mode (or when no Cloud API key is set yet).
         """
         rule_lower = finding.rule_id.lower()
+
+        # 0. JavaScript / Node.js / Express Deterministic Fixes
+        js_proposal = generate_deterministic_js_fix(finding, file_content)
+        if js_proposal is not None:
+            return js_proposal
 
         # 1. C# SQL Injection (CWE-89)
         if "sql" in rule_lower or "SELECT " in finding.code_snippet:
