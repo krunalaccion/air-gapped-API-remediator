@@ -197,13 +197,16 @@ class GitWorkspace:
             self.run_git(["pull", "origin", self.base_branch], check=False)
         return self.base_branch
 
-    def create_feature_branch(self, branch_name: str) -> str:
-        """Create and checkout a new feature branch."""
-        # Check if branch already exists locally
-        code, _, _ = self.run_git(["checkout", "-b", branch_name], check=False)
-        if code != 0:
-            # If already exists, switch to it
-            self.run_git(["checkout", branch_name])
+    def create_feature_branch(self, branch_name: str, reset_to_head: bool = False) -> str:
+        """Create and checkout a new feature branch (optionally resetting an existing branch to current HEAD)."""
+        if reset_to_head:
+            self.run_git(["checkout", "-B", branch_name])
+        else:
+            # Check if branch already exists locally
+            code, _, _ = self.run_git(["checkout", "-b", branch_name], check=False)
+            if code != 0:
+                # If already exists, switch to it
+                self.run_git(["checkout", branch_name])
 
         self.current_feature_branch = branch_name
         return branch_name

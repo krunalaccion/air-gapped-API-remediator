@@ -366,6 +366,33 @@ def _git_repo_metadata(path: Path) -> Tuple[str, str]:
     return branch, remote_url
 
 
+def _resolve_main_or_master_branch(
+    path: Path,
+    preferred: Optional[str] = None,
+) -> Optional[str]:
+    """
+    Strictly resolves the base branch to 'main' or 'master' (checking local refs first,
+    then remote origin tracking refs). Returns None if neither branch exists.
+    """
+    pref = (preferred or "auto").strip().lower()
+    candidates = ["master", "main"] if pref == "master" else ["main", "master"]
+
+    for ref_prefix in ("refs/heads/", "refs/remotes/origin/"):
+        for cand in candidates:
+            try:
+                proc = subprocess.run(
+                    ["git", "show-ref", "--verify", "--quiet", f"{ref_prefix}{cand}"],
+                    cwd=str(path),
+                    capture_output=True,
+                    timeout=5,
+                )
+                if proc.returncode == 0:
+                    return cand
+            except Exception:
+                pass
+    return None
+
+
 def _has_non_empty_project_files(path: Path) -> bool:
     """Checks if a directory contains at least one non-hidden file."""
     try:
@@ -426,6 +453,7 @@ def discover_repositories(
             rel_name = resolved_entry.relative_to(root_dir).as_posix()
             if _is_git_repo_dir(resolved_entry):
                 branch, remote_url = _git_repo_metadata(resolved_entry)
+                base_br = _resolve_main_or_master_branch(resolved_entry)
                 repos.append({
                     "name": entry.name,
                     "relative_path": rel_name,
@@ -433,6 +461,7 @@ def discover_repositories(
                     "has_git": True,
                     "auto_init_required": False,
                     "current_branch": branch or "main",
+                    "base_branch": base_br,
                     "remote_url": remote_url,
                 })
                 # Stop descending once a repository boundary is found
@@ -536,6 +565,10 @@ def validate_schedule_payload(
                 return False, "One-time schedules require a valid 'run_at' date/time."
         except Exception as exc:
             return False, f"Invalid 'run_at' datetime: {exc}"
+
+    raw_base = (payload.get("base_branch") or "auto").strip().lower()
+    if raw_base not in ("", "auto", "main", "master"):
+        return False, "Scheduler base_branch must be 'auto', 'main', or 'master'."
 
     return True, None
 
@@ -788,6 +821,11 @@ class BatchScheduler:
             else (existing or {}).get("days_of_week", [0])
         )
 
+        raw_base = (payload.get("base_branch") if "base_branch" in payload else (existing or {}).get("base_branch")) or "auto"
+        norm_base = str(raw_base).strip().lower()
+        if norm_base not in ("auto", "main", "master"):
+            norm_base = "auto"
+
         record: Dict[str, Any] = {
             "id": (existing or {}).get("id") or f"sched-{uuid.uuid4().hex[:8]}",
             "name": (payload.get("name") or (existing or {}).get("name") or f"Batch Audit ({Path(resolved_folder).name})").strip(),
@@ -803,7 +841,7 @@ class BatchScheduler:
             "llm_provider": (payload.get("llm_provider") or (existing or {}).get("llm_provider") or "ollama").strip().lower(),
             "llm_model": (payload.get("llm_model") if "llm_model" in payload else (existing or {}).get("llm_model")) or None,
             "llm_base_url": (payload.get("llm_base_url") if "llm_base_url" in payload else (existing or {}).get("llm_base_url")) or None,
-            "base_branch": (payload.get("base_branch") if "base_branch" in payload else (existing or {}).get("base_branch")) or "auto",
+            "base_branch": norm_base,
             "feature_branch": (payload.get("feature_branch") if "feature_branch" in payload else (existing or {}).get("feature_branch")) or "remediation/airgap-api-compliance",
             "timestamp_branch": bool(payload["timestamp_branch"]) if "timestamp_branch" in payload else bool((existing or {}).get("timestamp_branch", False)),
             "include_non_git": bool(payload["include_non_git"]) if "include_non_git" in payload else bool((existing or {}).get("include_non_git", False)),
@@ -1372,6 +1410,94 @@ class BatchScheduler:
             capture_output=True,
             env=env,
         )
+        # Ensure main/master branch refs exist for strict main/master scheduling
+        if not _resolve_main_or_master_branch(repo_path):
+            subprocess.run(["git", "branch", "-f", "main", "HEAD"], cwd=str(repo_path), capture_output=True, env=env)
+
+    @staticmethod
+    def _prepare_clean_main_or_master(
+        repo_path: Path,
+        preferred_base: Optional[str],
+        feature_branch: str,
+        feature_prefix: str = "remediation/",
+    ) -> Tuple[str, Optional[str]]:
+        """
+        Prepares a local Git repository so it switches cleanly to 'main' or 'master'.
+        Returns (resolved_base_branch, optional_cleanup_log_message).
+        Raises ValueError if neither 'main' nor 'master' exists.
+        """
+        git_env = os.environ.copy()
+        git_env["GIT_TERMINAL_PROMPT"] = "0"
+
+        # Fetch origin (best-effort; air-gapped repos without reachable origin continue cleanly)
+        rem_proc = subprocess.run(
+            ["git", "remote"],
+            cwd=str(repo_path),
+            capture_output=True,
+            text=True,
+            env=git_env,
+        )
+        if rem_proc.returncode == 0 and "origin" in [r.strip() for r in rem_proc.stdout.splitlines()]:
+            try:
+                subprocess.run(
+                    ["git", "-c", "credential.helper=", "fetch", "origin"],
+                    cwd=str(repo_path),
+                    capture_output=True,
+                    text=True,
+                    env=git_env,
+                    timeout=10,
+                )
+            except subprocess.TimeoutExpired:
+                pass
+
+        curr_proc = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=str(repo_path),
+            capture_output=True,
+            text=True,
+            env=git_env,
+        )
+        curr_branch = curr_proc.stdout.strip() if curr_proc.returncode == 0 else "HEAD"
+
+        resolved_base = _resolve_main_or_master_branch(repo_path, preferred=preferred_base)
+        if not resolved_base:
+            raise ValueError(
+                f"Repository '{repo_path.name}' does not have a 'main' or 'master' branch (current branch: '{curr_branch}')."
+            )
+
+        status_proc = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=str(repo_path),
+            capture_output=True,
+            text=True,
+            env=git_env,
+        )
+        cleanup_note: Optional[str] = None
+        if status_proc.returncode == 0 and status_proc.stdout.strip():
+            is_rem_branch = (
+                curr_branch == feature_branch
+                or curr_branch.startswith(feature_prefix)
+                or curr_branch.startswith("remediation/")
+                or curr_branch.startswith("agent/")
+            )
+            if is_rem_branch:
+                subprocess.run(["git", "reset", "--hard", "HEAD"], cwd=str(repo_path), capture_output=True, env=git_env)
+                subprocess.run(["git", "clean", "-fd"], cwd=str(repo_path), capture_output=True, env=git_env)
+                cleanup_note = (
+                    f"Cleaned leftover uncommitted changes on branch '{curr_branch}' before switching to '{resolved_base}'."
+                )
+            else:
+                subprocess.run(
+                    ["git", "stash", "push", "-u", "-m", "airgap-scheduler-autostash"],
+                    cwd=str(repo_path),
+                    capture_output=True,
+                    env=git_env,
+                )
+                cleanup_note = (
+                    f"Auto-stashed uncommitted changes on '{curr_branch}' before checking out '{resolved_base}'."
+                )
+
+        return resolved_base, cleanup_note
 
     def _process_single_repo(
         self,
@@ -1408,7 +1534,10 @@ class BatchScheduler:
             set_step("PREPARE", "Preparing local repository and remediation branch...")
             self._append_log(run_data, "info", repo_name, f"Step 1/5: Preparing workspace at {repo_path}")
 
-            base_branch = sched.get("base_branch") or "auto"
+            pref_base = (sched.get("base_branch") or "auto").strip().lower()
+            if pref_base not in ("auto", "main", "master"):
+                pref_base = "auto"
+
             feature_branch = sched.get("feature_branch") or "remediation/airgap-api-compliance"
             if sched.get("timestamp_branch"):
                 ts_suffix = local_now().strftime("%Y%m%d-%H%M%S")
@@ -1418,19 +1547,29 @@ class BatchScheduler:
             if repo_path.name == "CustomerApi" and not (repo_path / ".git").exists():
                 auto_init = True
 
-            if (repo_path / ".git").exists():
+            is_existing_git = (repo_path / ".git").exists() or _is_git_repo_dir(repo_path)
+            if is_existing_git:
                 self._ensure_unborn_head_committed(repo_path, "Git SubAgent", "git-agent@subagent.local")
+                resolved_base, cleanup_note = self._prepare_clean_main_or_master(
+                    repo_path=repo_path,
+                    preferred_base=pref_base,
+                    feature_branch=feature_branch,
+                )
+                if cleanup_note:
+                    self._append_log(run_data, "info", repo_name, cleanup_note)
+            else:
+                resolved_base = "master" if pref_base == "master" else "main"
 
             git_config = GitAgentConfig(
                 repo_url=str(repo_path),
                 provider=ProviderType.LOCAL,
-                base_branch=base_branch,
+                base_branch=resolved_base,
                 feature_branch_name=feature_branch,
                 workspace_dir=str(repo_path),
                 auto_init=auto_init,
             )
             git_agent = GitSubAgent(git_config)
-            ctx = git_agent.prepare_workspace(auto_init=auto_init)
+            ctx = git_agent.prepare_workspace(auto_init=auto_init, reset_feature_branch=True)
             repo_item["has_git"] = True
             repo_item["base_branch"] = ctx.base_branch
             repo_item["feature_branch"] = ctx.feature_branch
