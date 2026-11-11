@@ -163,6 +163,7 @@ class GitSubAgent(BaseAgent):
         feature_branch: Optional[str] = None,
         base_branch: Optional[str] = None,
         auto_init: Optional[bool] = None,
+        reset_feature_branch: bool = False,
     ) -> WorkspaceContext:
         """
         Step 1: Clones repository, pulls base branch (main/master), and creates feature branch.
@@ -215,7 +216,7 @@ class GitSubAgent(BaseAgent):
             target_feature = f"{self.config.feature_branch_prefix}{ts}"
 
         logger.info("Creating and switching to feature branch: %s", target_feature)
-        self.workspace.create_feature_branch(target_feature)
+        self.workspace.create_feature_branch(target_feature, reset_to_head=reset_feature_branch)
 
         # 5. Build WorkspaceContext
         provider_name = (

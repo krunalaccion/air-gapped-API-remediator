@@ -439,6 +439,103 @@ class TestBatchSchedulerEngine(unittest.TestCase):
         self.assertEqual(detail["status"], "COMPLETED")
         self.assertGreaterEqual(len(detail["repos"][0]["files_modified"]), 2)
 
+    def test_scheduler_always_branches_from_main_or_master(self):
+        # Repo 1: has 'main', currently left dirty on an old 'remediation/airgap-api-compliance' branch
+        repo_main = self.repos_parent / "01_repo_with_main"
+        _init_git_repo(repo_main, {"app.py": 'import requests\nrequests.get("https://api.external-cloud.com/v1")\n'}, branch="main")
+        # Create an old remediation branch with stale file and dirty edit
+        subprocess.run(["git", "checkout", "-b", "remediation/airgap-api-compliance"], cwd=str(repo_main), check=True, capture_output=True)
+        (repo_main / "stale_marker.txt").write_text("stale\n", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=str(repo_main), check=True, capture_output=True)
+        subprocess.run(
+            ["git", "-c", "commit.gpgsign=false", "-c", "user.name=Test", "-c", "user.email=test@test.local", "commit", "-m", "old remediation"],
+            cwd=str(repo_main),
+            check=True,
+            capture_output=True,
+        )
+        # Add an uncommitted leftover change on old remediation branch
+        (repo_main / "app.py").write_text("# dirty aborted edit\n", encoding="utf-8")
+        # Advance 'main' with a new file so we verify the fresh remediation branch starts from 'main'
+        subprocess.run(["git", "checkout", "-f", "main"], cwd=str(repo_main), check=True, capture_output=True)
+        (repo_main / "new_on_main.py").write_text('import requests\nrequests.get("https://api.external-cloud.com/new")\n', encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=str(repo_main), check=True, capture_output=True)
+        subprocess.run(
+            ["git", "-c", "commit.gpgsign=false", "-c", "user.name=Test", "-c", "user.email=test@test.local", "commit", "-m", "advance main"],
+            cwd=str(repo_main),
+            check=True,
+            capture_output=True,
+        )
+        # Switch back to dirty old remediation branch before scheduler runs
+        subprocess.run(["git", "checkout", "remediation/airgap-api-compliance"], cwd=str(repo_main), check=True, capture_output=True)
+        (repo_main / "uncommitted_aborted.tmp").write_text("dirty\n", encoding="utf-8")
+
+        # Repo 2: has 'master' only, currently checked out on 'feature/wip'
+        repo_master = self.repos_parent / "02_repo_with_master"
+        _init_git_repo(repo_master, {"svc.py": 'import requests\nrequests.post("https://api.external-cloud.com/m")\n'}, branch="master")
+        subprocess.run(["git", "checkout", "-b", "feature/wip"], cwd=str(repo_master), check=True, capture_output=True)
+        (repo_master / "wip_only.txt").write_text("wip\n", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=str(repo_master), check=True, capture_output=True)
+        subprocess.run(
+            ["git", "-c", "commit.gpgsign=false", "-c", "user.name=Test", "-c", "user.email=test@test.local", "commit", "-m", "wip"],
+            cwd=str(repo_master),
+            check=True,
+            capture_output=True,
+        )
+
+        # Repo 3: has ONLY 'develop' (neither main nor master) -> must fail clearly rather than running on develop
+        repo_develop = self.repos_parent / "03_repo_develop_only"
+        _init_git_repo(repo_develop, {"dev.py": "print('dev')\n"}, branch="develop")
+
+        self.scheduler = BatchScheduler(
+            data_dir=self.data_dir,
+            app_root_dir=self.temp_dir / "dummy_agent_root",
+            auto_start=True,
+            poll_interval_seconds=0.2,
+        )
+        res = self.scheduler.create_schedule({
+            "name": "Strict Main/Master Test",
+            "folder_path": str(self.repos_parent),
+            "schedule_type": "interval",
+            "interval_minutes": 15,
+            "llm_provider": "auto-fallback",
+            "base_branch": "auto",
+            "feature_branch": "remediation/airgap-api-compliance",
+            "run_build_test": False,
+            "run_immediately": True,
+        })
+        run_id = res["triggered_run"]["run_id"]
+
+        deadline = time.time() + 30.0
+        detail = None
+        while time.time() < deadline:
+            detail = self.scheduler.get_run_detail(run_id)
+            if detail and detail.get("status") in ("COMPLETED", "COMPLETED_WITH_ERRORS", "FAILED"):
+                break
+            time.sleep(0.2)
+
+        self.assertEqual(detail["status"], "COMPLETED_WITH_ERRORS")
+        repos = detail["repos"]
+
+        # Repo 1 ran from 'main', reset remediation branch onto 'main' (has new_on_main.py, lacks stale_marker.txt)
+        self.assertEqual(repos[0]["status"], "COMPLETED")
+        self.assertEqual(repos[0]["base_branch"], "main")
+        self.assertEqual(repos[0]["feature_branch"], "remediation/airgap-api-compliance")
+        self.assertTrue((repo_main / "new_on_main.py").exists())
+        self.assertFalse((repo_main / "stale_marker.txt").exists())
+        self.assertFalse((repo_main / "uncommitted_aborted.tmp").exists())
+        self.assertEqual(repos[0]["post_findings_count"], 0)
+
+        # Repo 2 ran from 'master', not 'feature/wip' (lacks wip_only.txt)
+        self.assertEqual(repos[1]["status"], "COMPLETED")
+        self.assertEqual(repos[1]["base_branch"], "master")
+        self.assertFalse((repo_master / "wip_only.txt").exists())
+        self.assertEqual(repos[1]["post_findings_count"], 0)
+
+        # Repo 3 rejected because neither 'main' nor 'master' exists
+        self.assertEqual(repos[2]["status"], "FAILED")
+        self.assertIn("main", repos[2]["error"].lower())
+        self.assertIn("master", repos[2]["error"].lower())
+
 
 class TestSchedulerWebAPI(unittest.TestCase):
 
@@ -519,6 +616,17 @@ class TestSchedulerWebAPI(unittest.TestCase):
             })
             self.assertEqual(st_bad, 400)
             self.assertIn("error", err_bad)
+
+            # Invalid base_branch rejected (scheduler enforces auto/main/master)
+            st_bad_br, err_bad_br = self._call_post("/api/scheduler/schedules", {
+                "name": "Bad Branch",
+                "folder_path": str(self.repos_parent),
+                "schedule_type": "daily",
+                "time_of_day": "02:30",
+                "base_branch": "develop",
+            })
+            self.assertEqual(st_bad_br, 400)
+            self.assertIn("main", err_bad_br.get("error", ""))
 
             # Create schedule
             st_c, created = self._call_post("/api/scheduler/schedules", {
