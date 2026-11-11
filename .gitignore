@@ -49,4 +49,5 @@ agents/scanner_agent/findings/
 reports/*_report.json
 reports/*.html
 reports/REMEDIATION_AUDIT_REPORT.html
+reports/email_outbox/
 scheduler_data/
