@@ -1259,7 +1259,7 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
             elif path == "/api/email/send-report":
-                if any(k in payload for k in ("smtp_host", "smtp_port", "smtp_username", "smtp_password", "sender_email", "recipient_emails", "use_tls", "use_ssl", "auto_send_after_remediation", "auto_send_after_pr", "attach_remediation_html", "attach_scan_html", "attach_remediation_json")):
+                if any(k in payload for k in ("webhook_url", "smtp_host", "smtp_port", "smtp_username", "smtp_password", "sender_email", "recipient_emails", "use_tls", "use_ssl", "auto_send_after_remediation", "auto_send_after_pr", "attach_remediation_html", "attach_scan_html", "attach_remediation_json")):
                     EMAIL_NOTIFIER.update_config(payload)
                 email_res = _dispatch_current_remediation_email(
                     override_recipients=payload.get("recipient_emails"),

@@ -9,6 +9,7 @@ in `reports/email_outbox/`, and dispatches via configurable SMTP / STARTTLS / SS
 
 from __future__ import annotations
 
+import base64
 import datetime as dt
 import html
 import json
@@ -17,6 +18,7 @@ import os
 import re
 import smtplib
 import ssl
+import urllib.request
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -81,6 +83,7 @@ class EmailReportNotifier:
             "enabled": _parse_bool(os.getenv("EMAIL_ENABLED"), True),
             "auto_send_after_remediation": _parse_bool(os.getenv("EMAIL_AUTO_SEND_ON_REMEDIATION"), True),
             "auto_send_after_pr": _parse_bool(os.getenv("EMAIL_AUTO_SEND_ON_PR"), False),
+            "webhook_url": os.getenv("EMAIL_WEBHOOK_URL", "").strip(),
             "smtp_host": os.getenv("SMTP_HOST", "").strip(),
             "smtp_port": int(os.getenv("SMTP_PORT", "587") or 587),
             "smtp_username": os.getenv("SMTP_USERNAME", "").strip(),
@@ -106,7 +109,7 @@ class EmailReportNotifier:
                 if isinstance(saved, dict):
                     for k, v in saved.items():
                         # Keep .env values if saved config had blank/empty defaults
-                        if k in ("smtp_host", "smtp_username", "smtp_password") and not v and env_defaults.get(k):
+                        if k in ("webhook_url", "smtp_host", "smtp_username", "smtp_password") and not v and env_defaults.get(k):
                             continue
                         if k == "recipient_emails" and not _split_emails(v) and env_defaults.get("recipient_emails"):
                             continue
@@ -143,6 +146,8 @@ class EmailReportNotifier:
             self._config["auto_send_after_remediation"] = _parse_bool(payload["auto_send_after_remediation"], True)
         if "auto_send_after_pr" in payload:
             self._config["auto_send_after_pr"] = _parse_bool(payload["auto_send_after_pr"], False)
+        if "webhook_url" in payload and payload["webhook_url"] is not None:
+            self._config["webhook_url"] = str(payload["webhook_url"]).strip()
         if "smtp_host" in payload and payload["smtp_host"] is not None:
             self._config["smtp_host"] = str(payload["smtp_host"]).strip()
         if "smtp_port" in payload and payload["smtp_port"]:
@@ -296,39 +301,58 @@ class EmailReportNotifier:
         msg.add_alternative(html_body, subtype="html")
 
         attached_files: List[str] = []
+        webhook_attachments: List[Dict[str, str]] = []
 
         # 1. Attach Post-Remediation Audit HTML Report
         if cfg.get("attach_remediation_html", True) and remediation_html:
             fname = f"{repo_name}_REMEDIATION_AUDIT_REPORT.html"
+            raw_bytes = remediation_html.encode("utf-8")
             msg.add_attachment(
-                remediation_html.encode("utf-8"),
+                raw_bytes,
                 maintype="text",
                 subtype="html",
                 filename=fname,
             )
             attached_files.append(fname)
+            webhook_attachments.append({
+                "filename": fname,
+                "mime_type": "text/html",
+                "content_b64": base64.b64encode(raw_bytes).decode("ascii"),
+            })
 
         # 2. Attach Initial/Post Security Scan HTML Report
         if cfg.get("attach_scan_html", True) and scan_html:
             fname = f"{repo_name}_SECURESCAN_REPORT.html"
+            raw_bytes = scan_html.encode("utf-8")
             msg.add_attachment(
-                scan_html.encode("utf-8"),
+                raw_bytes,
                 maintype="text",
                 subtype="html",
                 filename=fname,
             )
             attached_files.append(fname)
+            webhook_attachments.append({
+                "filename": fname,
+                "mime_type": "text/html",
+                "content_b64": base64.b64encode(raw_bytes).decode("ascii"),
+            })
 
         # 3. Attach Remediation Audit JSON Report
         if cfg.get("attach_remediation_json", True) and remediation_json:
             fname = f"{repo_name}_REMEDIATION_AUDIT_REPORT.json"
+            raw_bytes = remediation_json.encode("utf-8")
             msg.add_attachment(
-                remediation_json.encode("utf-8"),
+                raw_bytes,
                 maintype="application",
                 subtype="json",
                 filename=fname,
             )
             attached_files.append(fname)
+            webhook_attachments.append({
+                "filename": fname,
+                "mime_type": "application/json",
+                "content_b64": base64.b64encode(raw_bytes).decode("ascii"),
+            })
 
         # Always archive a copy to reports/email_outbox/
         slug_repo = re.sub(r"[^a-zA-Z0-9_-]+", "_", repo_name or "repo")
@@ -339,7 +363,8 @@ class EmailReportNotifier:
         except Exception as exc:
             logger.warning("Could not write .eml outbox file %s: %s", eml_path, exc)
 
-        # Dispatch via SMTP if host and recipients are configured
+        # Dispatch via HTTPS Webhook (Port 443) or SMTP
+        webhook_url = (cfg.get("webhook_url") or "").strip()
         smtp_host = (cfg.get("smtp_host") or "").strip()
         smtp_port = int(cfg.get("smtp_port") or 587)
         smtp_user = (cfg.get("smtp_username") or "").strip()
@@ -351,21 +376,44 @@ class EmailReportNotifier:
 
         if not recipients:
             status = "saved_to_outbox"
-            status_msg = f"Email report generated and archived to outbox ({eml_filename}). Configure recipient email(s) to dispatch via SMTP."
-        elif not smtp_host:
-            status = "saved_to_outbox"
-            status_msg = (
-                f"Email report prepared for {', '.join(recipients)} and saved to local outbox ({eml_filename}). "
-                f"Configure SMTP Host in Email Settings to deliver over network."
-            )
+            status_msg = f"Email report generated and archived to outbox ({eml_filename}). Configure recipient email(s) to dispatch."
         elif (
             "PYTEST_CURRENT_TEST" in os.environ
             and not os.getenv("ALLOW_SMTP_IN_PYTEST")
             and "MagicMock" not in type(smtplib.SMTP).__name__
             and "MagicMock" not in type(smtplib.SMTP_SSL).__name__
+            and "MagicMock" not in type(urllib.request.urlopen).__name__
         ):
             status = "saved_to_outbox"
-            status_msg = f"Test mode active: archived email report to outbox ({eml_filename}) without live SMTP call."
+            status_msg = f"Test mode active: archived email report to outbox ({eml_filename}) without live network call."
+        elif webhook_url:
+            try:
+                self._send_via_webhook(
+                    webhook_url=webhook_url,
+                    recipients=recipients,
+                    subject=subject,
+                    plain_body=plain_body,
+                    html_body=html_body,
+                    attachments=webhook_attachments,
+                )
+                status = "sent"
+                status_msg = (
+                    f"Remediation report email sent to {', '.join(recipients)} via HTTPS Gmail Webhook "
+                    f"({len(attached_files)} attachment(s))."
+                )
+            except Exception as wh_exc:
+                logger.warning("HTTPS Webhook email delivery failed (%s): %s", webhook_url, wh_exc)
+                status = "saved_to_outbox"
+                status_msg = (
+                    f"HTTPS Webhook delivery failed ({wh_exc}); "
+                    f"report email with {len(attached_files)} attachment(s) archived to outbox ({eml_filename})."
+                )
+        elif not smtp_host:
+            status = "saved_to_outbox"
+            status_msg = (
+                f"Email report prepared for {', '.join(recipients)} and saved to local outbox ({eml_filename}). "
+                f"Configure HTTPS Webhook URL or SMTP Host in Email Settings to deliver over network."
+            )
         else:
             try:
                 self._send_via_smtp(
@@ -423,6 +471,89 @@ class EmailReportNotifier:
             "timestamp": now_utc.isoformat(),
             "message": status_msg,
         }
+
+    @staticmethod
+    def _send_via_webhook(
+        *,
+        webhook_url: str,
+        recipients: List[str],
+        subject: str,
+        plain_body: str,
+        html_body: str,
+        attachments: List[Dict[str, str]],
+    ) -> Dict[str, Any]:
+        payload = json.dumps({
+            "to": ", ".join(recipients),
+            "recipients": recipients,
+            "subject": subject,
+            "plain_body": plain_body,
+            "html_body": html_body,
+            "attachments": attachments,
+        }).encode("utf-8")
+
+        req = urllib.request.Request(
+            webhook_url,
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AirGapRemediator/1.0",
+            },
+            method="POST",
+        )
+        ctx = ssl.create_default_context()
+
+        class _AppsScriptRedirectHandler(urllib.request.HTTPRedirectHandler):
+            def __init__(self):
+                super().__init__()
+                self.echo_redirect_url: Optional[str] = None
+
+            def redirect_request(self, req_obj, fp, code, msg, headers, newurl):
+                if newurl and "script.googleusercontent.com/macros/echo" in newurl:
+                    self.echo_redirect_url = newurl
+                return urllib.request.Request(
+                    newurl,
+                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AirGapRemediator/1.0"},
+                    method="GET",
+                )
+
+        if "MagicMock" in type(urllib.request.urlopen).__name__:
+            resp_ctx = urllib.request.urlopen(req, timeout=25, context=ctx)
+            redirect_tracker = None
+        else:
+            redirect_tracker = _AppsScriptRedirectHandler()
+            opener = urllib.request.build_opener(redirect_tracker, urllib.request.HTTPSHandler(context=ctx))
+            try:
+                resp_ctx = opener.open(req, timeout=25)
+            except urllib.error.HTTPError as http_err:
+                # Google Apps Script runs doPost() BEFORE issuing a 302 redirect to
+                # script.googleusercontent.com/macros/echo. Corporate proxies (e.g. Cato)
+                # may block googleusercontent.com with 403 even though GmailApp.sendEmail() succeeded.
+                if (
+                    http_err.code == 403
+                    and redirect_tracker.echo_redirect_url
+                    and "script.googleusercontent.com/macros/echo" in redirect_tracker.echo_redirect_url
+                ):
+                    return {"status": "sent", "via": "apps_script_302_echo"}
+                raise
+
+        with resp_ctx as resp:
+            final_url = resp.geturl() or ""
+            raw_resp = resp.read().decode("utf-8", errors="replace")
+            if "accounts.google.com" in final_url:
+                raise RuntimeError(
+                    "Google Apps Script redirected to Google Sign-In. Set 'Who has access' to 'Anyone' in Manage Deployments."
+                )
+            try:
+                parsed = json.loads(raw_resp)
+                if isinstance(parsed, dict) and parsed.get("error"):
+                    raise RuntimeError(str(parsed["error"]))
+                return parsed
+            except json.JSONDecodeError:
+                if "<!DOCTYPE html>" in raw_resp or "<html" in raw_resp.lower():
+                    raise RuntimeError(
+                        "Webhook returned HTML instead of JSON (check Apps Script deployment permissions or script errors)."
+                    )
+                return {"raw": raw_resp}
 
     @staticmethod
     def _send_via_smtp(

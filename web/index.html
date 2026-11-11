@@ -1993,8 +1993,13 @@
 
         <!-- SMTP Server Configuration -->
         <div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-2.5">
-          <div class="flex items-center justify-between">
-            <span class="text-[11px] font-bold uppercase text-slate-700 dark:text-slate-300">SMTP Relay Configuration</span>
+          <div>
+            <label class="block text-[10px] font-bold uppercase text-emerald-700 dark:text-emerald-400 mb-0.5">HTTPS Gmail / Email Webhook URL (Port 443 — Works Through Corporate Firewalls)</label>
+            <input type="text" id="modalEmailWebhookUrl" placeholder="https://script.google.com/macros/s/.../exec (optional — overrides blocked SMTP)"
+              class="soc-input w-full text-xs font-mono px-2.5 py-1.5 rounded-lg">
+          </div>
+          <div class="flex items-center justify-between pt-1 border-t border-slate-200 dark:border-slate-700">
+            <span class="text-[11px] font-bold uppercase text-slate-700 dark:text-slate-300">Or Direct SMTP Relay Configuration</span>
             <span class="text-[10px] text-slate-500">Always archives .eml to reports/email_outbox/</span>
           </div>
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
@@ -5673,6 +5678,8 @@ ${filesFormatted}
 
       const mHost = document.getElementById("modalSmtpHost");
       if (mHost) mHost.value = cfg.smtp_host || "";
+      const mWh = document.getElementById("modalEmailWebhookUrl");
+      if (mWh) mWh.value = cfg.webhook_url || "";
       const mPort = document.getElementById("modalSmtpPort");
       if (mPort) mPort.value = cfg.smtp_port || 587;
       const mUser = document.getElementById("modalSmtpUser");
@@ -5723,6 +5730,7 @@ ${filesFormatted}
         attach_remediation_html: Boolean(document.getElementById("modalAttachRemHtml")?.checked),
         attach_scan_html: Boolean(document.getElementById("modalAttachScanHtml")?.checked),
         attach_remediation_json: Boolean(document.getElementById("modalAttachRemJson")?.checked),
+        webhook_url: (document.getElementById("modalEmailWebhookUrl")?.value || "").trim(),
         smtp_host: (document.getElementById("modalSmtpHost")?.value || "").trim(),
         smtp_port: parseInt(document.getElementById("modalSmtpPort")?.value || "587", 10) || 587,
         smtp_username: (document.getElementById("modalSmtpUser")?.value || "").trim(),

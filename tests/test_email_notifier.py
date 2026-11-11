@@ -116,6 +116,28 @@ class TestEmailReportNotifier(unittest.TestCase):
         mock_server.login.assert_called_once_with("bot@gmail.com", "abcdefghijklmnop")
         mock_server.send_message.assert_called_once()
 
+    @patch("orchestrator.email_notifier.urllib.request.urlopen")
+    def test_https_webhook_delivery_with_attachments(self, mock_urlopen):
+        mock_resp = MagicMock()
+        mock_resp.geturl.return_value = "https://script.googleusercontent.com/macros/echo"
+        mock_resp.read.return_value = b'{"status": "sent"}'
+        mock_urlopen.return_value.__enter__.return_value = mock_resp
+
+        notifier = EmailReportNotifier(app_root_dir=self.temp_dir)
+        notifier.update_config({
+            "recipient_emails": "lead@example.com",
+            "webhook_url": "https://script.google.com/macros/s/example/exec",
+            "attach_remediation_html": True,
+        })
+
+        res = notifier.send_remediation_report_email(
+            repo_name="DemoRepo",
+            remediation_html="<html><body>Report</body></html>",
+        )
+        self.assertEqual(res["status"], "sent")
+        self.assertIn("HTTPS Gmail Webhook", res["message"])
+        mock_urlopen.assert_called_once()
+
     def test_web_server_email_endpoints(self):
         orig_notifier = web_server.EMAIL_NOTIFIER
         try:
