@@ -26,6 +26,7 @@ from agents.scanner_agent.agent import ScannerAgent
 from agents.remediator_agent.agent import RemediatorAgent, DEFAULT_SQLI_FINDING
 from orchestrator.pipeline import MultiAgentPipeline
 from orchestrator.scheduler import BatchScheduler, discover_repositories
+from orchestrator.email_notifier import EmailReportNotifier
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] [%(name)s] %(message)s")
 logger = logging.getLogger("multi_agent.web_server")
@@ -43,6 +44,7 @@ BATCH_SCHEDULER: BatchScheduler = BatchScheduler(
     app_root_dir=APP_ROOT_DIR,
     auto_start=False,
 )
+EMAIL_NOTIFIER: EmailReportNotifier = EmailReportNotifier(app_root_dir=APP_ROOT_DIR)
 
 
 def _ensure_default_local_repo_ready(reset_files: bool = False) -> None:
@@ -237,7 +239,63 @@ def _build_telemetry_payload() -> Dict[str, Any]:
         "workspace_files": workspace_files,
         "latest_pr": LATEST_PR,
         "build_and_test": ACTIVE_GIT_AGENT.last_build_test_result if (git_prepared and ACTIVE_GIT_AGENT and hasattr(ACTIVE_GIT_AGENT, "last_build_test_result")) else None,
+        "email": EMAIL_NOTIFIER.get_public_config(),
     }
+
+
+def _dispatch_current_remediation_email(
+    *,
+    ws_path: Optional[Path] = None,
+    remediation_result: Optional[Dict[str, Any]] = None,
+    post_scan_result: Optional[Dict[str, Any]] = None,
+    override_recipients: Optional[Any] = None,
+    custom_subject: Optional[str] = None,
+    custom_note: Optional[str] = None,
+    trigger_source: str = "remediation_completed",
+) -> Dict[str, Any]:
+    """Gathers active workspace reports and sends the remediation summary email."""
+    resolved_ws = ws_path or _resolve_active_workspace() or DEFAULT_LOCAL_REPO
+    repo_name = (
+        ACTIVE_GIT_AGENT.context.repo_name
+        if (ACTIVE_GIT_AGENT and ACTIVE_GIT_AGENT.context and ACTIVE_GIT_AGENT.context.repo_name)
+        else (resolved_ws.name if resolved_ws else "repository")
+    )
+    branch = (
+        ACTIVE_GIT_AGENT.context.feature_branch
+        if (ACTIVE_GIT_AGENT and ACTIVE_GIT_AGENT.context and ACTIVE_GIT_AGENT.context.feature_branch)
+        else "remediation/airgap-api-compliance"
+    )
+    base_branch = (
+        ACTIVE_GIT_AGENT.context.base_branch
+        if (ACTIVE_GIT_AGENT and ACTIVE_GIT_AGENT.context and ACTIVE_GIT_AGENT.context.base_branch)
+        else "main"
+    )
+
+    rem_res = remediation_result or REMEDIATOR_AGENT.last_result or {}
+    post_scan = post_scan_result or getattr(REMEDIATOR_AGENT, "last_post_scan", None) or rem_res.get("post_scan") or {}
+    scan_res = SCANNER_AGENT.last_result or {}
+
+    rem_html, _ = REMEDIATOR_AGENT.get_report_content(fmt="html", workspace_path=str(resolved_ws) if resolved_ws else None)
+    rem_json, _ = REMEDIATOR_AGENT.get_report_content(fmt="json", workspace_path=str(resolved_ws) if resolved_ws else None)
+    scan_html, _ = SCANNER_AGENT.get_report_content("html")
+
+    return EMAIL_NOTIFIER.send_remediation_report_email(
+        repo_name=repo_name,
+        workspace_path=str(resolved_ws) if resolved_ws else "",
+        branch=branch,
+        base_branch=base_branch,
+        scan_result=scan_res,
+        remediation_result=rem_res,
+        post_scan_result=post_scan,
+        pr_data=LATEST_PR,
+        remediation_html=rem_html,
+        remediation_json=rem_json,
+        scan_html=scan_html,
+        override_recipients=override_recipients,
+        custom_subject=custom_subject,
+        custom_note=custom_note,
+        trigger_source=trigger_source,
+    )
 
 
 def get_web_dir() -> Path:
@@ -334,6 +392,14 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
 
         elif path == "/api/scanner/tools":
             self._send_json(SCANNER_AGENT.get_scanner_tools())
+            return
+
+        elif path == "/api/email/config":
+            self._send_json(EMAIL_NOTIFIER.get_public_config())
+            return
+
+        elif path == "/api/email/outbox":
+            self._send_json({"outbox": EMAIL_NOTIFIER.list_outbox(limit=25)})
             return
 
         elif path == "/api/status":
@@ -871,6 +937,30 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                     result["diff"] = ACTIVE_GIT_AGENT.get_diff() or result.get("bug_diff", "")
                 else:
                     result["diff"] = result.get("bug_diff", "")
+
+                # Automatically send remediation report email if enabled or requested
+                try:
+                    if payload.get("recipient_emails") is not None:
+                        EMAIL_NOTIFIER.update_config({"recipient_emails": payload.get("recipient_emails")})
+                    if "auto_send_email" in payload:
+                        EMAIL_NOTIFIER.update_config({"auto_send_after_remediation": payload.get("auto_send_email")})
+                    email_cfg = EMAIL_NOTIFIER.get_public_config()
+                    should_send = bool(
+                        payload.get("send_email")
+                        or (email_cfg.get("enabled", True) and email_cfg.get("auto_send_after_remediation", True))
+                    )
+                    if should_send:
+                        result["email_notification"] = _dispatch_current_remediation_email(
+                            ws_path=ws_path,
+                            remediation_result=result,
+                            post_scan_result=post_scan,
+                            override_recipients=payload.get("recipient_emails"),
+                            trigger_source="step3_remediation_completed",
+                        )
+                except Exception as email_exc:
+                    logger.warning("Auto-email report after remediation failed: %s", email_exc)
+                    result["email_notification"] = {"status": "error", "message": str(email_exc)}
+
                 self._send_json(result)
                 return
 
@@ -1147,7 +1237,37 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                     "provider": pr.provider,
                 }
                 LATEST_PR = pr_data
+                try:
+                    email_cfg = EMAIL_NOTIFIER.get_public_config()
+                    if payload.get("send_email") or (email_cfg.get("enabled", True) and email_cfg.get("auto_send_after_pr", False)):
+                        pr_data["email_notification"] = _dispatch_current_remediation_email(
+                            override_recipients=payload.get("recipient_emails"),
+                            trigger_source="step5_pr_created",
+                        )
+                except Exception as pr_email_exc:
+                    logger.warning("Auto-email report after PR creation failed: %s", pr_email_exc)
                 self._send_json(pr_data)
+                return
+
+            # 6B. Email Configuration & Manual Report Dispatch
+            elif path == "/api/email/config":
+                updated_cfg = EMAIL_NOTIFIER.update_config(payload)
+                self._send_json({
+                    "message": "Email report configuration saved",
+                    "config": updated_cfg,
+                })
+                return
+
+            elif path == "/api/email/send-report":
+                if any(k in payload for k in ("webhook_url", "smtp_host", "smtp_port", "smtp_username", "smtp_password", "sender_email", "recipient_emails", "use_tls", "use_ssl", "auto_send_after_remediation", "auto_send_after_pr", "attach_remediation_html", "attach_scan_html", "attach_remediation_json")):
+                    EMAIL_NOTIFIER.update_config(payload)
+                email_res = _dispatch_current_remediation_email(
+                    override_recipients=payload.get("recipient_emails"),
+                    custom_subject=payload.get("subject"),
+                    custom_note=payload.get("custom_note"),
+                    trigger_source=payload.get("trigger_source") or "manual_ui_dispatch",
+                )
+                self._send_json(email_res)
                 return
 
             # 7. End-to-end Pipeline Execution

@@ -668,6 +668,11 @@
             id="activeBranchTag">
             Branch: <strong class="text-blue-700 dark:text-blue-400 font-mono" id="currentBranchDisplay">none</strong>
           </span>
+          <button id="btnEmailSettingsHeader" onclick="openEmailReportModal()"
+            class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+            title="Configure SMTP &amp; send remediation reports via email">
+            <span>✉️</span> Email Reports
+          </button>
           <button id="btnRefresh" onclick="refreshAllSteps(true, true)"
             class="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold transition flex items-center gap-1.5 shadow-sm cursor-pointer"
             title="Reset all pipeline steps, clear repository references, and return to Step 01">
@@ -1274,6 +1279,34 @@
             </div>
           </div>
 
+          <!-- Post-Remediation Email Report Auto-Dispatch Bar -->
+          <div class="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-xs flex flex-col lg:flex-row lg:items-center justify-between gap-2.5 font-mono">
+            <div class="flex items-center gap-2.5 flex-wrap flex-1">
+              <span class="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                <span>✉️</span>
+                <span>Email Report Delivery:</span>
+              </span>
+              <input type="text" id="step3RecipientEmailInput" placeholder="Recipient email(s), e.g. secops@company.com"
+                class="soc-input text-xs font-mono px-2.5 py-1 rounded-lg flex-1 min-w-[220px] max-w-sm"
+                onchange="syncRecipientEmailFromStep3()">
+              <label class="inline-flex items-center gap-1.5 text-[11px] text-slate-700 dark:text-slate-300 cursor-pointer font-semibold">
+                <input type="checkbox" id="step3AutoSendEmailCheckbox" checked onchange="syncRecipientEmailFromStep3()"
+                  class="rounded border-slate-300 text-emerald-600">
+                <span>Auto-send report after remediation completes</span>
+              </label>
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0">
+              <button type="button" onclick="openEmailReportModal()"
+                class="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-[11px] font-semibold cursor-pointer flex items-center gap-1">
+                <span>⚙️</span> <span>SMTP &amp; Options</span>
+              </button>
+              <button type="button" id="btnSendReportStep3" onclick="sendRemediationEmailNow()"
+                class="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold cursor-pointer flex items-center gap-1 shadow-sm">
+                <span>📨</span> <span>Send Report Now</span>
+              </button>
+            </div>
+          </div>
+
           <!-- Action Toolbar Buttons -->
           <div class="flex items-center gap-2 flex-wrap">
             <button onclick="handleFix()" id="btnFix"
@@ -1350,14 +1383,20 @@
           <div id="remediationSummaryBar"
             class="hidden p-3 rounded-lg bg-emerald-50/90 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 text-xs space-y-2 font-mono">
             <div class="flex flex-wrap items-center justify-between gap-2">
-              <div class="font-bold text-emerald-900 dark:text-emerald-300 flex items-center gap-2">
+              <div class="font-bold text-emerald-900 dark:text-emerald-300 flex items-center gap-2 flex-wrap">
                 <span>🛡️ Remediation &amp; Compliance Dossier</span>
                 <span id="remediationVerdictBadge"
                   class="px-2 py-0.5 rounded text-[10px] bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700 font-bold">REMEDIATED &amp; COMPLIANT ✓</span>
                 <span id="remediationPostureBadge"
                   class="px-2 py-0.5 rounded text-[10px] bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-200 border border-blue-300 dark:border-blue-700 font-bold">SCORE: 100/100 (A+)</span>
+                <span id="remediationEmailStatusBadge"
+                  class="hidden px-2 py-0.5 rounded text-[10px] bg-indigo-100 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-200 border border-indigo-300 dark:border-indigo-700 font-bold">✉️ EMAIL SENT ✓</span>
               </div>
-              <div class="flex items-center gap-1.5 text-[10px]">
+              <div class="flex items-center gap-1.5 text-[10px] flex-wrap">
+                <button type="button" onclick="sendRemediationEmailNow()" id="btnSendEmailDossier"
+                  class="px-2.5 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-semibold shadow-sm flex items-center gap-1 cursor-pointer">
+                  <span>✉️</span> Email Report
+                </button>
                 <a href="/reports/REMEDIATION_AUDIT_REPORT.html" target="_blank"
                   class="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold shadow-sm flex items-center gap-1">
                   <span>📄</span> View Remediation Report
@@ -1871,6 +1910,154 @@
           <button onclick="closeFolderPickerModal()"
             class="px-3 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 text-xs text-slate-700 dark:text-slate-300 font-mono cursor-pointer">
             Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Email Report & SMTP Configuration Modal -->
+  <div id="emailReportModal" style="display: none;"
+    class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+    onclick="if(event.target === this) closeEmailReportModal()">
+    <div class="soc-panel rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col max-h-[88vh] overflow-hidden"
+      onclick="event.stopPropagation()">
+      <div class="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900">
+        <div class="flex items-center gap-2.5 min-w-0">
+          <span class="text-xl">✉️</span>
+          <div class="min-w-0">
+            <h3 class="text-sm font-bold text-slate-900 dark:text-slate-100 truncate font-mono">Email Security Remediation Reports</h3>
+            <p class="text-[11px] text-slate-500 font-mono truncate">Configure automatic post-remediation report emails, attachments &amp; SMTP relay</p>
+          </div>
+        </div>
+        <button onclick="closeEmailReportModal()"
+          class="text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 p-1 rounded-lg text-lg flex-shrink-0 cursor-pointer">✕</button>
+      </div>
+
+      <div class="p-4 flex-1 overflow-y-auto custom-scroll space-y-4 text-xs font-mono">
+        <div id="modalEmailFeedback" class="hidden p-2.5 rounded-lg border text-xs font-mono"></div>
+
+        <!-- Recipients & Subject -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="sm:col-span-2">
+            <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Recipient Email Address(es) (comma-separated)</label>
+            <input type="text" id="modalEmailRecipients" placeholder="secops@company.com, ciso@company.com"
+              class="soc-input w-full text-xs font-mono px-3 py-1.5 rounded-lg">
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Sender (From) Email</label>
+            <input type="text" id="modalEmailSender" placeholder="secops-remediator@company.local"
+              class="soc-input w-full text-xs font-mono px-3 py-1.5 rounded-lg">
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Subject Prefix</label>
+            <input type="text" id="modalEmailSubjectPrefix" placeholder="[SecOps Remediation Report]"
+              class="soc-input w-full text-xs font-mono px-3 py-1.5 rounded-lg">
+          </div>
+          <div class="sm:col-span-2">
+            <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Optional Operator Note (Included in Email Summary)</label>
+            <input type="text" id="modalEmailCustomNote" placeholder="e.g. Automated air-gap SAST remediation verified and ready for review."
+              class="soc-input w-full text-xs font-mono px-3 py-1.5 rounded-lg">
+          </div>
+        </div>
+
+        <!-- Triggers & Report Attachments -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
+          <div class="space-y-1.5">
+            <div class="text-[11px] font-bold uppercase text-slate-700 dark:text-slate-300">Auto-Send Triggers</div>
+            <label class="flex items-center gap-2 cursor-pointer text-[11px]">
+              <input type="checkbox" id="modalAutoSendRemediation" checked class="rounded border-slate-300 text-emerald-600">
+              <span>Send automatically after Step 03 Remediation</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer text-[11px]">
+              <input type="checkbox" id="modalAutoSendPr" class="rounded border-slate-300 text-emerald-600">
+              <span>Send automatically after Step 05 Pull Request</span>
+            </label>
+          </div>
+          <div class="space-y-1.5">
+            <div class="text-[11px] font-bold uppercase text-slate-700 dark:text-slate-300">Attached Report Dossiers</div>
+            <label class="flex items-center gap-2 cursor-pointer text-[11px]">
+              <input type="checkbox" id="modalAttachRemHtml" checked class="rounded border-slate-300 text-blue-600">
+              <span>REMEDIATION_AUDIT_REPORT.html</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer text-[11px]">
+              <input type="checkbox" id="modalAttachScanHtml" checked class="rounded border-slate-300 text-blue-600">
+              <span>SECURESCAN_REPORT.html</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer text-[11px]">
+              <input type="checkbox" id="modalAttachRemJson" checked class="rounded border-slate-300 text-blue-600">
+              <span>REMEDIATION_AUDIT_REPORT.json</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- SMTP Server Configuration -->
+        <div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-2.5">
+          <div>
+            <label class="block text-[10px] font-bold uppercase text-emerald-700 dark:text-emerald-400 mb-0.5">HTTPS Gmail / Email Webhook URL (Port 443 — Works Through Corporate Firewalls)</label>
+            <input type="text" id="modalEmailWebhookUrl" placeholder="https://script.google.com/macros/s/.../exec (optional — overrides blocked SMTP)"
+              class="soc-input w-full text-xs font-mono px-2.5 py-1.5 rounded-lg">
+          </div>
+          <div class="flex items-center justify-between pt-1 border-t border-slate-200 dark:border-slate-700">
+            <span class="text-[11px] font-bold uppercase text-slate-700 dark:text-slate-300">Or Direct SMTP Relay Configuration</span>
+            <span class="text-[10px] text-slate-500">Always archives .eml to reports/email_outbox/</span>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <div class="sm:col-span-2">
+              <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">SMTP Host</label>
+              <input type="text" id="modalSmtpHost" placeholder="smtp.gmail.com or smtp.company.local"
+                class="soc-input w-full text-xs font-mono px-2.5 py-1.5 rounded-lg">
+            </div>
+            <div>
+              <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">SMTP Port</label>
+              <input type="number" id="modalSmtpPort" value="587" placeholder="587"
+                class="soc-input w-full text-xs font-mono px-2.5 py-1.5 rounded-lg">
+            </div>
+            <div>
+              <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">SMTP Username</label>
+              <input type="text" id="modalSmtpUser" placeholder="(optional)"
+                class="soc-input w-full text-xs font-mono px-2.5 py-1.5 rounded-lg">
+            </div>
+            <div>
+              <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">SMTP Password / App Key</label>
+              <input type="password" id="modalSmtpPass" placeholder="(optional)"
+                class="soc-input w-full text-xs font-mono px-2.5 py-1.5 rounded-lg">
+            </div>
+            <div class="flex items-end gap-3 pb-1">
+              <label class="flex items-center gap-1.5 cursor-pointer text-[11px]">
+                <input type="checkbox" id="modalSmtpTls" checked class="rounded border-slate-300 text-blue-600">
+                <span>STARTTLS</span>
+              </label>
+              <label class="flex items-center gap-1.5 cursor-pointer text-[11px]">
+                <input type="checkbox" id="modalSmtpSsl" class="rounded border-slate-300 text-blue-600">
+                <span>SSL/TLS (465)</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Recent Dispatched / Outbox Archive -->
+        <div class="space-y-1.5">
+          <div class="text-[11px] font-bold uppercase text-slate-700 dark:text-slate-300">Recent Dispatched &amp; Outbox Archive (reports/email_outbox/)</div>
+          <div id="modalOutboxList" class="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-400 max-h-28 overflow-y-auto custom-scroll">
+            No report emails generated yet.
+          </div>
+        </div>
+      </div>
+
+      <div class="p-3.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex items-center justify-between gap-3">
+        <button type="button" onclick="saveEmailSettings()" id="btnSaveEmailConfig"
+          class="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs text-white font-mono font-bold cursor-pointer">
+          💾 Save Email Settings
+        </button>
+        <div class="flex items-center gap-2">
+          <button type="button" onclick="sendRemediationEmailNow(true)" id="btnModalSendEmailNow"
+            class="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs text-white font-mono font-bold cursor-pointer shadow-sm">
+            📨 Send Report Email Now
+          </button>
+          <button type="button" onclick="closeEmailReportModal()"
+            class="px-3 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 text-xs text-slate-700 dark:text-slate-300 font-mono cursor-pointer">
+            Close
           </button>
         </div>
       </div>
@@ -2952,6 +3139,8 @@
 
       const remSumBar = document.getElementById("remediationSummaryBar");
       if (remSumBar) remSumBar.classList.add("hidden");
+      const remEmailBadge = document.getElementById("remediationEmailStatusBadge");
+      if (remEmailBadge) remEmailBadge.classList.add("hidden");
 
       const emptyOverlay = document.getElementById("remediationEmptyState");
       const countBadge = document.getElementById("remediatedFilesCountBadge");
@@ -4586,12 +4775,16 @@ ${filesFormatted}
       try {
         const repoUrl = document.getElementById("repoUrl").value.trim();
         const targetWs = window.activePreparedWorkspacePath || repoUrl;
+        const step3Recipients = (document.getElementById("step3RecipientEmailInput")?.value || "").trim();
+        const step3AutoSend = document.getElementById("step3AutoSendEmailCheckbox") ? document.getElementById("step3AutoSendEmailCheckbox").checked : true;
         const res = await apiPost("/api/fix", {
           workspace_path: targetWs,
           repo_url: repoUrl,
           provider: provider,
           model: model,
-          base_url: baseUrl
+          base_url: baseUrl,
+          recipient_emails: step3Recipients || undefined,
+          auto_send_email: step3AutoSend
         });
 
         if (fixProgressInterval) {
@@ -4666,6 +4859,10 @@ ${filesFormatted}
             const postGrade = res.post_scan && res.post_scan.posture ? res.post_scan.posture.grade : "A+";
             const badge = document.getElementById("remediationPostureBadge");
             if (badge) badge.textContent = `SCORE: ${postScore}/100 (${postGrade})`;
+          }
+
+          if (res.email_notification) {
+            handleEmailNotificationFeedback(res.email_notification);
           }
 
           // Accumulate all threats, fixes, and modified files across runs of Step 3
@@ -4852,6 +5049,9 @@ ${filesFormatted}
         } else {
           const prType = res.provider === "local" ? "Local PR" : "PR";
           log(`${prType} #${res.pr_number} successfully opened: ${res.pr_file_path || res.pr_url}`, "success", "GitSubAgent");
+          if (res.email_notification) {
+            handleEmailNotificationFeedback(res.email_notification);
+          }
           renderPrCard(res);
           setStage(5, "PR OPENED ✓", true);
         }
@@ -4937,6 +5137,8 @@ ${filesFormatted}
       if (diffPre) diffPre.textContent = "";
       const remSumBar = document.getElementById("remediationSummaryBar");
       if (remSumBar) remSumBar.classList.add("hidden");
+      const remEmailBadge = document.getElementById("remediationEmailStatusBadge");
+      if (remEmailBadge) remEmailBadge.classList.add("hidden");
 
       // Reset Step 3 Remediated Files Studio
       currentRemediationData = null;
@@ -5431,8 +5633,207 @@ ${filesFormatted}
       if (e.key === "Escape") {
         closeFolderPickerModal();
         closeLocalPrModal();
+        closeEmailReportModal();
       }
     });
+
+    // ==========================================
+    // Email Report Configuration & Dispatch
+    // ==========================================
+    async function loadEmailConfig() {
+      try {
+        const cfg = await apiGet("/api/email/config");
+        if (!cfg || cfg.error) return;
+        applyEmailConfigToUI(cfg);
+      } catch (e) {
+        console.debug("Could not load email config:", e);
+      }
+    }
+
+    function applyEmailConfigToUI(cfg) {
+      if (!cfg) return;
+      const recStr = cfg.recipient_emails_str || (Array.isArray(cfg.recipient_emails) ? cfg.recipient_emails.join(", ") : "");
+      const s3Input = document.getElementById("step3RecipientEmailInput");
+      if (s3Input && document.activeElement !== s3Input) s3Input.value = recStr;
+      const s3Check = document.getElementById("step3AutoSendEmailCheckbox");
+      if (s3Check) s3Check.checked = cfg.auto_send_after_remediation !== false;
+
+      const mRec = document.getElementById("modalEmailRecipients");
+      if (mRec) mRec.value = recStr;
+      const mSend = document.getElementById("modalEmailSender");
+      if (mSend) mSend.value = cfg.sender_email || "secops-remediator@airgap.local";
+      const mPref = document.getElementById("modalEmailSubjectPrefix");
+      if (mPref) mPref.value = cfg.subject_prefix || "[SecOps Remediation Report]";
+      const mAutoRem = document.getElementById("modalAutoSendRemediation");
+      if (mAutoRem) mAutoRem.checked = cfg.auto_send_after_remediation !== false;
+      const mAutoPr = document.getElementById("modalAutoSendPr");
+      if (mAutoPr) mAutoPr.checked = Boolean(cfg.auto_send_after_pr);
+
+      const mAttRemHtml = document.getElementById("modalAttachRemHtml");
+      if (mAttRemHtml) mAttRemHtml.checked = cfg.attach_remediation_html !== false;
+      const mAttScanHtml = document.getElementById("modalAttachScanHtml");
+      if (mAttScanHtml) mAttScanHtml.checked = cfg.attach_scan_html !== false;
+      const mAttRemJson = document.getElementById("modalAttachRemJson");
+      if (mAttRemJson) mAttRemJson.checked = cfg.attach_remediation_json !== false;
+
+      const mHost = document.getElementById("modalSmtpHost");
+      if (mHost) mHost.value = cfg.smtp_host || "";
+      const mWh = document.getElementById("modalEmailWebhookUrl");
+      if (mWh) mWh.value = cfg.webhook_url || "";
+      const mPort = document.getElementById("modalSmtpPort");
+      if (mPort) mPort.value = cfg.smtp_port || 587;
+      const mUser = document.getElementById("modalSmtpUser");
+      if (mUser) mUser.value = cfg.smtp_username || "";
+      const mPass = document.getElementById("modalSmtpPass");
+      if (mPass) mPass.value = cfg.smtp_password || "";
+      const mTls = document.getElementById("modalSmtpTls");
+      if (mTls) mTls.checked = cfg.use_tls !== false;
+      const mSsl = document.getElementById("modalSmtpSsl");
+      if (mSsl) mSsl.checked = Boolean(cfg.use_ssl);
+
+      const outboxEl = document.getElementById("modalOutboxList");
+      if (outboxEl && Array.isArray(cfg.recent_outbox)) {
+        if (cfg.recent_outbox.length === 0) {
+          outboxEl.innerHTML = `<div class="text-slate-400 italic">No report emails generated yet.</div>`;
+        } else {
+          outboxEl.innerHTML = cfg.recent_outbox.map(item => `
+            <div class="py-1 border-b border-slate-200 dark:border-slate-800 last:border-none flex items-center justify-between gap-2">
+              <span class="truncate font-semibold text-slate-700 dark:text-slate-300" title="${escapeHtml(item.file_path)}">📧 ${escapeHtml(item.filename)}</span>
+              <span class="text-[10px] text-slate-500 flex-shrink-0">${Math.round((item.size_bytes || 0) / 1024)} KB</span>
+            </div>
+          `).join("");
+        }
+      }
+    }
+
+    function openEmailReportModal() {
+      const modal = document.getElementById("emailReportModal");
+      if (modal) modal.style.display = "flex";
+      const fb = document.getElementById("modalEmailFeedback");
+      if (fb) fb.classList.add("hidden");
+      loadEmailConfig();
+    }
+
+    function closeEmailReportModal() {
+      const modal = document.getElementById("emailReportModal");
+      if (modal) modal.style.display = "none";
+    }
+
+    function collectModalEmailConfigPayload() {
+      return {
+        recipient_emails: (document.getElementById("modalEmailRecipients")?.value || "").trim(),
+        sender_email: (document.getElementById("modalEmailSender")?.value || "").trim(),
+        subject_prefix: (document.getElementById("modalEmailSubjectPrefix")?.value || "").trim(),
+        custom_note: (document.getElementById("modalEmailCustomNote")?.value || "").trim(),
+        auto_send_after_remediation: Boolean(document.getElementById("modalAutoSendRemediation")?.checked),
+        auto_send_after_pr: Boolean(document.getElementById("modalAutoSendPr")?.checked),
+        attach_remediation_html: Boolean(document.getElementById("modalAttachRemHtml")?.checked),
+        attach_scan_html: Boolean(document.getElementById("modalAttachScanHtml")?.checked),
+        attach_remediation_json: Boolean(document.getElementById("modalAttachRemJson")?.checked),
+        webhook_url: (document.getElementById("modalEmailWebhookUrl")?.value || "").trim(),
+        smtp_host: (document.getElementById("modalSmtpHost")?.value || "").trim(),
+        smtp_port: parseInt(document.getElementById("modalSmtpPort")?.value || "587", 10) || 587,
+        smtp_username: (document.getElementById("modalSmtpUser")?.value || "").trim(),
+        smtp_password: document.getElementById("modalSmtpPass")?.value || "",
+        use_tls: Boolean(document.getElementById("modalSmtpTls")?.checked),
+        use_ssl: Boolean(document.getElementById("modalSmtpSsl")?.checked)
+      };
+    }
+
+    async function syncRecipientEmailFromStep3() {
+      const rec = (document.getElementById("step3RecipientEmailInput")?.value || "").trim();
+      const autoSend = Boolean(document.getElementById("step3AutoSendEmailCheckbox")?.checked);
+      try {
+        const res = await apiPost("/api/email/config", {
+          recipient_emails: rec,
+          auto_send_after_remediation: autoSend
+        });
+        if (res && res.config) applyEmailConfigToUI(res.config);
+      } catch (e) { }
+    }
+
+    async function saveEmailSettings() {
+      const payload = collectModalEmailConfigPayload();
+      const res = await apiPost("/api/email/config", payload);
+      const fb = document.getElementById("modalEmailFeedback");
+      if (res && !res.error) {
+        if (res.config) applyEmailConfigToUI(res.config);
+        if (fb) {
+          fb.className = "p-2.5 rounded-lg border text-xs font-mono bg-emerald-50 text-emerald-800 border-emerald-300";
+          fb.textContent = "✓ Email & SMTP settings saved.";
+          fb.classList.remove("hidden");
+        }
+        log("Saved email report & SMTP settings.", "success", "Orchestrator");
+      } else if (fb) {
+        fb.className = "p-2.5 rounded-lg border text-xs font-mono bg-rose-50 text-rose-800 border-rose-300";
+        fb.textContent = `⚠️ Error saving settings: ${res?.error || "Unknown error"}`;
+        fb.classList.remove("hidden");
+      }
+    }
+
+    function handleEmailNotificationFeedback(emailRes) {
+      if (!emailRes) return;
+      const badge = document.getElementById("remediationEmailStatusBadge");
+      if (badge) {
+        badge.classList.remove("hidden");
+        if (emailRes.status === "sent") {
+          badge.textContent = `✉️ EMAILED TO ${(emailRes.recipients || []).join(", ")} ✓`;
+          badge.className = "px-2 py-0.5 rounded text-[10px] bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700 font-bold";
+        } else if (emailRes.status === "saved_to_outbox") {
+          badge.textContent = `📥 REPORT ARCHIVED TO OUTBOX (${emailRes.outbox_filename || ".eml"})`;
+          badge.className = "px-2 py-0.5 rounded text-[10px] bg-indigo-100 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-200 border border-indigo-300 dark:border-indigo-700 font-bold";
+        } else {
+          badge.textContent = `⚠️ EMAIL: ${emailRes.status}`;
+          badge.className = "px-2 py-0.5 rounded text-[10px] bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-700 font-bold";
+        }
+      }
+      log(emailRes.message || "Remediation report email processed.", emailRes.status === "error" ? "error" : "success", "Orchestrator");
+    }
+
+    async function sendRemediationEmailNow(fromModal = false) {
+      let payload = {};
+      if (fromModal) {
+        payload = collectModalEmailConfigPayload();
+      } else {
+        const s3Rec = (document.getElementById("step3RecipientEmailInput")?.value || "").trim();
+        if (s3Rec) payload.recipient_emails = s3Rec;
+      }
+
+      const btnModal = document.getElementById("btnModalSendEmailNow");
+      const btnStep3 = document.getElementById("btnSendReportStep3");
+      const btnDossier = document.getElementById("btnSendEmailDossier");
+      if (btnModal) btnModal.textContent = "⏳ Sending...";
+      if (btnStep3) btnStep3.innerHTML = "<span>⏳</span> <span>Sending...</span>";
+      if (btnDossier) btnDossier.innerHTML = "<span>⏳</span> <span>Sending...</span>";
+
+      try {
+        const res = await apiPost("/api/email/send-report", payload);
+        const fb = document.getElementById("modalEmailFeedback");
+        if (res && !res.error) {
+          handleEmailNotificationFeedback(res);
+          if (fb) {
+            fb.className = "p-2.5 rounded-lg border text-xs font-mono bg-emerald-50 text-emerald-800 border-emerald-300";
+            fb.textContent = `✓ ${res.message}`;
+            fb.classList.remove("hidden");
+          }
+          await loadEmailConfig();
+        } else {
+          const errMsg = res?.error || "Failed to dispatch report email";
+          log(errMsg, "error", "Orchestrator");
+          if (fb) {
+            fb.className = "p-2.5 rounded-lg border text-xs font-mono bg-rose-50 text-rose-800 border-rose-300";
+            fb.textContent = `⚠️ ${errMsg}`;
+            fb.classList.remove("hidden");
+          }
+        }
+      } finally {
+        if (btnModal) btnModal.textContent = "📨 Send Report Email Now";
+        if (btnStep3) btnStep3.innerHTML = "<span>📨</span> <span>Send Report Now</span>";
+        if (btnDossier) btnDossier.innerHTML = "<span>✉️</span> <span>Email Report</span>";
+      }
+    }
+
+    loadEmailConfig();
 
     const elPrDesc = document.getElementById("prDescription");
     if (elPrDesc) {

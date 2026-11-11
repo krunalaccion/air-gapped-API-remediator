@@ -15,6 +15,7 @@ from agents.git_agent.agent import GitSubAgent, WorkspaceContext, FinalizeResult
 from agents.git_agent.config import GitAgentConfig
 from agents.scanner_agent.agent import ScannerAgent
 from agents.remediator_agent.agent import RemediatorAgent
+from orchestrator.email_notifier import EmailReportNotifier
 
 logger = logging.getLogger("orchestrator.pipeline")
 
@@ -165,6 +166,32 @@ class MultiAgentPipeline:
 
         resolved_all = (len(post_scan.get("findings") if post_scan.get("findings") is not None else (post_scan.get("bug_findings") or [])) == 0)
 
+        email_notification = None
+        try:
+            app_root = Path(__file__).resolve().parent.parent
+            notifier = EmailReportNotifier(app_root_dir=app_root)
+            cfg = notifier.get_public_config()
+            if cfg.get("enabled", True) and cfg.get("auto_send_after_remediation", True):
+                rem_html, _ = self.remediator.get_report_content(fmt="html", workspace_path=str(ctx.repo_path))
+                rem_json, _ = self.remediator.get_report_content(fmt="json", workspace_path=str(ctx.repo_path))
+                scan_html, _ = self.scanner.get_report_content("html")
+                email_notification = notifier.send_remediation_report_email(
+                    repo_name=repo_name,
+                    workspace_path=str(ctx.repo_path),
+                    branch=ctx.feature_branch,
+                    base_branch=ctx.base_branch,
+                    scan_result=scan_result,
+                    remediation_result=fix_result,
+                    post_scan_result=post_scan,
+                    pr_data=finalize_result.to_dict().get("pull_request"),
+                    remediation_html=rem_html,
+                    remediation_json=rem_json,
+                    scan_html=scan_html,
+                    trigger_source="pipeline_completed",
+                )
+        except Exception as email_exc:
+            logger.warning("Could not send pipeline completion email report: %s", email_exc)
+
         return {
             "status": "success",
             "context": ctx.to_dict(),
@@ -177,4 +204,5 @@ class MultiAgentPipeline:
             "resolved_all": resolved_all,
             "bug_fixer": bug_fix_result,
             "git_result": finalize_result.to_dict(),
+            "email_notification": email_notification,
         }
