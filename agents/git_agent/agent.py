@@ -128,6 +128,7 @@ class GitSubAgent(BaseAgent):
         )
         self.context: Optional[WorkspaceContext] = None
         self.last_build_test_result: Optional[Dict[str, Any]] = None
+        self.last_push_result: Optional[Dict[str, Any]] = None
 
     def _init_provider(self) -> None:
         """Initialize repository provider (GitHub / GitLab)."""
@@ -185,9 +186,24 @@ class GitSubAgent(BaseAgent):
                     self.workspace.workspace_dir = self.provider.repo_path
                     self.config.workspace_dir = str(self.provider.repo_path)
 
-        # 1. Clone repository
-        clone_url = self.config.authenticated_clone_url
-        self.workspace.clone(clone_url)
+        # 1. Clone repository (or fetch remote origin if local workspace already exists)
+        pull_url: Optional[str] = None
+        if self.config.is_local and (self.workspace.workspace_dir / ".git").exists():
+            origin_url = self.workspace.get_remote_url("origin")
+            if origin_url:
+                try:
+                    is_self = Path(origin_url).resolve() == self.workspace.workspace_dir.resolve()
+                except Exception:
+                    is_self = False
+                if not is_self:
+                    eff_token = self.config.token or self.config.resolve_env_token_for_url(origin_url)
+                    if eff_token:
+                        self.workspace.token_to_scrub = eff_token
+                        pull_url = self.config.build_authenticated_remote_url(origin_url, token=eff_token)
+                    self.workspace.fetch_remote("origin", fetch_url=pull_url)
+        else:
+            clone_url = self.config.authenticated_clone_url
+            self.workspace.clone(clone_url)
 
         # 2. Determine base branch (configured, from provider API, or from remote git)
         target_base = base_branch or self.config.base_branch
@@ -207,7 +223,7 @@ class GitSubAgent(BaseAgent):
 
         # 3. Checkout and pull base branch
         logger.info("Checking out and pulling base branch: %s", target_base)
-        resolved_base = self.workspace.checkout_and_pull_base(target_base)
+        resolved_base = self.workspace.checkout_and_pull_base(target_base, pull_url=pull_url)
 
         # 4. Generate and checkout feature branch
         target_feature = feature_branch or self.config.feature_branch_name
@@ -240,6 +256,130 @@ class GitSubAgent(BaseAgent):
     def get_workspace_path(self) -> Path:
         """Returns the local Path where files are checked out."""
         return self.workspace.workspace_dir
+
+    def get_remote_url(self, remote: str = "origin") -> Optional[str]:
+        """Returns the raw configured remote URL for the workspace if present."""
+        return self.workspace.get_remote_url(remote)
+
+    def get_sanitized_remote_url(self, remote: str = "origin") -> Optional[str]:
+        """Returns the configured remote URL with credentials stripped."""
+        raw = self.workspace.get_remote_url(remote)
+        return GitAgentConfig.sanitize_url(raw) if raw else None
+
+    def push_branch(
+        self,
+        branch: Optional[str] = None,
+        remote: str = "origin",
+        force: bool = False,
+        token: Optional[str] = None,
+        username: Optional[str] = None,
+        require_remote: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Push a branch to remote origin (supports both cloned remotes and local folders with a configured remote).
+        Returns status metadata dict with keys: pushed, status, remote, remote_url, branch.
+        """
+        target_branch = (
+            branch
+            or (self.context.feature_branch if self.context else None)
+            or self.workspace.current_feature_branch
+            or self.workspace.get_current_branch()
+        )
+        if token:
+            self.config.token = token
+            self.workspace.token_to_scrub = token
+        if username is not None:
+            self.config.username = username
+
+        if not self.config.is_local:
+            push_url = (
+                self.config.build_authenticated_remote_url(self.config.repo_url, token=token, username=username)
+                if (token or username)
+                else self.config.authenticated_clone_url
+            )
+            self.workspace.push(branch=target_branch, remote=remote, force=force, push_url=push_url)
+            self.last_push_result = {
+                "pushed": True,
+                "status": "pushed",
+                "remote": remote,
+                "remote_url": self.config.sanitized_repo_url,
+                "branch": target_branch,
+            }
+            return dict(self.last_push_result)
+
+        origin_url = self.workspace.get_remote_url(remote)
+        if not origin_url:
+            if require_remote:
+                raise RuntimeError(f"No remote '{remote}' configured in local repository '{self.workspace.workspace_dir}'.")
+            logger.info("No remote '%s' configured; branch '%s' remains committed locally", remote, target_branch)
+            self.last_push_result = {
+                "pushed": False,
+                "status": "local_only",
+                "remote": None,
+                "remote_url": None,
+                "branch": target_branch,
+            }
+            return dict(self.last_push_result)
+
+        try:
+            if Path(origin_url).resolve() == self.workspace.workspace_dir.resolve():
+                logger.info("Remote '%s' points to local workspace itself; branch '%s' is local", remote, target_branch)
+                self.last_push_result = {
+                    "pushed": False,
+                    "status": "local_only",
+                    "remote": None,
+                    "remote_url": None,
+                    "branch": target_branch,
+                }
+                return dict(self.last_push_result)
+        except Exception:
+            pass
+
+        eff_token = token or self.config.token or self.config.resolve_env_token_for_url(origin_url)
+        eff_user = username if username is not None else self.config.username
+        if eff_token:
+            self.workspace.token_to_scrub = eff_token
+        push_url = self.config.build_authenticated_remote_url(origin_url, token=eff_token, username=eff_user)
+        sanitized = GitAgentConfig.sanitize_url(origin_url)
+        logger.info("Pushing local repo branch '%s' to remote '%s' (%s)", target_branch, remote, sanitized)
+        self.workspace.push(branch=target_branch, remote=remote, force=force, push_url=push_url)
+        self.workspace.run_git(["update-ref", f"refs/remotes/{remote}/{target_branch}", "HEAD"], check=False)
+        self.last_push_result = {
+            "pushed": True,
+            "status": "pushed",
+            "remote": remote,
+            "remote_url": sanitized,
+            "branch": target_branch,
+        }
+        return dict(self.last_push_result)
+
+    def resolve_pr_provider(self) -> Optional[GitProvider]:
+        """
+        Resolves the provider to use for Pull Request creation.
+        For local folders that have a GitHub/GitLab origin remote AND an available token,
+        returns the remote GitHub/GitLab provider; otherwise returns `self.provider`.
+        """
+        if self.config.provider in (ProviderType.GITHUB, ProviderType.GITLAB) and self.provider:
+            return self.provider
+
+        if self.config.is_local:
+            origin_url = self.workspace.get_remote_url("origin")
+            if origin_url:
+                remote_prov = self.config.resolve_remote_provider(origin_url)
+                eff_token = self.config.token or self.config.resolve_env_token_for_url(origin_url)
+                if remote_prov in (ProviderType.GITHUB, ProviderType.GITLAB) and eff_token:
+                    try:
+                        remote_cfg = GitAgentConfig(
+                            repo_url=origin_url,
+                            token=eff_token,
+                            username=self.config.username,
+                            provider=remote_prov,
+                            api_base_url=self.config.api_base_url or None,
+                        )
+                        return get_provider(remote_cfg)
+                    except Exception as exc:
+                        logger.warning("Could not initialize remote PR provider for '%s': %s", GitAgentConfig.sanitize_url(origin_url), exc)
+        return self.provider
 
     def get_status(self) -> Dict[str, Any]:
         """Inspects status of files in the workspace."""
@@ -308,15 +448,13 @@ class GitSubAgent(BaseAgent):
             author_email=self.config.author_email,
         )
 
-        # 5. Push to remote
+        # 5. Push to remote (supports both cloned remotes and local repos with remote 'origin')
         logger.info("Pushing feature branch '%s' to remote", self.context.feature_branch)
-        self.workspace.push(
-            branch=self.context.feature_branch,
-            push_url=self.config.authenticated_clone_url,
-        )
+        push_res = self.push_branch(branch=self.context.feature_branch)
 
         # 6. Raise Pull Request / Merge Request
-        if not self.provider:
+        pr_provider = self.resolve_pr_provider() if push_res.get("pushed") else self.provider
+        if not pr_provider:
             raise RuntimeError(
                 "No provider configured (e.g. GitHub, GitLab, or Local). Cannot create Pull Request automatically."
             )
@@ -338,9 +476,17 @@ class GitSubAgent(BaseAgent):
         is_draft = draft if draft is not None else self.config.draft_pr
 
         provider_name = (
-            self.config.provider.value
-            if (self.config.provider and hasattr(self.config.provider, "value"))
-            else str(self.config.provider or "generic")
+            "github"
+            if pr_provider.__class__.__name__ == "GitHubProvider"
+            else (
+                "gitlab"
+                if pr_provider.__class__.__name__ == "GitLabProvider"
+                else (
+                    self.config.provider.value
+                    if (self.config.provider and hasattr(self.config.provider, "value"))
+                    else str(self.config.provider or "generic")
+                )
+            )
         )
         logger.info(
             "Creating %s PR/MR: head='%s', base='%s', title='%s'",
@@ -350,16 +496,29 @@ class GitSubAgent(BaseAgent):
             title,
         )
 
-        pr_result = self.provider.create_pull_request(
-            head_branch=self.context.feature_branch,
-            base_branch=self.context.base_branch,
-            title=title,
-            description=body,
-            draft=is_draft,
-        )
+        try:
+            pr_result = pr_provider.create_pull_request(
+                head_branch=self.context.feature_branch,
+                base_branch=self.context.base_branch,
+                title=title,
+                description=body,
+                draft=is_draft,
+            )
+        except Exception as pr_exc:
+            if pr_provider is not self.provider and self.provider is not None:
+                logger.warning("Remote PR creation failed (%s); falling back to local PR record.", pr_exc)
+                pr_result = self.provider.create_pull_request(
+                    head_branch=self.context.feature_branch,
+                    base_branch=self.context.base_branch,
+                    title=title,
+                    description=body,
+                    draft=is_draft,
+                )
+            else:
+                raise
 
         logger.info("PR/MR created successfully: %s", pr_result.url)
-        pr_type = "PR" if self.config.provider != ProviderType.LOCAL else "local review"
+        pr_type = "PR" if pr_result.provider != "local" else "local review"
 
         return FinalizeResult(
             status="success",

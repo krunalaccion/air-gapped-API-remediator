@@ -119,6 +119,31 @@ class TestGitAgentConfig(unittest.TestCase):
         self.assertEqual(cfg.base_branch, "main")
         self.assertTrue(cfg.is_local)
 
+    def test_build_authenticated_remote_url_for_local_repo_with_origin(self):
+        cfg = GitAgentConfig(
+            repo_url="/tmp/my-local-repo",
+            token="ghp_localPushToken1234",
+            username="secbot",
+        )
+        # GitHub HTTPS origin
+        gh_url = cfg.build_authenticated_remote_url("https://github.com/org/app.git")
+        self.assertEqual(gh_url, "https://x-access-token:ghp_localPushToken1234@github.com/org/app.git")
+
+        # GitHub SSH origin converted to HTTPS when token supplied
+        gh_ssh = cfg.build_authenticated_remote_url("git@github.com:org/app.git")
+        self.assertEqual(gh_ssh, "https://x-access-token:ghp_localPushToken1234@github.com/org/app.git")
+
+        # GitLab HTTPS origin
+        gl_url = cfg.build_authenticated_remote_url("https://gitlab.com/team/app.git", token="glpat-abc999")
+        self.assertEqual(gl_url, "https://oauth2:glpat-abc999@gitlab.com/team/app.git")
+
+        # Generic HTTPS origin uses custom username + token
+        gen_url = cfg.build_authenticated_remote_url("https://git.corp.local/team/app.git")
+        self.assertEqual(gen_url, "https://secbot:ghp_localPushToken1234@git.corp.local/team/app.git")
+
+        # Local bare remote remains untouched
+        self.assertEqual(cfg.build_authenticated_remote_url("/tmp/bare_remote.git"), "/tmp/bare_remote.git")
+
 
 if __name__ == "__main__":
     unittest.main()

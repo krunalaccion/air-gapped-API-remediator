@@ -162,6 +162,56 @@ class TestGitSubAgent(unittest.TestCase):
         self.assertIn("is not a Git repository", str(ctx.exception))
         self.assertIn("missing '.git' directory", str(ctx.exception))
 
+    def test_local_repo_with_remote_origin_pushes_and_authenticates(self):
+        # Local clone backed by a bare remote 'origin' (created in setUp at self.remote_dir)
+        subprocess.run(["git", "clone", str(self.remote_dir), str(self.local_dir)], check=True, capture_output=True)
+
+        config = GitAgentConfig(
+            repo_url=str(self.local_dir),
+            feature_branch_name="remediation/local-push-test",
+        )
+        self.assertEqual(config.provider, ProviderType.LOCAL)
+        self.assertTrue(config.is_local)
+
+        agent = GitSubAgent(config)
+        ctx = agent.prepare_workspace()
+        (ctx.repo_path / "app.py").write_text("print('fixed locally and pushed')\n")
+
+        res = agent.finalize_workspace(
+            commit_message="fix: remediate and push from local folder",
+            pr_title="Local Push PR",
+            pr_body="Pushed from local folder to origin.",
+        )
+        self.assertEqual(res.status, "success")
+
+        # Confirm the branch was pushed to the bare remote
+        remote_branches = subprocess.run(
+            ["git", "branch", "--list", "remediation/local-push-test"],
+            cwd=str(self.remote_dir),
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        self.assertIn("remediation/local-push-test", remote_branches)
+
+        # Verify authenticated URL injection when origin is an HTTPS GitHub URL
+        subprocess.run(
+            ["git", "remote", "set-url", "origin", "https://github.com/example-org/sample-app.git"],
+            cwd=str(self.local_dir),
+            check=True,
+            capture_output=True,
+        )
+        with unittest.mock.patch.object(agent.workspace, "push") as mock_push:
+            push_res = agent.push_branch(branch="remediation/local-push-test", token="ghp_testSecretToken999")
+            self.assertTrue(push_res["pushed"])
+            self.assertEqual(push_res["remote_url"], "https://github.com/example-org/sample-app.git")
+            mock_push.assert_called_once_with(
+                branch="remediation/local-push-test",
+                remote="origin",
+                force=False,
+                push_url="https://x-access-token:ghp_testSecretToken999@github.com/example-org/sample-app.git",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

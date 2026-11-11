@@ -3,11 +3,14 @@ import logging
 import os
 from pathlib import Path
 import re
+import shutil
 import socket
+import subprocess
 import threading
 import urllib.request
 import urllib.error
-from typing import Callable, Dict, Any, Optional
+from typing import Callable, Dict, Any, List, Optional, Tuple
+from urllib.parse import urlparse
 
 from .js_fixer import generate_deterministic_js_fix
 from .models import Finding, FixProposal
@@ -796,3 +799,266 @@ Return the JSON object containing `explanation`, `remediation_summary`, `confide
             "No Cloud API key configured (set GEMINI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY) "
             f"and rule '{finding.rule_id}' has no offline fallback."
         )
+
+
+def _format_model_size(size_bytes: Optional[int]) -> str:
+    """Format byte count into human-readable MB/GB label."""
+    if not size_bytes or size_bytes <= 0:
+        return ""
+    gb = size_bytes / (1024 ** 3)
+    if gb >= 1.0:
+        return f"{gb:.1f} GB"
+    mb = size_bytes / (1024 ** 2)
+    return f"{mb:.0f} MB"
+
+
+def _normalize_ollama_root(base_url: Optional[str]) -> str:
+    raw = (
+        base_url
+        or os.getenv("OLLAMA_URL")
+        or os.getenv("OLLAMA_HOST")
+        or os.getenv("LOCAL_LLM_URL")
+        or "http://127.0.0.1:11434"
+    ).strip().rstrip("/")
+    if not raw.startswith("http://") and not raw.startswith("https://"):
+        raw = f"http://{raw}"
+    if raw.endswith("/v1"):
+        raw = raw[:-3].rstrip("/")
+    return raw
+
+
+def _is_local_host_url(url: str) -> bool:
+    host = (urlparse(url).hostname or "").lower()
+    return host in ("127.0.0.1", "localhost", "::1", "0.0.0.0", "")
+
+
+def _discover_ollama_via_api(ollama_root: str, timeout: float = 2.5) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+    tags_url = f"{ollama_root}/api/tags"
+    req = urllib.request.Request(tags_url, headers={"Accept": "application/json"}, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        models: List[Dict[str, Any]] = []
+        for entry in data.get("models") or []:
+            name = (entry.get("name") or entry.get("model") or "").strip()
+            if not name:
+                continue
+            size_val = entry.get("size")
+            size_bytes = int(size_val) if isinstance(size_val, (int, float)) and size_val > 0 else None
+            details = entry.get("details") or {}
+            models.append({
+                "name": name,
+                "size_bytes": size_bytes,
+                "size_label": _format_model_size(size_bytes),
+                "parameter_size": details.get("parameter_size") or "",
+                "family": details.get("family") or "",
+                "quantization": details.get("quantization_level") or "",
+                "modified_at": entry.get("modified_at") or "",
+                "source": "ollama_api",
+            })
+        return models, None
+    except Exception as exc:
+        return [], str(exc)
+
+
+def _discover_ollama_via_cli(timeout: float = 3.0) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+    ollama_bin = shutil.which("ollama")
+    if not ollama_bin:
+        return [], "ollama CLI not found"
+    try:
+        proc = subprocess.run(
+            [ollama_bin, "list"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        if proc.returncode != 0:
+            err = (proc.stderr or proc.stdout or "").strip() or f"ollama list exited with {proc.returncode}"
+            return [], err
+        models: List[Dict[str, Any]] = []
+        for line in proc.stdout.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.upper().startswith("NAME"):
+                continue
+            cols = re.split(r"\s{2,}", stripped)
+            name = cols[0].strip() if cols else ""
+            if not name:
+                continue
+            size_label = cols[2].strip() if len(cols) >= 3 and cols[2].strip() != "-" else ""
+            models.append({
+                "name": name,
+                "size_bytes": None,
+                "size_label": size_label,
+                "parameter_size": "",
+                "family": "",
+                "quantization": "",
+                "modified_at": cols[3].strip() if len(cols) >= 4 else "",
+                "source": "ollama_cli",
+            })
+        return models, None
+    except Exception as exc:
+        return [], str(exc)
+
+
+def _discover_ollama_via_manifests(models_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
+    base_dir = models_dir or Path(os.getenv("OLLAMA_MODELS") or (Path.home() / ".ollama" / "models"))
+    manifests_dir = base_dir / "manifests"
+    if not manifests_dir.exists() or not manifests_dir.is_dir():
+        return []
+
+    models: List[Dict[str, Any]] = []
+    for manifest_file in sorted(manifests_dir.rglob("*")):
+        if not manifest_file.is_file() or manifest_file.name.startswith("."):
+            continue
+        try:
+            rel_parts = manifest_file.relative_to(manifests_dir).parts
+        except ValueError:
+            continue
+        if len(rel_parts) == 4 and rel_parts[0] == "registry.ollama.ai":
+            _, namespace, model_name, tag = rel_parts
+            full_name = f"{model_name}:{tag}" if namespace == "library" else f"{namespace}/{model_name}:{tag}"
+        elif len(rel_parts) >= 3:
+            tag = rel_parts[-1]
+            model_name = rel_parts[-2]
+            namespace = rel_parts[-3]
+            registry = rel_parts[0] if len(rel_parts) >= 4 else ""
+            if registry == "registry.ollama.ai" and namespace == "library":
+                full_name = f"{model_name}:{tag}"
+            elif registry and registry != "registry.ollama.ai":
+                full_name = f"{registry}/{namespace}/{model_name}:{tag}"
+            else:
+                full_name = f"{namespace}/{model_name}:{tag}"
+        elif len(rel_parts) == 2:
+            full_name = f"{rel_parts[0]}:{rel_parts[1]}"
+        else:
+            continue
+
+        size_bytes: Optional[int] = None
+        try:
+            raw_json = json.loads(manifest_file.read_text(encoding="utf-8"))
+            total_sz = 0
+            cfg_obj = raw_json.get("config")
+            if isinstance(cfg_obj, dict) and isinstance(cfg_obj.get("size"), int):
+                total_sz += cfg_obj["size"]
+            for layer in raw_json.get("layers") or []:
+                if isinstance(layer, dict) and isinstance(layer.get("size"), int):
+                    total_sz += layer["size"]
+            if total_sz > 0:
+                size_bytes = total_sz
+        except Exception:
+            pass
+
+        models.append({
+            "name": full_name,
+            "size_bytes": size_bytes,
+            "size_label": _format_model_size(size_bytes),
+            "parameter_size": "",
+            "family": "",
+            "quantization": "",
+            "modified_at": "",
+            "source": "local_manifests",
+        })
+    return models
+
+
+def _discover_openai_compat_models(base_url: Optional[str], timeout: float = 2.5) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+    raw = (base_url or os.getenv("LOCAL_LLM_URL") or "http://localhost:1234/v1").strip().rstrip("/")
+    if not raw.startswith("http://") and not raw.startswith("https://"):
+        raw = f"http://{raw}"
+    models_url = f"{raw}/models" if raw.endswith("/v1") else f"{raw}/v1/models"
+    req = urllib.request.Request(models_url, headers={"Accept": "application/json"}, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        models: List[Dict[str, Any]] = []
+        for entry in data.get("data") or []:
+            mid = (entry.get("id") or "").strip()
+            if mid:
+                models.append({
+                    "name": mid,
+                    "size_bytes": None,
+                    "size_label": "",
+                    "parameter_size": "",
+                    "family": entry.get("owned_by") or "",
+                    "quantization": "",
+                    "modified_at": "",
+                    "source": "openai_compat_api",
+                })
+        return models, None
+    except Exception as exc:
+        return [], str(exc)
+
+
+def discover_local_llm_models(
+    provider: str = "ollama",
+    base_url: Optional[str] = None,
+    timeout: float = 2.5,
+    models_dir: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """
+    Discover locally installed/available LLM models for the selected local provider.
+    For Ollama, queries `{base_url}/api/tags` first, falling back to `ollama list` CLI
+    and `~/.ollama/models/manifests` on disk when the daemon is stopped.
+    """
+    prov = (provider or "ollama").strip().lower()
+    if prov == "local":
+        eff_base = (base_url or os.getenv("LOCAL_LLM_URL") or "http://localhost:1234/v1").strip().rstrip("/")
+        models, err = _discover_openai_compat_models(eff_base, timeout=timeout)
+        names = [m["name"] for m in models]
+        return {
+            "provider": "local",
+            "base_url": eff_base,
+            "daemon_running": err is None,
+            "source": "openai_compat_api" if err is None else "unavailable",
+            "models": models,
+            "model_names": names,
+            "default_model": names[0] if names else "qwen2.5-coder-7b-instruct",
+            "error": err,
+        }
+
+    ollama_root = _normalize_ollama_root(base_url)
+    models, api_err = _discover_ollama_via_api(ollama_root, timeout=timeout)
+    daemon_running = api_err is None
+    source = "ollama_api" if daemon_running else "unavailable"
+    error_msg: Optional[str] = None
+
+    if not daemon_running and _is_local_host_url(ollama_root):
+        cli_models, cli_err = _discover_ollama_via_cli(timeout=timeout)
+        if cli_err is None:
+            models = cli_models
+            daemon_running = True
+            source = "ollama_cli"
+        else:
+            disk_models = _discover_ollama_via_manifests(models_dir=models_dir)
+            if disk_models:
+                models = disk_models
+                source = "local_manifests"
+                error_msg = "Ollama server is offline; showing models found in local manifest cache."
+            else:
+                error_msg = api_err or cli_err
+    elif api_err:
+        error_msg = api_err
+
+    # Deduplicate while preserving discovery order
+    deduped: List[Dict[str, Any]] = []
+    seen = set()
+    for m in models:
+        name = m.get("name", "")
+        if name and name not in seen:
+            seen.add(name)
+            deduped.append(m)
+
+    names = [m["name"] for m in deduped]
+    preferred_env = os.getenv("OLLAMA_MODEL") or "qwen2.5-coder:3b"
+    default_model = preferred_env if preferred_env in names else (names[0] if names else preferred_env)
+
+    return {
+        "provider": "ollama",
+        "base_url": ollama_root,
+        "daemon_running": daemon_running,
+        "source": source,
+        "models": deduped,
+        "model_names": names,
+        "default_model": default_model,
+        "error": error_msg,
+    }

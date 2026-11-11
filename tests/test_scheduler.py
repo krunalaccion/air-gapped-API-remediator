@@ -536,6 +536,212 @@ class TestBatchSchedulerEngine(unittest.TestCase):
         self.assertIn("main", repos[2]["error"].lower())
         self.assertIn("master", repos[2]["error"].lower())
 
+    def test_scheduler_emails_reports_after_each_repo_and_respects_toggle(self):
+        repo_a = self.repos_parent / "01_email_repo_a"
+        repo_b = self.repos_parent / "02_email_repo_b"
+        _init_git_repo(repo_a, {"app.py": 'import requests\nrequests.get("https://api.external-cloud.com/a")\n'})
+        _init_git_repo(repo_b, {"README.md": "# Clean Service\n"})
+
+        from orchestrator.email_notifier import EmailReportNotifier
+
+        notifier = EmailReportNotifier(app_root_dir=self.temp_dir / "dummy_agent_root")
+        notifier.update_config({"recipient_emails": "default-secops@example.com", "smtp_host": ""})
+
+        self.scheduler = BatchScheduler(
+            data_dir=self.data_dir,
+            app_root_dir=self.temp_dir / "dummy_agent_root",
+            auto_start=True,
+            poll_interval_seconds=0.2,
+            email_notifier=notifier,
+        )
+
+        # Spy on send_remediation_report_email while keeping real outbox behavior
+        calls = []
+        orig_send = notifier.send_remediation_report_email
+
+        def spy_send(**kwargs):
+            calls.append(kwargs)
+            return orig_send(**kwargs)
+
+        with patch.object(notifier, "send_remediation_report_email", side_effect=spy_send):
+            created = self.scheduler.create_schedule({
+                "name": "Batch With Per-Repo Email",
+                "folder_path": str(self.repos_parent),
+                "schedule_type": "interval",
+                "interval_minutes": 60,
+                "llm_provider": "auto-fallback",
+                "run_build_test": False,
+                "send_email": True,
+                "email_recipients": "team-lead@example.com, secops@example.com",
+                "run_immediately": True,
+            })
+            run_id = created["triggered_run"]["run_id"]
+
+            deadline = time.time() + 30.0
+            detail = None
+            while time.time() < deadline:
+                detail = self.scheduler.get_run_detail(run_id)
+                if detail and detail.get("status") in ("COMPLETED", "COMPLETED_WITH_ERRORS", "FAILED"):
+                    break
+                time.sleep(0.2)
+
+        self.assertIsNotNone(detail)
+        self.assertEqual(detail["status"], "COMPLETED")
+        self.assertEqual(len(calls), 2)
+        self.assertEqual([c["repo_name"] for c in calls], ["01_email_repo_a", "02_email_repo_b"])
+        for c in calls:
+            self.assertEqual(c["trigger_source"], "scheduler_repo_completed")
+            self.assertEqual(c["override_recipients"], "team-lead@example.com, secops@example.com")
+            self.assertTrue(c["remediation_html"])
+            self.assertTrue(c["scan_html"])
+            self.assertTrue(c["remediation_json"])
+
+        for repo_res in detail["repos"]:
+            self.assertEqual(repo_res["email_status"], "saved_to_outbox")
+            self.assertEqual(repo_res["email_recipients"], ["team-lead@example.com", "secops@example.com"])
+            self.assertTrue(repo_res["email_outbox_file"])
+
+        # Now verify send_email=False skips emailing and email errors do not fail repo completion
+        calls.clear()
+        with patch.object(notifier, "send_remediation_report_email", side_effect=spy_send):
+            created_skip = self.scheduler.create_schedule({
+                "name": "Batch Email Disabled",
+                "folder_path": str(self.repos_parent),
+                "schedule_type": "interval",
+                "interval_minutes": 60,
+                "llm_provider": "auto-fallback",
+                "run_build_test": False,
+                "send_email": False,
+                "run_immediately": True,
+            })
+            run_id_skip = created_skip["triggered_run"]["run_id"]
+
+            deadline = time.time() + 30.0
+            detail_skip = None
+            while time.time() < deadline:
+                detail_skip = self.scheduler.get_run_detail(run_id_skip)
+                if detail_skip and detail_skip.get("status") in ("COMPLETED", "COMPLETED_WITH_ERRORS", "FAILED"):
+                    break
+                time.sleep(0.2)
+
+        self.assertEqual(detail_skip["status"], "COMPLETED")
+        self.assertEqual(len(calls), 0)
+        for repo_res in detail_skip["repos"]:
+            self.assertEqual(repo_res["email_status"], "skipped")
+
+        # Verify email exception does not fail the batch run
+        with patch.object(notifier, "send_remediation_report_email", side_effect=RuntimeError("SMTP unreachable")):
+            created_err = self.scheduler.create_schedule({
+                "name": "Batch Email Error Resilience",
+                "folder_path": str(self.repos_parent),
+                "schedule_type": "interval",
+                "interval_minutes": 60,
+                "llm_provider": "auto-fallback",
+                "run_build_test": False,
+                "send_email": True,
+                "run_immediately": True,
+            })
+            run_id_err = created_err["triggered_run"]["run_id"]
+
+            deadline = time.time() + 30.0
+            detail_err = None
+            while time.time() < deadline:
+                detail_err = self.scheduler.get_run_detail(run_id_err)
+                if detail_err and detail_err.get("status") in ("COMPLETED", "COMPLETED_WITH_ERRORS", "FAILED"):
+                    break
+                time.sleep(0.2)
+
+        self.assertEqual(detail_err["status"], "COMPLETED")
+        for repo_res in detail_err["repos"]:
+            self.assertEqual(repo_res["email_status"], "error")
+            self.assertIn("SMTP unreachable", repo_res["email_message"])
+
+    def test_scheduler_pushes_local_folder_repos_with_masked_auth(self):
+        # Create a bare remote and clone it into the scheduled local folder
+        bare_remote = self.temp_dir / "bare_origin.git"
+        subprocess.run(["git", "init", "--bare", str(bare_remote)], check=True, capture_output=True)
+        seed = self.temp_dir / "seed"
+        subprocess.run(["git", "clone", str(bare_remote), str(seed)], check=True, capture_output=True)
+        (seed / "client.py").write_text('import requests\nrequests.get("https://api.external-cloud.com/push")\n')
+        subprocess.run(["git", "add", "-A"], cwd=str(seed), check=True, capture_output=True)
+        subprocess.run(
+            ["git", "-c", "commit.gpgsign=false", "-c", "user.name=Test", "-c", "user.email=test@test.local", "commit", "-m", "init"],
+            cwd=str(seed), check=True, capture_output=True,
+        )
+        subprocess.run(["git", "branch", "-M", "main"], cwd=str(seed), check=True, capture_output=True)
+        subprocess.run(["git", "push", "-u", "origin", "main"], cwd=str(seed), check=True, capture_output=True)
+        subprocess.run(["git", "symbolic-ref", "HEAD", "refs/heads/main"], cwd=str(bare_remote), check=True, capture_output=True)
+
+        local_clone = self.repos_parent / "local_with_remote"
+        subprocess.run(["git", "clone", str(bare_remote), str(local_clone)], check=True, capture_output=True)
+
+        self.scheduler = BatchScheduler(
+            data_dir=self.data_dir,
+            app_root_dir=self.temp_dir / "dummy_agent_root",
+            auto_start=True,
+            poll_interval_seconds=0.2,
+        )
+
+        created = self.scheduler.create_schedule({
+            "name": "Local Folder Push With Auth",
+            "folder_path": str(self.repos_parent),
+            "schedule_type": "interval",
+            "interval_minutes": 60,
+            "llm_provider": "auto-fallback",
+            "feature_branch": "remediation/sched-push-branch",
+            "run_build_test": False,
+            "auto_commit": True,
+            "auto_push": True,
+            "auto_pr": True,
+            "git_token": "ghp_superSecretSchedToken1234",
+            "git_username": "secops-bot",
+            "send_email": False,
+            "run_immediately": True,
+        })
+
+        # Token must be masked in public schedule view and run snapshot
+        pub_sched = created["schedule"]
+        self.assertTrue(pub_sched["has_git_token"])
+        self.assertEqual(pub_sched["git_token"], "********")
+        self.assertEqual(pub_sched["git_username"], "secops-bot")
+        self.assertTrue(pub_sched["auto_push"])
+
+        run_id = created["triggered_run"]["run_id"]
+        deadline = time.time() + 30.0
+        detail = None
+        while time.time() < deadline:
+            detail = self.scheduler.get_run_detail(run_id)
+            if detail and detail.get("status") in ("COMPLETED", "COMPLETED_WITH_ERRORS", "FAILED"):
+                break
+            time.sleep(0.2)
+
+        self.assertIsNotNone(detail)
+        self.assertEqual(detail["status"], "COMPLETED")
+        self.assertEqual(detail["schedule_snapshot"]["git_token"], "********")
+        repo_res = detail["repos"][0]
+        self.assertEqual(repo_res["push_status"], "pushed")
+        self.assertIn("bare_origin.git", repo_res["remote_url"])
+
+        # Verify the branch actually reached the remote repository
+        remote_branches = subprocess.run(
+            ["git", "branch", "--list", "remediation/sched-push-branch"],
+            cwd=str(bare_remote),
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        self.assertIn("remediation/sched-push-branch", remote_branches)
+
+        # Updating schedule with masked placeholder preserves secret; clearing removes it
+        sched_id = pub_sched["id"]
+        upd_preserve = self.scheduler.update_schedule(sched_id, {"name": "Renamed", "git_token": "********"})
+        self.assertTrue(upd_preserve["has_git_token"])
+        self.assertEqual(self.scheduler._schedules[sched_id]["git_token"], "ghp_superSecretSchedToken1234")
+
+        upd_clear = self.scheduler.update_schedule(sched_id, {"git_token": ""})
+        self.assertFalse(upd_clear["has_git_token"])
+        self.assertEqual(upd_clear["git_token"], "")
+
 
 class TestSchedulerWebAPI(unittest.TestCase):
 
@@ -591,6 +797,13 @@ class TestSchedulerWebAPI(unittest.TestCase):
         self.assertEqual(status, 200)
         text = body.decode("utf-8")
         self.assertIn('id="schedFolderPath"', text)
+        self.assertIn('id="btnSchedulerEmailSettings"', text)
+        self.assertIn('id="schedSendEmail"', text)
+        self.assertIn('id="schedEmailRecipients"', text)
+        self.assertIn('id="schedAutoPush"', text)
+        self.assertIn('id="schedGitToken"', text)
+        self.assertIn('id="schedGitUsername"', text)
+        self.assertIn('id="emailReportModal"', text)
         self.assertIn("discoverReposNow", text)
         self.assertIn("submitScheduleForm", text)
         self.assertIn('id="detailReposList"', text)
@@ -598,6 +811,15 @@ class TestSchedulerWebAPI(unittest.TestCase):
         index_text = (get_web_dir() / "index.html").read_text(encoding="utf-8")
         self.assertIn('href="/scheduler"', index_text)
         self.assertIn('id="navBatchScheduler"', index_text)
+        self.assertIn('id="step4GitToken"', index_text)
+        self.assertIn('id="step4GitUsername"', index_text)
+        self.assertIn("syncGitAuthInputs", index_text)
+        # Top-right Email Reports button removed from single repo pipeline page
+        self.assertNotIn('id="btnEmailSettingsHeader"', index_text)
+        # Send Report Now buttons are hidden until remediation step completes
+        self.assertRegex(index_text, r'id="btnSendReportStep3"[^>]*class="hidden\b|class="hidden\b[^"]*"[^>]*id="btnSendReportStep3"')
+        self.assertRegex(index_text, r'id="btnModalSendEmailNow"[^>]*class="hidden\b|class="hidden\b[^"]*"[^>]*id="btnModalSendEmailNow"')
+        self.assertIn("updateSendReportButtonsVisibility", index_text)
 
     def test_scheduler_rest_crud_and_discovery(self):
         with patch("web_server.BATCH_SCHEDULER", self.test_scheduler):
@@ -628,14 +850,36 @@ class TestSchedulerWebAPI(unittest.TestCase):
             self.assertEqual(st_bad_br, 400)
             self.assertIn("main", err_bad_br.get("error", ""))
 
-            # Create schedule
+            # Invalid email_recipients rejected
+            st_bad_em, err_bad_em = self._call_post("/api/scheduler/schedules", {
+                "name": "Bad Email",
+                "folder_path": str(self.repos_parent),
+                "schedule_type": "daily",
+                "time_of_day": "02:30",
+                "email_recipients": "not-an-email",
+            })
+            self.assertEqual(st_bad_em, 400)
+            self.assertIn("email", err_bad_em.get("error", "").lower())
+
+            # Create schedule with email & git auth settings
             st_c, created = self._call_post("/api/scheduler/schedules", {
                 "name": "Nightly Scan",
                 "folder_path": str(self.repos_parent),
                 "schedule_type": "daily",
                 "time_of_day": "02:30",
+                "auto_push": True,
+                "git_token": "ghp_apiTokenMaskedTest999",
+                "git_username": "audit-bot",
+                "send_email": True,
+                "email_recipients": "secops@example.com, audit@example.com",
             })
             self.assertEqual(st_c, 201)
+            self.assertTrue(created["schedule"]["send_email"])
+            self.assertTrue(created["schedule"]["auto_push"])
+            self.assertTrue(created["schedule"]["has_git_token"])
+            self.assertEqual(created["schedule"]["git_token"], "********")
+            self.assertEqual(created["schedule"]["git_username"], "audit-bot")
+            self.assertEqual(created["schedule"]["email_recipients"], "secops@example.com, audit@example.com")
             sched_id = created["schedule"]["id"]
 
             # Overview
