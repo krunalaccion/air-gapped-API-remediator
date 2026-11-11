@@ -62,21 +62,22 @@ class EmailReportNotifier:
         self._config: Dict[str, Any] = self._load_config()
 
     def _load_dotenv(self) -> None:
-        """Loads key=value pairs from `.env` in app_root_dir into os.environ if not already set."""
-        if not self.dotenv_path.exists():
-            return
-        try:
-            for raw_line in self.dotenv_path.read_text(encoding="utf-8").splitlines():
-                line = raw_line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                key, val = line.split("=", 1)
-                key = key.strip()
-                val = val.strip().strip('"').strip("'")
-                if key and key not in os.environ:
-                    os.environ[key] = val
-        except Exception as exc:
-            logger.warning("Could not parse .env file at %s: %s", self.dotenv_path, exc)
+        """Loads key=value pairs from `.env` (and `.env.example` fallback) in app_root_dir into os.environ."""
+        for candidate in (self.dotenv_path, self.app_root_dir / ".env.example"):
+            if not candidate.exists():
+                continue
+            try:
+                for raw_line in candidate.read_text(encoding="utf-8").splitlines():
+                    line = raw_line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    key, val = line.split("=", 1)
+                    key = key.strip()
+                    val = val.strip().strip('"').strip("'")
+                    if key and key not in os.environ:
+                        os.environ[key] = val
+            except Exception as exc:
+                logger.warning("Could not parse env file at %s: %s", candidate, exc)
 
     def _default_config(self) -> Dict[str, Any]:
         return {
