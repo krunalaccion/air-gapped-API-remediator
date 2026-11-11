@@ -34,6 +34,7 @@ from agents.scanner_agent.models import (
     ScannerExecutionStatus,
 )
 from agents.scanner_agent.pipeline import SecureScanPipeline
+from orchestrator.email_notifier import EmailReportNotifier, _split_emails
 
 logger = logging.getLogger("orchestrator.scheduler")
 
@@ -462,7 +463,7 @@ def discover_repositories(
                     "auto_init_required": False,
                     "current_branch": branch or "main",
                     "base_branch": base_br,
-                    "remote_url": remote_url,
+                    "remote_url": GitAgentConfig.sanitize_url(remote_url) if remote_url else "",
                 })
                 # Stop descending once a repository boundary is found
                 continue
@@ -570,6 +571,11 @@ def validate_schedule_payload(
     if raw_base not in ("", "auto", "main", "master"):
         return False, "Scheduler base_branch must be 'auto', 'main', or 'master'."
 
+    raw_recipients = payload.get("email_recipients") if "email_recipients" in payload else payload.get("recipient_emails")
+    if raw_recipients is not None and str(raw_recipients).strip():
+        if not _split_emails(raw_recipients):
+            return False, "Please provide valid recipient email address(es) separated by commas, or leave blank to use Email Settings defaults."
+
     return True, None
 
 
@@ -611,9 +617,11 @@ class BatchScheduler:
         app_root_dir: Optional[Path] = None,
         auto_start: bool = False,
         poll_interval_seconds: float = 1.0,
+        email_notifier: Optional[EmailReportNotifier] = None,
     ):
         self.app_root_dir = (app_root_dir or Path(__file__).resolve().parents[1]).resolve()
         self.data_dir = (data_dir or (self.app_root_dir / "scheduler_data")).resolve()
+        self.email_notifier = email_notifier or EmailReportNotifier(app_root_dir=self.app_root_dir)
         self.runs_dir = self.data_dir / "runs"
         self.schedules_file = self.data_dir / "schedules.json"
         self.runs_index_file = self.data_dir / "runs.json"
@@ -626,6 +634,7 @@ class BatchScheduler:
         self._worker_thread: Optional[threading.Thread] = None
         self._active_run_id: Optional[str] = None
         self._cancel_flags: Dict[str, threading.Event] = {}
+        self._run_auth_cache: Dict[str, Tuple[Optional[str], Optional[str]]] = {}
 
         self._schedules: Dict[str, Dict[str, Any]] = {}
         self._runs: Dict[str, Dict[str, Any]] = {}
@@ -789,10 +798,20 @@ class BatchScheduler:
     # ------------------------------------------------------------------
     # Schedule CRUD
     # ------------------------------------------------------------------
+    @staticmethod
+    def _public_schedule_view(sched: Dict[str, Any]) -> Dict[str, Any]:
+        """Returns a copy of a schedule dict with git_token masked for safe API/UI exposure."""
+        view = dict(sched)
+        raw_tok = view.get("git_token") or ""
+        has_tok = bool(str(raw_tok).strip())
+        view["has_git_token"] = has_tok
+        view["git_token"] = "********" if has_tok else ""
+        return view
+
     def list_schedules(self) -> List[Dict[str, Any]]:
         with self._lock:
             return sorted(
-                [dict(s) for s in self._schedules.values()],
+                [self._public_schedule_view(s) for s in self._schedules.values()],
                 key=lambda s: s.get("created_at", ""),
                 reverse=True,
             )
@@ -800,7 +819,7 @@ class BatchScheduler:
     def get_schedule(self, schedule_id: str) -> Optional[Dict[str, Any]]:
         with self._lock:
             item = self._schedules.get(schedule_id)
-            return dict(item) if item else None
+            return self._public_schedule_view(item) if item else None
 
     def _build_schedule_record(
         self,
@@ -826,6 +845,35 @@ class BatchScheduler:
         if norm_base not in ("auto", "main", "master"):
             norm_base = "auto"
 
+        raw_rec = (
+            payload.get("email_recipients")
+            if "email_recipients" in payload
+            else (
+                payload.get("recipient_emails")
+                if "recipient_emails" in payload
+                else (existing or {}).get("email_recipients", "")
+            )
+        )
+        norm_rec = ", ".join(_split_emails(raw_rec)) if raw_rec else ""
+
+        if payload.get("clear_git_token"):
+            resolved_git_token = ""
+        elif "git_token" in payload or "token" in payload:
+            raw_tok = payload.get("git_token") if "git_token" in payload else payload.get("token")
+            tok_str = str(raw_tok or "").strip()
+            if tok_str == "********" and existing:
+                resolved_git_token = str(existing.get("git_token") or "")
+            else:
+                resolved_git_token = tok_str
+        else:
+            resolved_git_token = str((existing or {}).get("git_token") or "")
+
+        if "git_username" in payload or "username" in payload:
+            raw_uname = payload.get("git_username") if "git_username" in payload else payload.get("username")
+            resolved_git_username = str(raw_uname or "").strip()
+        else:
+            resolved_git_username = str((existing or {}).get("git_username") or "")
+
         record: Dict[str, Any] = {
             "id": (existing or {}).get("id") or f"sched-{uuid.uuid4().hex[:8]}",
             "name": (payload.get("name") or (existing or {}).get("name") or f"Batch Audit ({Path(resolved_folder).name})").strip(),
@@ -848,7 +896,12 @@ class BatchScheduler:
             "recursive": bool(payload["recursive"]) if "recursive" in payload else bool((existing or {}).get("recursive", False)),
             "run_build_test": bool(payload["run_build_test"]) if "run_build_test" in payload else bool((existing or {}).get("run_build_test", True)),
             "auto_commit": bool(payload["auto_commit"]) if "auto_commit" in payload else bool((existing or {}).get("auto_commit", True)),
+            "auto_push": bool(payload["auto_push"]) if "auto_push" in payload else bool((existing or {}).get("auto_push", True)),
             "auto_pr": bool(payload["auto_pr"]) if "auto_pr" in payload else bool((existing or {}).get("auto_pr", True)),
+            "git_token": resolved_git_token,
+            "git_username": resolved_git_username,
+            "send_email": bool(payload["send_email"]) if "send_email" in payload else bool((existing or {}).get("send_email", True)),
+            "email_recipients": norm_rec,
             "max_iterations": max(1, min(int(payload.get("max_iterations") or (existing or {}).get("max_iterations") or 5), 5)),
             "created_at": (existing or {}).get("created_at") or now_iso,
             "updated_at": now_iso,
@@ -873,7 +926,9 @@ class BatchScheduler:
         run_info = None
         if payload.get("run_immediately"):
             run_info = self.trigger_schedule_now(record["id"], trigger_source="immediate")
-            record = self.get_schedule(record["id"]) or record
+            record = self.get_schedule(record["id"]) or self._public_schedule_view(record)
+        else:
+            record = self._public_schedule_view(record)
 
         return {"schedule": record, "triggered_run": run_info}
 
@@ -890,7 +945,7 @@ class BatchScheduler:
             updated = self._build_schedule_record(merged, existing=existing)
             self._schedules[schedule_id] = updated
             self._persist_schedules_locked()
-            return dict(updated)
+            return self._public_schedule_view(updated)
 
     def toggle_schedule(self, schedule_id: str, enabled: Optional[bool] = None) -> Dict[str, Any]:
         with self._lock:
@@ -902,7 +957,7 @@ class BatchScheduler:
             existing["updated_at"] = local_now().isoformat()
             existing["next_run_at"] = compute_next_run_at(existing) if new_state else None
             self._persist_schedules_locked()
-            return dict(existing)
+            return self._public_schedule_view(existing)
 
     def delete_schedule(self, schedule_id: str) -> bool:
         with self._lock:
@@ -941,13 +996,18 @@ class BatchScheduler:
     ) -> Dict[str, Any]:
         now_iso = local_now().isoformat()
         run_id = f"run-{local_now().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
+        public_snapshot = self._public_schedule_view(schedule_snapshot)
+        raw_tok = schedule_snapshot.get("git_token") or ""
+        raw_uname = schedule_snapshot.get("git_username") or ""
+        with self._lock:
+            self._run_auth_cache[run_id] = (raw_tok or None, raw_uname or None)
         run_data: Dict[str, Any] = {
             "run_id": run_id,
-            "schedule_id": schedule_snapshot.get("id"),
-            "schedule_name": schedule_snapshot.get("name"),
+            "schedule_id": public_snapshot.get("id"),
+            "schedule_name": public_snapshot.get("name"),
             "trigger_source": trigger_source,
-            "folder_path": schedule_snapshot.get("folder_path"),
-            "schedule_snapshot": schedule_snapshot,
+            "folder_path": public_snapshot.get("folder_path"),
+            "schedule_snapshot": public_snapshot,
             "status": "QUEUED",
             "created_at": now_iso,
             "started_at": None,
@@ -1225,7 +1285,22 @@ class BatchScheduler:
             return
 
         cancel_ev = self._cancel_flags.setdefault(run_id, threading.Event())
-        sched = run_data.get("schedule_snapshot") or {}
+        sched = dict(run_data.get("schedule_snapshot") or {})
+        with self._lock:
+            cached_auth = self._run_auth_cache.pop(run_id, None)
+            live_sched = self._schedules.get(run_data.get("schedule_id") or "")
+        if cached_auth and (cached_auth[0] or cached_auth[1]):
+            if cached_auth[0]:
+                sched["git_token"] = cached_auth[0]
+            if cached_auth[1]:
+                sched["git_username"] = cached_auth[1]
+        elif live_sched:
+            if live_sched.get("git_token"):
+                sched["git_token"] = live_sched["git_token"]
+            if live_sched.get("git_username"):
+                sched["git_username"] = live_sched["git_username"]
+        if sched.get("git_token") == "********":
+            sched["git_token"] = (live_sched or {}).get("git_token") or ""
         folder_path = run_data.get("folder_path") or sched.get("folder_path") or ""
 
         with self._lock:
@@ -1286,11 +1361,18 @@ class BatchScheduler:
                 "files_modified": [],
                 "commit_hash": None,
                 "commit_status": None,
+                "remote_url": repo.get("remote_url") or None,
+                "push_status": None,
                 "pr_number": None,
                 "pr_url": None,
                 "pr_file_path": None,
                 "scan_report_path": None,
                 "remediation_report_path": None,
+                "email_status": None,
+                "email_message": None,
+                "email_recipients": [],
+                "email_outbox_file": None,
+                "email_notification": None,
                 "error": None,
             }
             for idx, repo in enumerate(discovered)
@@ -1420,6 +1502,8 @@ class BatchScheduler:
         preferred_base: Optional[str],
         feature_branch: str,
         feature_prefix: str = "remediation/",
+        git_token: Optional[str] = None,
+        git_username: Optional[str] = None,
     ) -> Tuple[str, Optional[str]]:
         """
         Prepares a local Git repository so it switches cleanly to 'main' or 'master'.
@@ -1439,8 +1523,29 @@ class BatchScheduler:
         )
         if rem_proc.returncode == 0 and "origin" in [r.strip() for r in rem_proc.stdout.splitlines()]:
             try:
+                url_proc = subprocess.run(
+                    ["git", "remote", "get-url", "origin"],
+                    cwd=str(repo_path),
+                    capture_output=True,
+                    text=True,
+                    env=git_env,
+                )
+                origin_url = url_proc.stdout.strip() if url_proc.returncode == 0 else ""
+                auth_fetch_url = ""
+                if origin_url and git_token:
+                    helper_cfg = GitAgentConfig(
+                        repo_url=str(repo_path),
+                        token=git_token,
+                        username=git_username,
+                        provider=ProviderType.LOCAL,
+                    )
+                    auth_fetch_url = helper_cfg.build_authenticated_remote_url(origin_url)
+                if auth_fetch_url and "@" in auth_fetch_url.split("://", 1)[-1].split("/", 1)[0]:
+                    fetch_cmd = ["git", "-c", "credential.helper=", "fetch", auth_fetch_url, "+refs/heads/*:refs/remotes/origin/*"]
+                else:
+                    fetch_cmd = ["git", "fetch", "origin"]
                 subprocess.run(
-                    ["git", "-c", "credential.helper=", "fetch", "origin"],
+                    fetch_cmd,
                     cwd=str(repo_path),
                     capture_output=True,
                     text=True,
@@ -1547,6 +1652,11 @@ class BatchScheduler:
             if repo_path.name == "CustomerApi" and not (repo_path / ".git").exists():
                 auto_init = True
 
+            sched_token = (sched.get("git_token") or "").strip()
+            if sched_token == "********":
+                sched_token = ""
+            sched_username = (sched.get("git_username") or "").strip() or None
+
             is_existing_git = (repo_path / ".git").exists() or _is_git_repo_dir(repo_path)
             if is_existing_git:
                 self._ensure_unborn_head_committed(repo_path, "Git SubAgent", "git-agent@subagent.local")
@@ -1554,6 +1664,8 @@ class BatchScheduler:
                     repo_path=repo_path,
                     preferred_base=pref_base,
                     feature_branch=feature_branch,
+                    git_token=sched_token or None,
+                    git_username=sched_username,
                 )
                 if cleanup_note:
                     self._append_log(run_data, "info", repo_name, cleanup_note)
@@ -1562,6 +1674,8 @@ class BatchScheduler:
 
             git_config = GitAgentConfig(
                 repo_url=str(repo_path),
+                token=sched_token or None,
+                username=sched_username,
                 provider=ProviderType.LOCAL,
                 base_branch=resolved_base,
                 feature_branch_name=feature_branch,
@@ -1573,6 +1687,7 @@ class BatchScheduler:
             repo_item["has_git"] = True
             repo_item["base_branch"] = ctx.base_branch
             repo_item["feature_branch"] = ctx.feature_branch
+            repo_item["remote_url"] = git_agent.get_sanitized_remote_url() or repo_item.get("remote_url")
             self._append_log(
                 run_data,
                 "success",
@@ -1618,6 +1733,7 @@ class BatchScheduler:
             repo_item["initial_posture_score"] = init_posture.get("score")
             repo_item["initial_posture_grade"] = init_posture.get("grade")
 
+            scan_html: Optional[str] = None
             try:
                 if scanner.last_bundle is not None:
                     scan_html, _ = scanner.get_report_content("html")
@@ -1799,6 +1915,8 @@ class BatchScheduler:
             )
             repo_item["remediated_count"] = max(0, initial_count - post_count) if initial_count > 0 else len(remediator.accumulated_threats)
 
+            rem_html: Optional[str] = None
+            rem_json: Optional[str] = None
             try:
                 rem_html = remediator.render_html_report(workspace_path=str(ctx.repo_path))
                 rem_html_path = repo_artifacts_dir / "REMEDIATION_AUDIT_REPORT.html"
@@ -1806,6 +1924,13 @@ class BatchScheduler:
                 repo_item["remediation_report_path"] = str(rem_html_path)
             except Exception as html_exc:
                 logger.debug("Could not write remediation HTML report for %s: %s", repo_name, html_exc)
+
+            try:
+                rem_json, _ = remediator.get_report_content(fmt="json", workspace_path=str(ctx.repo_path))
+                rem_json_path = repo_artifacts_dir / "REMEDIATION_AUDIT_REPORT.json"
+                rem_json_path.write_text(rem_json, encoding="utf-8")
+            except Exception as json_exc:
+                logger.debug("Could not write remediation JSON report for %s: %s", repo_name, json_exc)
 
             self._append_log(
                 run_data,
@@ -1815,10 +1940,12 @@ class BatchScheduler:
             )
 
             # ----------------------------------------------------------
-            # Step 4 & 5: Git Commit & Pull Request
+            # Step 4 & 5: Git Commit, Push & Pull Request
             # ----------------------------------------------------------
             auto_commit = bool(sched.get("auto_commit", True))
+            auto_push = bool(sched.get("auto_push", True))
             auto_pr = bool(sched.get("auto_pr", True))
+            pr_title: Optional[str] = None
 
             if auto_commit:
                 set_step("COMMIT", "Staging and committing remediations to local branch...")
@@ -1841,42 +1968,105 @@ class BatchScheduler:
                         base_branch=ctx.base_branch,
                     )
 
+                    git_agent.workspace.add()
+                    commit_hash = git_agent.workspace.commit(
+                        message=commit_msg,
+                        author_name=git_config.author_name,
+                        author_email=git_config.author_email,
+                    )
+                    repo_item["commit_hash"] = commit_hash
+                    repo_item["commit_status"] = "committed"
+                    self._append_log(run_data, "success", repo_name, f"Committed {commit_hash[:7]} to branch '{ctx.feature_branch}'")
+
+                    pushed_remote = False
+                    if auto_push:
+                        set_step("PUSH", "Pushing remediation branch to remote repository...")
+                        push_res = git_agent.push_branch(branch=ctx.feature_branch)
+                        pushed_remote = bool(push_res.get("pushed"))
+                        repo_item["push_status"] = push_res.get("status")
+                        repo_item["remote_url"] = push_res.get("remote_url") or repo_item.get("remote_url")
+                        if pushed_remote:
+                            self._append_log(
+                                run_data,
+                                "success",
+                                repo_name,
+                                f"Pushed branch '{ctx.feature_branch}' to {push_res.get('remote_url') or 'origin'}",
+                            )
+                        else:
+                            self._append_log(
+                                run_data,
+                                "info",
+                                repo_name,
+                                f"No remote 'origin' configured; branch '{ctx.feature_branch}' kept locally.",
+                            )
+                    else:
+                        repo_item["push_status"] = "skipped_by_policy"
+
                     if auto_pr:
-                        set_step("PR", "Committing changes and creating local pull request dossier...")
-                        finalize_res = git_agent.finalize_workspace(
-                            commit_message=commit_msg,
-                            pr_title=pr_title,
-                            pr_body=pr_body,
-                        )
-                        repo_item["commit_hash"] = finalize_res.commit_hash
-                        repo_item["commit_status"] = finalize_res.status
-                        if finalize_res.pr:
-                            repo_item["pr_number"] = finalize_res.pr.number
-                            repo_item["pr_url"] = finalize_res.pr.url
-                            if finalize_res.pr.raw_response:
-                                repo_item["pr_file_path"] = finalize_res.pr.raw_response.get("md_file")
+                        set_step("PR", "Creating pull request dossier...")
+                        pr_provider = git_agent.resolve_pr_provider() if pushed_remote else git_agent.provider
+                        try:
+                            pr_res = pr_provider.create_pull_request(
+                                head_branch=ctx.feature_branch,
+                                base_branch=ctx.base_branch,
+                                title=pr_title,
+                                description=pr_body,
+                                draft=git_config.draft_pr,
+                            )
+                        except Exception as remote_pr_exc:
+                            if pr_provider is not git_agent.provider and git_agent.provider is not None:
+                                self._append_log(
+                                    run_data,
+                                    "warn",
+                                    repo_name,
+                                    f"Remote PR creation failed ({remote_pr_exc}); falling back to local PR record.",
+                                )
+                                pr_res = git_agent.provider.create_pull_request(
+                                    head_branch=ctx.feature_branch,
+                                    base_branch=ctx.base_branch,
+                                    title=pr_title,
+                                    description=pr_body,
+                                    draft=git_config.draft_pr,
+                                )
+                            else:
+                                raise
+                        repo_item["commit_status"] = "success"
+                        repo_item["pr_number"] = pr_res.number
+                        repo_item["pr_url"] = pr_res.url
+                        if pr_res.raw_response:
+                            repo_item["pr_file_path"] = pr_res.raw_response.get("md_file")
                         self._append_log(
                             run_data,
                             "success",
                             repo_name,
-                            f"Committed {finalize_res.commit_hash[:7] if finalize_res.commit_hash else ''} & created PR #{repo_item['pr_number']}",
+                            f"Created {pr_res.provider} PR #{pr_res.number}: {pr_res.url}",
                         )
-                    else:
-                        git_agent.workspace.add()
-                        commit_hash = git_agent.workspace.commit(
-                            message=commit_msg,
-                            author_name=git_config.author_name,
-                            author_email=git_config.author_email,
-                        )
-                        repo_item["commit_hash"] = commit_hash
-                        repo_item["commit_status"] = "committed"
-                        self._append_log(run_data, "success", repo_name, f"Committed {commit_hash[:7]} to branch '{ctx.feature_branch}'")
                 else:
                     repo_item["commit_status"] = "no_changes"
+                    repo_item["push_status"] = "skipped_no_changes"
                     self._append_log(run_data, "info", repo_name, "Working tree clean (already compliant); commit & PR skipped.")
             else:
                 repo_item["commit_status"] = "skipped_by_policy"
+                repo_item["push_status"] = "skipped_by_policy"
                 self._append_log(run_data, "info", repo_name, "Auto-commit disabled; patches left unstaged in workspace.")
+
+            if not is_cancelled():
+                self._dispatch_repo_email(
+                    run_data=run_data,
+                    repo_item=repo_item,
+                    sched=sched,
+                    ctx=ctx,
+                    scan_res=scan_res,
+                    rem_res=rem_res,
+                    post_scan=post_scan,
+                    remediator=remediator,
+                    iteration=iteration,
+                    scan_html=scan_html,
+                    rem_html=rem_html,
+                    rem_json=rem_json,
+                    pr_title=pr_title,
+                    set_step=set_step,
+                )
 
             repo_item["status"] = "NO_CHANGES" if repo_item["commit_status"] == "no_changes" else "COMPLETED"
             repo_item["current_step"] = "DONE"
@@ -1892,13 +2082,113 @@ class BatchScheduler:
             self._append_log(run_data, "warn", repo_name, f"Cancelled: {cancel_exc}")
         except Exception as exc:
             logger.error("Batch run failed on repo %s: %s", repo_name, exc, exc_info=True)
+            err_str = str(exc)
+            tok_to_mask = (sched.get("git_token") or "").strip()
+            if tok_to_mask and tok_to_mask != "********":
+                err_str = err_str.replace(tok_to_mask, "********")
             repo_item["status"] = "FAILED"
             repo_item["current_step"] = "FAILED"
-            repo_item["step_detail"] = str(exc)
-            repo_item["error"] = str(exc)
-            self._append_log(run_data, "error", repo_name, f"Failed: {exc}")
+            repo_item["step_detail"] = err_str
+            repo_item["error"] = err_str
+            self._append_log(run_data, "error", repo_name, f"Failed: {err_str}")
         finally:
             repo_item["finished_at"] = local_now().isoformat()
             if scratch_repos_root.exists():
                 shutil.rmtree(scratch_repos_root, ignore_errors=True)
             self._persist_run_detail(run_data)
+
+    def _dispatch_repo_email(
+        self,
+        *,
+        run_data: Dict[str, Any],
+        repo_item: Dict[str, Any],
+        sched: Dict[str, Any],
+        ctx: Any,
+        scan_res: Dict[str, Any],
+        rem_res: Dict[str, Any],
+        post_scan: Dict[str, Any],
+        remediator: RemediatorAgent,
+        iteration: int,
+        scan_html: Optional[str],
+        rem_html: Optional[str],
+        rem_json: Optional[str],
+        pr_title: Optional[str],
+        set_step: Any,
+    ) -> None:
+        """Emails scan and remediation audit reports once a scheduled repo completes."""
+        repo_name = repo_item["name"]
+        send_email_enabled = bool(sched.get("send_email", True))
+        if not send_email_enabled or not self.email_notifier:
+            repo_item["email_status"] = "skipped"
+            return
+
+        email_cfg = self.email_notifier.get_public_config()
+        if not email_cfg.get("enabled", True):
+            repo_item["email_status"] = "skipped"
+            return
+
+        set_step("EMAIL", "Dispatching scan & remediation audit reports via email...")
+        try:
+            all_threats = list(remediator.accumulated_threats.values()) or (rem_res.get("all_threats") or [])
+            email_rem_result = dict(rem_res) if isinstance(rem_res, dict) else {}
+            email_rem_result["all_threats"] = all_threats
+            email_rem_result["files_modified"] = list(repo_item.get("files_modified") or [])
+            email_rem_result["iterations_run"] = iteration
+
+            pr_data = None
+            if repo_item.get("pr_url") or repo_item.get("pr_file_path"):
+                pr_data = {
+                    "pr_number": repo_item.get("pr_number"),
+                    "pr_url": repo_item.get("pr_url"),
+                    "pr_file_path": repo_item.get("pr_file_path"),
+                    "title": pr_title or f"[SecOps Compliance] Remediation for {repo_name}",
+                }
+
+            effective_rem_html = rem_html
+            if not effective_rem_html and repo_item.get("remediation_report_path"):
+                rep_p = Path(repo_item["remediation_report_path"])
+                if rep_p.exists():
+                    effective_rem_html = rep_p.read_text(encoding="utf-8", errors="replace")
+
+            effective_scan_html = scan_html
+            if not effective_scan_html and repo_item.get("scan_report_path"):
+                scan_p = Path(repo_item["scan_report_path"])
+                if scan_p.exists():
+                    effective_scan_html = scan_p.read_text(encoding="utf-8", errors="replace")
+
+            email_res = self.email_notifier.send_remediation_report_email(
+                repo_name=repo_name,
+                workspace_path=str(ctx.repo_path),
+                branch=ctx.feature_branch,
+                base_branch=ctx.base_branch,
+                scan_result=scan_res,
+                remediation_result=email_rem_result,
+                post_scan_result=post_scan,
+                pr_data=pr_data,
+                remediation_html=effective_rem_html,
+                remediation_json=rem_json,
+                scan_html=effective_scan_html,
+                override_recipients=sched.get("email_recipients") or None,
+                custom_note=f"Automated scheduled batch run '{run_data.get('schedule_name') or 'Batch Audit'}' (run {run_data.get('run_id')}).",
+                trigger_source="scheduler_repo_completed",
+            )
+            repo_item["email_notification"] = email_res
+            repo_item["email_status"] = email_res.get("status")
+            repo_item["email_message"] = email_res.get("message")
+            repo_item["email_recipients"] = email_res.get("recipients") or []
+            repo_item["email_outbox_file"] = email_res.get("outbox_filename") or email_res.get("outbox_file")
+
+            status_val = email_res.get("status")
+            log_level = "success" if status_val == "sent" else ("warn" if status_val == "error" else "info")
+            self._append_log(
+                run_data,
+                log_level,
+                repo_name,
+                email_res.get("message") or f"Report email status: {status_val}",
+            )
+        except Exception as email_exc:
+            logger.warning("Email dispatch failed for scheduled repo %s: %s", repo_name, email_exc)
+            repo_item["email_status"] = "error"
+            repo_item["email_message"] = str(email_exc)
+            repo_item["email_notification"] = {"status": "error", "message": str(email_exc)}
+            self._append_log(run_data, "warn", repo_name, f"Email report warning: {email_exc}")

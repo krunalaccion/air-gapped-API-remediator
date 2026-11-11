@@ -668,11 +668,6 @@
             id="activeBranchTag">
             Branch: <strong class="text-blue-700 dark:text-blue-400 font-mono" id="currentBranchDisplay">none</strong>
           </span>
-          <button id="btnEmailSettingsHeader" onclick="openEmailReportModal()"
-            class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition flex items-center gap-1.5 shadow-sm cursor-pointer"
-            title="Configure SMTP &amp; send remediation reports via email">
-            <span>✉️</span> Email Reports
-          </button>
           <button id="btnRefresh" onclick="refreshAllSteps(true, true)"
             class="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold transition flex items-center gap-1.5 shadow-sm cursor-pointer"
             title="Reset all pipeline steps, clear repository references, and return to Step 01">
@@ -970,8 +965,9 @@
               </div>
               <div>
                 <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Personal Access Token
-                  (PAT) <span class="text-[10px] text-slate-400">(Optional for local projects)</span></label>
+                  (PAT) <span class="text-[10px] text-slate-400">(For private clones &amp; pushing local repos to remote)</span></label>
                 <input type="password" id="gitToken" placeholder="ghp_... or glpat-..."
+                  oninput="syncGitAuthInputs('step1')"
                   class="soc-input w-full text-xs font-mono px-3 py-2 rounded-lg">
               </div>
             </div>
@@ -1265,15 +1261,29 @@
                   </select>
                 </div>
                 <div>
-                  <label class="block text-[10px] font-semibold text-slate-600 mb-0.5">Model Name</label>
-                  <input type="text" id="llmModel" value="qwen2.5-coder:3b" placeholder="e.g. qwen2.5-coder:3b"
+                  <div class="flex items-center justify-between gap-1 mb-0.5">
+                    <label class="block text-[10px] font-semibold text-slate-600">Installed Model</label>
+                    <div class="flex items-center gap-1">
+                      <span id="llmModelsStatus" class="text-[9px] font-mono text-slate-500">Checking…</span>
+                      <button type="button" id="btnRefreshLlmModels" onclick="loadLocalLlmModels(true)"
+                        title="Refresh locally installed models"
+                        class="text-[10px] font-mono px-1.5 py-0 rounded border border-slate-300 bg-white hover:bg-slate-100 text-slate-600 leading-tight">↻</button>
+                    </div>
+                  </div>
+                  <select id="llmModelSelect" onchange="handleLlmModelSelectChange()"
                     class="soc-input w-full text-xs font-mono px-2 py-1.5 rounded-lg bg-white border border-slate-300">
+                    <option value="qwen2.5-coder:3b">qwen2.5-coder:3b</option>
+                    <option value="__custom__">Custom model name…</option>
+                  </select>
+                  <input type="text" id="llmModel" value="qwen2.5-coder:3b" placeholder="e.g. qwen2.5-coder:3b"
+                    class="soc-input w-full text-xs font-mono px-2 py-1.5 rounded-lg bg-white border border-slate-300 mt-1 hidden">
                 </div>
               </div>
 
               <div id="llmEndpointRow">
                 <label class="block text-[10px] font-semibold text-slate-600 mb-0.5">Local Server Base URL</label>
                 <input type="text" id="llmBaseUrl" value="http://127.0.0.1:11434" placeholder="http://127.0.0.1:11434"
+                  onchange="loadLocalLlmModels(false)"
                   class="soc-input w-full text-xs font-mono px-2 py-1 rounded bg-white border border-slate-300">
               </div>
             </div>
@@ -1301,7 +1311,7 @@
                 <span>⚙️</span> <span>SMTP &amp; Options</span>
               </button>
               <button type="button" id="btnSendReportStep3" onclick="sendRemediationEmailNow()"
-                class="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold cursor-pointer flex items-center gap-1 shadow-sm">
+                class="hidden px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold cursor-pointer flex items-center gap-1 shadow-sm">
                 <span>📨</span> <span>Send Report Now</span>
               </button>
             </div>
@@ -1668,6 +1678,29 @@
               <span class="text-[11px] text-slate-600 font-mono font-semibold" id="commitStatusPill">Ready</span>
             </div>
 
+            <div id="step4RemoteAuthBar"
+              class="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 space-y-2 text-xs font-mono">
+              <div class="flex items-center justify-between gap-2 flex-wrap">
+                <span class="text-[11px] text-slate-600 dark:text-slate-300">
+                  Remote Target: <strong id="step4RemoteTargetDisplay" class="text-slate-900 dark:text-slate-100">Pending Step 01</strong>
+                </span>
+                <span id="step4PushAuthStatus" class="text-[10px] px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold">
+                  No token set
+                </span>
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div class="sm:col-span-2">
+                  <input type="password" id="step4GitToken" placeholder="Optional PAT for remote push (ghp_... or glpat-...)"
+                    oninput="syncGitAuthInputs('step4')"
+                    class="soc-input w-full text-[11px] font-mono px-2.5 py-1.5 rounded-lg">
+                </div>
+                <div>
+                  <input type="text" id="step4GitUsername" placeholder="Username (optional)"
+                    class="soc-input w-full text-[11px] font-mono px-2.5 py-1.5 rounded-lg">
+                </div>
+              </div>
+            </div>
+
             <div class="flex items-center gap-2">
               <button onclick="handleCommitPush()" id="btnCommit"
                 class="flex-1 py-2.5 px-4 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold uppercase tracking-wider font-mono transition flex items-center justify-center gap-2 shadow-md cursor-pointer">
@@ -1978,11 +2011,11 @@
             <div class="text-[11px] font-bold uppercase text-slate-700 dark:text-slate-300">Attached Report Dossiers</div>
             <label class="flex items-center gap-2 cursor-pointer text-[11px]">
               <input type="checkbox" id="modalAttachRemHtml" checked class="rounded border-slate-300 text-blue-600">
-              <span>REMEDIATION_AUDIT_REPORT.html</span>
+              <span>REMEDIATION_AUDIT_REPORT.pdf</span>
             </label>
             <label class="flex items-center gap-2 cursor-pointer text-[11px]">
               <input type="checkbox" id="modalAttachScanHtml" checked class="rounded border-slate-300 text-blue-600">
-              <span>SECURESCAN_REPORT.html</span>
+              <span>SECURESCAN_REPORT.pdf</span>
             </label>
             <label class="flex items-center gap-2 cursor-pointer text-[11px]">
               <input type="checkbox" id="modalAttachRemJson" checked class="rounded border-slate-300 text-blue-600">
@@ -2052,7 +2085,7 @@
         </button>
         <div class="flex items-center gap-2">
           <button type="button" onclick="sendRemediationEmailNow(true)" id="btnModalSendEmailNow"
-            class="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs text-white font-mono font-bold cursor-pointer shadow-sm">
+            class="hidden px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs text-white font-mono font-bold cursor-pointer shadow-sm">
             📨 Send Report Email Now
           </button>
           <button type="button" onclick="closeEmailReportModal()"
@@ -2500,6 +2533,18 @@
       }
     }
 
+    function updateSendReportButtonsVisibility() {
+      const isRemediationCompleted = Boolean(stepStates[3] && stepStates[3].completed);
+      const btnStep3 = document.getElementById("btnSendReportStep3");
+      if (btnStep3) {
+        btnStep3.classList.toggle("hidden", !isRemediationCompleted);
+      }
+      const btnModal = document.getElementById("btnModalSendEmailNow");
+      if (btnModal) {
+        btnModal.classList.toggle("hidden", !isRemediationCompleted);
+      }
+    }
+
     function setStage(stageNum, statusText = "ACTIVE", isCompleted = false) {
       stepStates[stageNum] = {
         completed: isCompleted,
@@ -2511,6 +2556,7 @@
       applyStep3WidthMode();
       renderLivelineNodes();
       updateStepPanelsVisibility();
+      updateSendReportButtonsVisibility();
     }
 
     function renderLivelineNodes() {
@@ -4256,6 +4302,7 @@ ${filesFormatted}
 
           document.getElementById("kpiPerimeterSubtext").textContent = `Branch: ${branch}`;
           if (wsStateBadge) wsStateBadge.textContent = `BRANCH: ${branch}`;
+          updateStep4RemoteDisplay(data.git);
         } else {
           if (wsHeaderEl) wsHeaderEl.textContent = "Active Repository Path: (Pending Step 01)";
           document.getElementById("currentBranchDisplay").textContent = "none";
@@ -4272,6 +4319,7 @@ ${filesFormatted}
 
           document.getElementById("kpiPerimeterSubtext").textContent = "Complete Step 01 to isolate workspace";
           if (wsStateBadge) wsStateBadge.textContent = "UNPREPARED";
+          updateStep4RemoteDisplay(null);
         }
 
         if (data.git && data.git.status) {
@@ -4319,6 +4367,7 @@ ${filesFormatted}
             remSummaryBar.classList.add("hidden");
           }
         }
+        updateSendReportButtonsVisibility();
 
         // 7. Active PR Card (only show if Step 5 is completed)
         if (data.latest_pr && stepStates[5].completed) {
@@ -4671,6 +4720,160 @@ ${filesFormatted}
       });
     }
 
+    let _llmModelsReqId = 0;
+
+    function formatModelOptionLabel(m) {
+      if (!m || !m.name) return "";
+      const meta = [];
+      if (m.size_label) meta.push(m.size_label);
+      if (m.parameter_size) meta.push(m.parameter_size);
+      if (m.quantization) meta.push(m.quantization);
+      return meta.length ? `${m.name} (${meta.join(" · ")})` : m.name;
+    }
+
+    function handleLlmModelSelectChange() {
+      const selectEl = document.getElementById("llmModelSelect");
+      const modelInput = document.getElementById("llmModel");
+      if (!selectEl || !modelInput) return;
+      if (selectEl.value === "__custom__") {
+        if (modelInput.value === "rule-based-security-fixer") {
+          modelInput.value = "";
+        }
+        modelInput.classList.remove("hidden");
+        modelInput.focus();
+      } else {
+        modelInput.value = selectEl.value;
+        modelInput.classList.add("hidden");
+      }
+    }
+
+    async function loadLocalLlmModels(forceRefresh = false) {
+      const prov = document.getElementById("llmProvider")?.value || "ollama";
+      const baseUrl = (document.getElementById("llmBaseUrl")?.value || "").trim();
+      const selectEl = document.getElementById("llmModelSelect");
+      const modelInput = document.getElementById("llmModel");
+      const statusEl = document.getElementById("llmModelsStatus");
+      const refreshBtn = document.getElementById("btnRefreshLlmModels");
+      if (!selectEl || !modelInput) return;
+
+      if (prov === "auto-fallback") {
+        selectEl.innerHTML = "";
+        const opt = document.createElement("option");
+        opt.value = "rule-based-security-fixer";
+        opt.textContent = "rule-based-security-fixer (built-in)";
+        selectEl.appendChild(opt);
+        selectEl.value = "rule-based-security-fixer";
+        modelInput.value = "rule-based-security-fixer";
+        modelInput.classList.add("hidden");
+        if (refreshBtn) refreshBtn.classList.add("hidden");
+        if (statusEl) {
+          statusEl.textContent = "Built-in";
+          statusEl.className = "text-[9px] font-mono text-slate-500";
+          statusEl.title = "";
+        }
+        return;
+      }
+
+      if (refreshBtn) {
+        refreshBtn.classList.remove("hidden");
+        refreshBtn.disabled = true;
+      }
+      if (statusEl) {
+        statusEl.textContent = "Scanning…";
+        statusEl.className = "text-[9px] font-mono text-slate-500";
+        statusEl.title = "";
+      }
+
+      const reqId = ++_llmModelsReqId;
+      try {
+        const qs = new URLSearchParams({ provider: prov });
+        if (baseUrl) qs.set("base_url", baseUrl);
+        const res = await fetch(`/api/llm/models?${qs.toString()}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (reqId !== _llmModelsReqId) return;
+        if ((document.getElementById("llmProvider")?.value || "ollama") !== prov) return;
+
+        const models = Array.isArray(data.models) ? data.models : [];
+        const prevCustom = selectEl.value === "__custom__";
+        const currentVal = (modelInput.value || "").trim();
+
+        selectEl.innerHTML = "";
+        for (const m of models) {
+          const opt = document.createElement("option");
+          opt.value = m.name;
+          opt.textContent = formatModelOptionLabel(m);
+          selectEl.appendChild(opt);
+        }
+        if (models.length === 0) {
+          const emptyOpt = document.createElement("option");
+          emptyOpt.value = "";
+          emptyOpt.disabled = true;
+          emptyOpt.textContent = data.daemon_running ? "(No models installed yet)" : "(No local models detected)";
+          selectEl.appendChild(emptyOpt);
+        }
+        const customOpt = document.createElement("option");
+        customOpt.value = "__custom__";
+        customOpt.textContent = "Custom model name…";
+        selectEl.appendChild(customOpt);
+
+        if (models.length > 0) {
+          if (currentVal && models.some(m => m.name === currentVal)) {
+            selectEl.value = currentVal;
+            modelInput.value = currentVal;
+            modelInput.classList.add("hidden");
+          } else if (!forceRefresh && prevCustom && currentVal) {
+            selectEl.value = "__custom__";
+            modelInput.classList.remove("hidden");
+          } else {
+            const preferred = (data.default_model && models.some(m => m.name === data.default_model))
+              ? data.default_model
+              : models[0].name;
+            selectEl.value = preferred;
+            modelInput.value = preferred;
+            modelInput.classList.add("hidden");
+          }
+        } else {
+          selectEl.value = "__custom__";
+          modelInput.classList.remove("hidden");
+          if (!currentVal || currentVal === "rule-based-security-fixer") {
+            modelInput.value = prov === "local" ? "qwen2.5-coder-7b-instruct" : "qwen2.5-coder:3b";
+          }
+        }
+
+        if (statusEl) {
+          if (models.length > 0 && data.daemon_running) {
+            statusEl.textContent = `${models.length} installed`;
+            statusEl.className = "text-[9px] font-mono text-emerald-700 font-semibold";
+            statusEl.title = `Source: ${data.source || "api"}`;
+          } else if (models.length > 0) {
+            statusEl.textContent = `${models.length} cached (offline)`;
+            statusEl.className = "text-[9px] font-mono text-amber-700 font-semibold";
+            statusEl.title = data.error || "Ollama daemon is offline; showing local manifests";
+          } else if (data.daemon_running) {
+            statusEl.textContent = "0 installed";
+            statusEl.className = "text-[9px] font-mono text-amber-700 font-semibold";
+            statusEl.title = "Server reachable, no models pulled yet";
+          } else {
+            statusEl.textContent = "Offline (0 found)";
+            statusEl.className = "text-[9px] font-mono text-rose-600 font-semibold";
+            statusEl.title = data.error || "Local LLM server not reachable";
+          }
+        }
+      } catch (err) {
+        if (reqId !== _llmModelsReqId) return;
+        selectEl.value = "__custom__";
+        modelInput.classList.remove("hidden");
+        if (statusEl) {
+          statusEl.textContent = "Check failed";
+          statusEl.className = "text-[9px] font-mono text-rose-600 font-semibold";
+          statusEl.title = err?.message || "Failed to query local models";
+        }
+      } finally {
+        if (refreshBtn && reqId === _llmModelsReqId) refreshBtn.disabled = false;
+      }
+    }
+
     function handleLlmProviderChange() {
       const prov = document.getElementById("llmProvider")?.value || "ollama";
       const modelInput = document.getElementById("llmModel");
@@ -4693,6 +4896,7 @@ ${filesFormatted}
         if (badge) { badge.textContent = "AIR-GAP OFFLINE"; badge.className = "text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 text-slate-800 font-semibold"; }
         if (endpointRow) endpointRow.classList.add("hidden");
       }
+      loadLocalLlmModels(true);
     }
 
     // Step 3: Fix Code (RemediatorAgent + BugFixerAgent)
@@ -4951,6 +5155,41 @@ ${filesFormatted}
       }
     }
 
+    function syncGitAuthInputs(source) {
+      const s1 = document.getElementById("gitToken");
+      const s4 = document.getElementById("step4GitToken");
+      const val = source === "step4" ? (s4?.value || "") : (s1?.value || "");
+      if (source !== "step1" && s1 && s1.value !== val) s1.value = val;
+      if (source !== "step4" && s4 && s4.value !== val) s4.value = val;
+      const pill = document.getElementById("step4PushAuthStatus");
+      if (pill) {
+        if (val.trim()) {
+          pill.textContent = "Auth Token Ready ✓";
+          pill.className = "text-[10px] px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 font-semibold";
+        } else if (lastTelemetryData?.git?.has_token) {
+          pill.textContent = "Server/Env Token Active ✓";
+          pill.className = "text-[10px] px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 font-semibold";
+        } else {
+          pill.textContent = "No token set";
+          pill.className = "text-[10px] px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold";
+        }
+      }
+    }
+
+    function updateStep4RemoteDisplay(gitData) {
+      const disp = document.getElementById("step4RemoteTargetDisplay");
+      if (disp) {
+        if (!gitData || !gitData.prepared) {
+          disp.textContent = "Pending Step 01";
+        } else if (gitData.remote_url) {
+          disp.textContent = `origin (${gitData.remote_url})`;
+        } else {
+          disp.textContent = "Local branch only (no remote 'origin')";
+        }
+      }
+      syncGitAuthInputs("sync");
+    }
+
     // Step 4: Commit
     async function handleCommitPush() {
       if (isPipelineRunning && !window.isFullPipelineRunning) return;
@@ -4968,18 +5207,23 @@ ${filesFormatted}
       if (btn) btn.innerHTML = `<span>⏳</span> <span>Committing &amp; Pushing...</span>`;
 
       try {
+        const tokenVal = (document.getElementById("step4GitToken")?.value || document.getElementById("gitToken")?.value || "").trim();
+        const usernameVal = (document.getElementById("step4GitUsername")?.value || "").trim();
         const res = await apiPost("/api/commit-push", {
-          commit_message: msg
+          commit_message: msg,
+          token: tokenVal || undefined,
+          username: usernameVal || undefined
         });
 
         if (res.error) {
           setStage(4, "FAILED", false);
-          log(`Commit failed: ${res.error}`, "error", "GitSubAgent");
+          log(`Commit/Push failed: ${res.error}`, "error", "GitSubAgent");
         } else {
           log(res.message, "success", "GitSubAgent");
-          setStage(4, "COMMITTED ✓", true);
+          setStage(4, res.pushed ? "PUSHED ✓" : "COMMITTED ✓", true);
           setStage(5, "READY", false);
-          document.getElementById("commitStatusPill").textContent = `Committed (${res.commit_hash ? res.commit_hash.slice(0, 7) : 'HEAD'})`;
+          const shortSha = res.commit_hash ? res.commit_hash.slice(0, 7) : "HEAD";
+          document.getElementById("commitStatusPill").textContent = res.pushed ? `Committed (${shortSha}) & Pushed` : `Committed (${shortSha})`;
           document.getElementById("commitStatusPill").className = "text-[11px] text-emerald-700 font-mono font-semibold";
           await syncTelemetry(false);
         }
@@ -5037,10 +5281,14 @@ ${filesFormatted}
       if (btn) btn.innerHTML = `<span>⏳</span> <span>Dispatching PR...</span>`;
 
       try {
+        const tokenVal = (document.getElementById("step4GitToken")?.value || document.getElementById("gitToken")?.value || "").trim();
+        const usernameVal = (document.getElementById("step4GitUsername")?.value || "").trim();
         const res = await apiPost("/api/create-pr", {
           title: title,
           description: desc,
-          draft: isDraft
+          draft: isDraft,
+          token: tokenVal || undefined,
+          username: usernameVal || undefined
         });
 
         if (res.error) {
@@ -5119,6 +5367,7 @@ ${filesFormatted}
       activeStepNum = 1;
       renderLivelineNodes();
       updateStepPanelsVisibility();
+      updateSendReportButtonsVisibility();
 
       // 2. Reset UI cards, badges, and KPIs
       const btContainer = document.getElementById("buildTestResultsContainer");
@@ -5322,6 +5571,11 @@ ${filesFormatted}
         if (featBranch) featBranch.value = "remediation/airgap-api-compliance";
         const gitToken = document.getElementById("gitToken");
         if (gitToken) gitToken.value = "";
+        const s4Tok = document.getElementById("step4GitToken");
+        if (s4Tok) s4Tok.value = "";
+        const s4User = document.getElementById("step4GitUsername");
+        if (s4User) s4User.value = "";
+        syncGitAuthInputs("step1");
       }
 
       // 3. Reset backend repository files & state so the next scan/fix runs on fresh vulnerable code
@@ -5670,9 +5924,9 @@ ${filesFormatted}
       if (mAutoPr) mAutoPr.checked = Boolean(cfg.auto_send_after_pr);
 
       const mAttRemHtml = document.getElementById("modalAttachRemHtml");
-      if (mAttRemHtml) mAttRemHtml.checked = cfg.attach_remediation_html !== false;
+      if (mAttRemHtml) mAttRemHtml.checked = (cfg.attach_remediation_pdf ?? cfg.attach_remediation_html) !== false;
       const mAttScanHtml = document.getElementById("modalAttachScanHtml");
-      if (mAttScanHtml) mAttScanHtml.checked = cfg.attach_scan_html !== false;
+      if (mAttScanHtml) mAttScanHtml.checked = (cfg.attach_scan_pdf ?? cfg.attach_scan_html) !== false;
       const mAttRemJson = document.getElementById("modalAttachRemJson");
       if (mAttRemJson) mAttRemJson.checked = cfg.attach_remediation_json !== false;
 
@@ -5707,6 +5961,7 @@ ${filesFormatted}
     }
 
     function openEmailReportModal() {
+      updateSendReportButtonsVisibility();
       const modal = document.getElementById("emailReportModal");
       if (modal) modal.style.display = "flex";
       const fb = document.getElementById("modalEmailFeedback");
@@ -5727,8 +5982,8 @@ ${filesFormatted}
         custom_note: (document.getElementById("modalEmailCustomNote")?.value || "").trim(),
         auto_send_after_remediation: Boolean(document.getElementById("modalAutoSendRemediation")?.checked),
         auto_send_after_pr: Boolean(document.getElementById("modalAutoSendPr")?.checked),
-        attach_remediation_html: Boolean(document.getElementById("modalAttachRemHtml")?.checked),
-        attach_scan_html: Boolean(document.getElementById("modalAttachScanHtml")?.checked),
+        attach_remediation_pdf: Boolean(document.getElementById("modalAttachRemHtml")?.checked),
+        attach_scan_pdf: Boolean(document.getElementById("modalAttachScanHtml")?.checked),
         attach_remediation_json: Boolean(document.getElementById("modalAttachRemJson")?.checked),
         webhook_url: (document.getElementById("modalEmailWebhookUrl")?.value || "").trim(),
         smtp_host: (document.getElementById("modalSmtpHost")?.value || "").trim(),
@@ -5844,6 +6099,8 @@ ${filesFormatted}
 
     // Initialize default view mode ("focus" keeps screen clean & uncluttered by default, or toggle "Show All Steps")
     setStepViewMode("focus");
+    updateSendReportButtonsVisibility();
+    loadLocalLlmModels(false);
     renderLivelineNodes();
     syncTelemetry(false);
     fetch("/api/scanner/tools")

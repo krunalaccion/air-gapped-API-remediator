@@ -81,13 +81,34 @@ class TestEmailReportNotifier(unittest.TestCase):
         )
 
         self.assertEqual(res["status"], "saved_to_outbox")
-        self.assertEqual(len(res["attachments"]), 3)
+        self.assertEqual(
+            res["attachments"],
+            [
+                "CustomerApi_REMEDIATION_AUDIT_REPORT.pdf",
+                "CustomerApi_SECURESCAN_REPORT.pdf",
+                "CustomerApi_REMEDIATION_AUDIT_REPORT.json",
+            ],
+        )
         eml_path = Path(res["outbox_file"])
         self.assertTrue(eml_path.exists())
 
         parsed = email.message_from_bytes(eml_path.read_bytes())
         self.assertIn("CustomerApi", parsed["Subject"])
         self.assertEqual(parsed["To"], "secops@example.com")
+
+        attachments_by_name = {}
+        for part in parsed.walk():
+            fname = part.get_filename()
+            if fname:
+                attachments_by_name[fname] = (part.get_content_type(), part.get_payload(decode=True))
+
+        self.assertIn("CustomerApi_REMEDIATION_AUDIT_REPORT.pdf", attachments_by_name)
+        self.assertIn("CustomerApi_SECURESCAN_REPORT.pdf", attachments_by_name)
+        for pdf_name in ("CustomerApi_REMEDIATION_AUDIT_REPORT.pdf", "CustomerApi_SECURESCAN_REPORT.pdf"):
+            ctype, payload = attachments_by_name[pdf_name]
+            self.assertEqual(ctype, "application/pdf")
+            self.assertTrue(payload.startswith(b"%PDF-1.4"))
+            self.assertTrue(payload.rstrip().endswith(b"%%EOF"))
 
     @patch("orchestrator.email_notifier.smtplib.SMTP")
     def test_smtp_starttls_delivery_strips_gmail_app_password_spaces(self, mock_smtp_cls):
@@ -137,6 +158,73 @@ class TestEmailReportNotifier(unittest.TestCase):
         self.assertEqual(res["status"], "sent")
         self.assertIn("HTTPS Gmail Webhook", res["message"])
         mock_urlopen.assert_called_once()
+
+        import base64
+        sent_req = mock_urlopen.call_args[0][0]
+        body_json = json.loads(sent_req.data.decode("utf-8"))
+        atts = body_json.get("attachments") or []
+        self.assertEqual(len(atts), 1)
+        self.assertEqual(atts[0]["filename"], "DemoRepo_REMEDIATION_AUDIT_REPORT.pdf")
+        self.assertEqual(atts[0]["mime_type"], "application/pdf")
+        decoded_pdf = base64.b64decode(atts[0]["content_b64"])
+        self.assertTrue(decoded_pdf.startswith(b"%PDF-"))
+        self.assertTrue(decoded_pdf.rstrip().endswith(b"%%EOF"))
+
+    def test_pdf_renderer_multipage_and_winansi_safety(self):
+        from orchestrator.pdf_renderer import html_to_pdf_bytes
+
+        many_threats = [
+            {
+                "finding_id": f"SEC-{i:03d}",
+                "severity": "HIGH" if i % 2 else "MEDIUM",
+                "rule_id": "airgap-external-egress",
+                "file_path": f"src/service_{i}.py",
+                "line_number": 10 + i,
+                "description": f"Blocked external endpoint https://api{i}.example.com → routed via internal proxy — ✓ safe 🛡️",
+            }
+            for i in range(1, 35)
+        ]
+        diffs = [
+            {
+                "finding_id": "SEC-001",
+                "file_path": "src/service_1.py",
+                "summary": "Replaced external telemetry endpoint → offline air-gap mock.",
+                "diff": "--- a/src/service_1.py\n+++ b/src/service_1.py\n@@ -10,1 +10,1 @@\n-url = 'https://api.remote.io'\n+url = 'http://proxy.airgap.internal:8080'\n",
+            }
+        ]
+        pdf_bytes = html_to_pdf_bytes(
+            "<html><body><h1>Audit — Overview</h1><p>Done ✓</p></body></html>",
+            report_kind="remediation",
+            context={
+                "repo_name": "MultiPageRepo",
+                "branch": "remediation/airgap",
+                "base_branch": "main",
+                "threats": many_threats,
+                "files_modified": [f"src/service_{i}.py" for i in range(1, 35)],
+                "remediation_result": {"bug_fixes": diffs},
+                "remediated_count": len(many_threats),
+                "residual_count": 0,
+            },
+        )
+        self.assertTrue(pdf_bytes.startswith(b"%PDF-1.4"))
+        self.assertTrue(pdf_bytes.rstrip().endswith(b"%%EOF"))
+        self.assertGreater(len(pdf_bytes), 2500)
+        # Ensure multiple pages were generated (/Count > 1)
+        import re
+        m = re.search(rb"/Count\s+(\d+)", pdf_bytes)
+        self.assertIsNotNone(m)
+        self.assertGreaterEqual(int(m.group(1)), 2)
+
+        # Standalone HTML block-extraction fallback (no structured context)
+        generic_pdf = html_to_pdf_bytes(
+            "<html><head><title>Scan Dossier</title><style>body{color:red}</style></head>"
+            "<body><h1>Findings</h1><table><tr><th>ID</th><th>Severity</th></tr>"
+            "<tr><td>XSS-01</td><td>HIGH</td></tr></table><pre>+ safe()</pre></body></html>",
+            report_kind="scanner",
+            context={"repo_name": "GenericHtmlRepo"},
+        )
+        self.assertTrue(generic_pdf.startswith(b"%PDF-1.4"))
+        self.assertTrue(generic_pdf.rstrip().endswith(b"%%EOF"))
 
     def test_web_server_email_endpoints(self):
         orig_notifier = web_server.EMAIL_NOTIFIER

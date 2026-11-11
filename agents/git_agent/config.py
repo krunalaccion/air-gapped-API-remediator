@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Optional, Dict, Any
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 
 class ProviderType(str, Enum):
@@ -26,6 +26,7 @@ class GitAgentConfig:
 
     repo_url: str
     token: Optional[str] = None
+    username: Optional[str] = None
     provider: ProviderType = ProviderType.GENERIC
     api_base_url: Optional[str] = None
 
@@ -136,25 +137,33 @@ class GitAgentConfig:
             return ProviderType.GITHUB
         return ProviderType.GENERIC
 
-    def _resolve_env_token(self) -> Optional[str]:
+    def _resolve_env_token(self, provider_override: Optional[ProviderType] = None) -> Optional[str]:
         """
         Attempt to read token from:
         1. Environment variables
         2. Local .env file
         3. ~/.gemini/config/mcp_config.json
         """
+        target_provider = provider_override or self.provider
+
+        def _is_usable(val: Optional[str]) -> bool:
+            if not val:
+                return False
+            low = val.strip().lower()
+            return not any(low.startswith(p) for p in ("ghp_your", "ghp_example", "glpat-your", "glpat-example", "your-token"))
+
         # 1. Environment variables
-        if self.provider == ProviderType.GITHUB:
+        if target_provider == ProviderType.GITHUB:
             tok = os.getenv("GITHUB_TOKEN") or os.getenv("GH_TOKEN")
-            if tok:
+            if _is_usable(tok):
                 return tok
-        elif self.provider == ProviderType.GITLAB:
+        elif target_provider == ProviderType.GITLAB:
             tok = os.getenv("GITLAB_TOKEN") or os.getenv("GL_TOKEN")
-            if tok:
+            if _is_usable(tok):
                 return tok
 
         tok = os.getenv("GIT_AGENT_TOKEN") or os.getenv("GIT_TOKEN")
-        if tok:
+        if _is_usable(tok):
             return tok
 
         # 2. Check local .env file
@@ -169,11 +178,11 @@ class GitAgentConfig:
                             key, val = line.split("=", 1)
                             key = key.strip()
                             val = val.strip().strip('"\'')
-                            if self.provider == ProviderType.GITHUB and key in ("GITHUB_TOKEN", "GH_TOKEN"):
+                            if target_provider == ProviderType.GITHUB and key in ("GITHUB_TOKEN", "GH_TOKEN") and _is_usable(val):
                                 return val
-                            if self.provider == ProviderType.GITLAB and key in ("GITLAB_TOKEN", "GL_TOKEN"):
+                            if target_provider == ProviderType.GITLAB and key in ("GITLAB_TOKEN", "GL_TOKEN") and _is_usable(val):
                                 return val
-                            if key in ("GIT_AGENT_TOKEN", "GIT_TOKEN"):
+                            if key in ("GIT_AGENT_TOKEN", "GIT_TOKEN") and _is_usable(val):
                                 return val
                 except Exception:
                     pass
@@ -186,18 +195,92 @@ class GitAgentConfig:
                 data = json.loads(mcp_cfg_path.read_text(encoding="utf-8"))
                 for srv in data.get("mcpServers", {}).values():
                     env_dict = srv.get("env", {})
-                    if self.provider == ProviderType.GITHUB:
+                    if target_provider == ProviderType.GITHUB:
                         t = env_dict.get("GITHUB_TOKEN") or env_dict.get("GH_TOKEN")
-                        if t and not t.startswith("ghp_your"):
+                        if _is_usable(t):
                             return t
-                    elif self.provider == ProviderType.GITLAB:
+                    elif target_provider == ProviderType.GITLAB:
                         t = env_dict.get("GITLAB_TOKEN") or env_dict.get("GL_TOKEN")
-                        if t and not t.startswith("glpat-your"):
+                        if _is_usable(t):
                             return t
             except Exception:
                 pass
 
         return None
+
+    def resolve_remote_provider(self, remote_url: Optional[str]) -> ProviderType:
+        """Detect hosting provider from a remote URL (ignoring local workspace status)."""
+        if not remote_url:
+            return ProviderType.GENERIC
+        lower_url = remote_url.strip().lower()
+        if "gitlab" in lower_url:
+            return ProviderType.GITLAB
+        if "github" in lower_url:
+            return ProviderType.GITHUB
+        return ProviderType.GENERIC
+
+    def resolve_env_token_for_url(self, remote_url: Optional[str]) -> Optional[str]:
+        """Resolve an environment/.env token appropriate for a given remote URL."""
+        if not remote_url or self._is_local_path(remote_url):
+            return None
+        return self._resolve_env_token(provider_override=self.resolve_remote_provider(remote_url))
+
+    @staticmethod
+    def sanitize_url(url: Optional[str]) -> str:
+        """Strip embedded credentials from an HTTP/HTTPS URL for safe display/logging."""
+        if not url:
+            return ""
+        parsed = urlparse(url)
+        if parsed.netloc and "@" in parsed.netloc:
+            host = parsed.netloc.split("@")[-1]
+            return parsed._replace(netloc=host).geturl()
+        return url
+
+    def build_authenticated_remote_url(
+        self,
+        remote_url: Optional[str],
+        token: Optional[str] = None,
+        username: Optional[str] = None,
+    ) -> str:
+        """
+        Builds an authenticated remote URL for git fetch/push/clone operations.
+        Works for both remote repo URLs and remote 'origin' URLs discovered inside local repos.
+        """
+        if not remote_url:
+            return ""
+        url = remote_url.strip()
+        if self._is_local_path(url):
+            return url
+
+        effective_token = token if token is not None else self.token
+        effective_user = username if username is not None else self.username
+        if not effective_token:
+            return url
+
+        # Convert SSH to HTTPS when a PAT/token is supplied
+        ssh_match = re.match(r"^git@([^:]+):(.+)$", url)
+        if ssh_match:
+            host_part, path_part = ssh_match.groups()
+            url = f"https://{host_part}/{path_part}"
+
+        if not url.startswith("http://") and not url.startswith("https://"):
+            url = f"https://{url}"
+
+        parsed = urlparse(url)
+        scheme = parsed.scheme or "https"
+        host = parsed.netloc.split("@")[-1]
+        remote_provider = self.resolve_remote_provider(url)
+        if remote_provider == ProviderType.GENERIC and self.provider in (ProviderType.GITHUB, ProviderType.GITLAB):
+            remote_provider = self.provider
+
+        safe_token = quote(str(effective_token).strip(), safe="")
+        if remote_provider == ProviderType.GITHUB:
+            return f"{scheme}://x-access-token:{safe_token}@{host}{parsed.path}"
+        elif remote_provider == ProviderType.GITLAB:
+            return f"{scheme}://oauth2:{safe_token}@{host}{parsed.path}"
+        else:
+            safe_user = quote(str(effective_user).strip(), safe="") if effective_user and str(effective_user).strip() else "gitagent"
+            return f"{scheme}://{safe_user}:{safe_token}@{host}{parsed.path}"
 
     def _default_api_base(self) -> str:
         """Return the default API endpoint for the detected provider."""
@@ -233,32 +316,7 @@ class GitAgentConfig:
                 clean = clean[7:]
             return str(Path(os.path.expanduser(clean)).resolve())
 
-        if not self.token:
-            return self.repo_url
-
-        url = self.repo_url.strip()
-
-        # Convert SSH to HTTPS if needed (e.g. git@github.com:owner/repo.git -> https://github.com/owner/repo.git)
-        ssh_pattern = r"^git@([^:]+):(.+)$"
-        ssh_match = re.match(ssh_pattern, url)
-        if ssh_match:
-            host, path = ssh_match.groups()
-            url = f"https://{host}/{path}"
-
-        if not url.startswith("http://") and not url.startswith("https://"):
-            url = f"https://{url}"
-
-        parsed = urlparse(url)
-        host = parsed.netloc.split("@")[-1]  # strip any existing userinfo
-
-        if self.provider == ProviderType.GITHUB:
-            # GitHub supports x-access-token or token as username
-            return f"https://x-access-token:{self.token}@{host}{parsed.path}"
-        elif self.provider == ProviderType.GITLAB:
-            # GitLab supports oauth2 or personal access token via oauth2 user
-            return f"https://oauth2:{self.token}@{host}{parsed.path}"
-        else:
-            return f"https://gitagent:{self.token}@{host}{parsed.path}"
+        return self.build_authenticated_remote_url(self.repo_url)
 
     @property
     def sanitized_repo_url(self) -> str:
@@ -268,13 +326,7 @@ class GitAgentConfig:
             if clean.startswith("file://"):
                 clean = clean[7:]
             return str(Path(os.path.expanduser(clean)).resolve())
-        url = self.repo_url
-        # Strip user:password or tokens from http urls
-        parsed = urlparse(url)
-        if parsed.netloc and "@" in parsed.netloc:
-            host = parsed.netloc.split("@")[-1]
-            return parsed._replace(netloc=host).geturl()
-        return url
+        return self.sanitize_url(self.repo_url)
 
     @property
     def repo_name(self) -> str:
@@ -309,6 +361,7 @@ class GitAgentConfig:
         return cls(
             repo_url=data["repo_url"],
             token=data.get("token"),
+            username=data.get("username"),
             provider=provider or ProviderType.GENERIC,
             api_base_url=data.get("api_base_url"),
             base_branch=data.get("base_branch"),

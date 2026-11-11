@@ -24,6 +24,7 @@ from agents.git_agent.config import GitAgentConfig, ProviderType
 from agents.git_agent.agent import GitSubAgent
 from agents.scanner_agent.agent import ScannerAgent
 from agents.remediator_agent.agent import RemediatorAgent, DEFAULT_SQLI_FINDING
+from agents.remediator_agent.llm_client import discover_local_llm_models
 from orchestrator.pipeline import MultiAgentPipeline
 from orchestrator.scheduler import BatchScheduler, discover_repositories
 from orchestrator.email_notifier import EmailReportNotifier
@@ -39,12 +40,13 @@ LATEST_PR: Optional[Dict[str, Any]] = None
 
 APP_ROOT_DIR = Path(__file__).resolve().parent
 DEFAULT_LOCAL_REPO = (APP_ROOT_DIR / "repos" / "CustomerApi").resolve()
+EMAIL_NOTIFIER: EmailReportNotifier = EmailReportNotifier(app_root_dir=APP_ROOT_DIR)
 BATCH_SCHEDULER: BatchScheduler = BatchScheduler(
     data_dir=APP_ROOT_DIR / "scheduler_data",
     app_root_dir=APP_ROOT_DIR,
     auto_start=False,
+    email_notifier=EMAIL_NOTIFIER,
 )
-EMAIL_NOTIFIER: EmailReportNotifier = EmailReportNotifier(app_root_dir=APP_ROOT_DIR)
 
 
 def _ensure_default_local_repo_ready(reset_files: bool = False) -> None:
@@ -170,6 +172,8 @@ def _build_telemetry_payload() -> Dict[str, Any]:
     git_diff = ""
     git_author = "Git SubAgent <git-agent@subagent.local>"
     git_repo_name = ""
+    git_remote_url = None
+    git_has_token = False
 
     if git_prepared and ACTIVE_GIT_AGENT:
         try:
@@ -178,6 +182,8 @@ def _build_telemetry_payload() -> Dict[str, Any]:
             git_diff = ACTIVE_GIT_AGENT.get_diff()
             git_author = f"{ACTIVE_GIT_AGENT.config.author_name} <{ACTIVE_GIT_AGENT.config.author_email}>"
             git_repo_name = ACTIVE_GIT_AGENT.config.repo_name
+            git_remote_url = ACTIVE_GIT_AGENT.get_sanitized_remote_url()
+            git_has_token = bool(ACTIVE_GIT_AGENT.config.token)
         except Exception as exc:
             logger.debug("Telemetry git status check error: %s", exc)
         if not git_repo_name and ACTIVE_GIT_AGENT.context:
@@ -222,6 +228,9 @@ def _build_telemetry_payload() -> Dict[str, Any]:
             "status": git_status,
             "diff": git_diff,
             "author": git_author,
+            "remote_url": git_remote_url,
+            "has_remote": bool(git_remote_url),
+            "has_token": git_has_token,
         },
         "scanner": {
             "status": SCANNER_AGENT.status if (git_prepared or SCANNER_AGENT.last_result) else "IDLE",
@@ -400,6 +409,14 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
 
         elif path == "/api/email/outbox":
             self._send_json({"outbox": EMAIL_NOTIFIER.list_outbox(limit=25)})
+            return
+
+        elif path in ("/api/llm/models", "/api/ollama/models"):
+            """Discover locally installed LLM models (Ollama daemon, CLI, manifests, or OpenAI-compatible)."""
+            parsed_query = urllib.parse.parse_qs(parsed.query)
+            provider = (parsed_query.get("provider", ["ollama"])[0] or "ollama").strip().lower()
+            base_url = (parsed_query.get("base_url", [""])[0] or "").strip() or None
+            self._send_json(discover_local_llm_models(provider=provider, base_url=base_url))
             return
 
         elif path == "/api/status":
@@ -619,7 +636,8 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                     if norm_cand.exists():
                         repo_url = str(norm_cand)
 
-                token = payload.get("token") or os.getenv("GITHUB_TOKEN") or os.getenv("GITLAB_TOKEN")
+                token = payload.get("token") or payload.get("git_token") or os.getenv("GITHUB_TOKEN") or os.getenv("GITLAB_TOKEN")
+                username = payload.get("username") or payload.get("git_username")
                 provider_str = payload.get("provider")
                 if provider_str:
                     try:
@@ -636,6 +654,7 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                 config = GitAgentConfig(
                     repo_url=repo_url,
                     token=token,
+                    username=username,
                     provider=provider,
                     base_branch=payload.get("base_branch"),
                     feature_branch_name=payload.get("feature_branch"),
@@ -759,9 +778,12 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                             "summary": f"Build runner error: {bt_exc}",
                         }
 
+                remote_url = ACTIVE_GIT_AGENT.get_sanitized_remote_url()
                 self._send_json({
                     "message": "Repository prepared successfully",
                     "context": ctx.to_dict(),
+                    "remote_url": remote_url,
+                    "has_remote": bool(remote_url),
                     "status": ACTIVE_GIT_AGENT.get_status(),
                     "build_and_test": build_test_res,
                 })
@@ -1152,22 +1174,59 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
 
                 files = payload.get("files")
                 cur_br = ACTIVE_GIT_AGENT.workspace.current_feature_branch or ACTIVE_GIT_AGENT.workspace.get_current_branch()
-                dest_label = "remote branch" if not ACTIVE_GIT_AGENT.config.is_local else "local branch"
+                req_token = payload.get("token") or payload.get("git_token")
+                req_username = payload.get("username") if "username" in payload else payload.get("git_username")
+                force_push = bool(payload.get("force", False))
 
-                if ACTIVE_GIT_AGENT.workspace.has_changes():
+                commit_hash: Optional[str] = None
+                had_changes = ACTIVE_GIT_AGENT.workspace.has_changes()
+                if had_changes:
                     ACTIVE_GIT_AGENT.workspace.add(files)
                     commit_hash = ACTIVE_GIT_AGENT.workspace.commit(commit_msg)
-                    ACTIVE_GIT_AGENT.workspace.push(push_url=ACTIVE_GIT_AGENT.config.authenticated_clone_url)
+
+                try:
+                    push_res = ACTIVE_GIT_AGENT.push_branch(
+                        branch=cur_br,
+                        force=force_push,
+                        token=req_token,
+                        username=req_username,
+                    )
+                except Exception as push_exc:
+                    err_prefix = f"Committed {commit_hash[:7]}, but push to remote failed" if commit_hash else "Push to remote failed"
                     self._send_json({
-                        "message": f"Committed {commit_hash[:7]} and updated {dest_label} '{cur_br}'",
+                        "error": f"{err_prefix}: {push_exc}",
                         "commit_hash": commit_hash,
                         "branch": cur_br,
+                    }, status=400)
+                    return
+
+                remote_label = push_res.get("remote_url") or "origin"
+                if had_changes:
+                    msg_text = (
+                        f"Committed {commit_hash[:7]} and pushed branch '{cur_br}' to {remote_label}"
+                        if push_res.get("pushed")
+                        else f"Committed {commit_hash[:7]} and updated local branch '{cur_br}'"
+                    )
+                    self._send_json({
+                        "message": msg_text,
+                        "commit_hash": commit_hash,
+                        "branch": cur_br,
+                        "pushed": push_res.get("pushed", False),
+                        "push_status": push_res.get("status"),
+                        "remote_url": push_res.get("remote_url"),
                     })
                 else:
-                    ACTIVE_GIT_AGENT.workspace.push(push_url=ACTIVE_GIT_AGENT.config.authenticated_clone_url)
+                    msg_text = (
+                        f"Working tree clean. Pushed branch '{cur_br}' to {remote_label}."
+                        if push_res.get("pushed")
+                        else f"Working tree clean. Updated local branch '{cur_br}'."
+                    )
                     self._send_json({
-                        "message": f"Working tree clean. Updated {dest_label} '{cur_br}'.",
+                        "message": msg_text,
                         "branch": cur_br,
+                        "pushed": push_res.get("pushed", False),
+                        "push_status": push_res.get("status"),
+                        "remote_url": push_res.get("remote_url"),
                     })
                 return
 
@@ -1205,12 +1264,24 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                     desc = f"{desc.strip()}\n\n{body_ext}"
 
                 draft = bool(payload.get("draft", False))
+                req_token = payload.get("token") or payload.get("git_token")
+                req_username = payload.get("username") if "username" in payload else payload.get("git_username")
+                if req_token:
+                    ACTIVE_GIT_AGENT.config.token = req_token
+                    ACTIVE_GIT_AGENT.workspace.token_to_scrub = req_token
+                if req_username is not None:
+                    ACTIVE_GIT_AGENT.config.username = req_username
 
-                if not ACTIVE_GIT_AGENT.provider:
+                use_remote_pr = (
+                    not ACTIVE_GIT_AGENT.config.is_local
+                    or bool(ACTIVE_GIT_AGENT.last_push_result and ACTIVE_GIT_AGENT.last_push_result.get("pushed"))
+                )
+                pr_provider = ACTIVE_GIT_AGENT.resolve_pr_provider() if use_remote_pr else ACTIVE_GIT_AGENT.provider
+                if not pr_provider:
                     self._send_json({"error": "No git provider configured (GitHub/GitLab/Local)"}, status=400)
                     return
 
-                pr = ACTIVE_GIT_AGENT.provider.create_pull_request(
+                pr = pr_provider.create_pull_request(
                     head_branch=ACTIVE_GIT_AGENT.workspace.current_feature_branch,
                     base_branch=ACTIVE_GIT_AGENT.workspace.base_branch or "main",
                     title=title,
@@ -1259,7 +1330,7 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
             elif path == "/api/email/send-report":
-                if any(k in payload for k in ("webhook_url", "smtp_host", "smtp_port", "smtp_username", "smtp_password", "sender_email", "recipient_emails", "use_tls", "use_ssl", "auto_send_after_remediation", "auto_send_after_pr", "attach_remediation_html", "attach_scan_html", "attach_remediation_json")):
+                if any(k in payload for k in ("webhook_url", "smtp_host", "smtp_port", "smtp_username", "smtp_password", "sender_email", "recipient_emails", "use_tls", "use_ssl", "auto_send_after_remediation", "auto_send_after_pr", "attach_remediation_pdf", "attach_scan_pdf", "attach_remediation_html", "attach_scan_html", "attach_remediation_json")):
                     EMAIL_NOTIFIER.update_config(payload)
                 email_res = _dispatch_current_remediation_email(
                     override_recipients=payload.get("recipient_emails"),

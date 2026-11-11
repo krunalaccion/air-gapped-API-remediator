@@ -10,11 +10,11 @@
 | :--- | :--- |
 | **Document ID** | `QA-SPEC-AIRGAP-2026-V2` |
 | **Document Title** | Air-Gapped API Security Vulnerability Remediator QA Test Plan & Verification Manual |
-| **System Under Test (SUT)** | Multi-Agent Control Center (`GitSubAgent`, `ScannerAgent`, `RemediatorAgent`, `BugFixerAgent`, `BuildTester`, `ExternalScanners`, `MultiAgentPipeline`) |
-| **Version** | `2.0.0` |
-| **Target Release** | Production Release v2.0 / Air-Gap Enclave Certified |
+| **System Under Test (SUT)** | Multi-Agent Control Center (`GitSubAgent`, `ScannerAgent`, `RemediatorAgent`, `BugFixerAgent`, `BuildTester`, `ExternalScanners`, `MultiAgentPipeline`, `BatchScheduler`, `EmailReportNotifier`) |
+| **Version** | `2.1.0` |
+| **Target Release** | Production Release v2.1 / Air-Gap Enclave Certified |
 | **Document Classification** | Engineering & Quality Assurance |
-| **Automated Test Coverage** | 73 Automated Unit & Integration Tests across 9 Test Modules |
+| **Automated Test Coverage** | 99 Automated Unit & Integration Tests across 11 Test Modules |
 | **Sign-Off Status** | **PASSED & CERTIFIED** (100% Pass Rate) |
 
 ---
@@ -25,29 +25,34 @@
 This document provides the exhaustive Quality Assurance (QA) verification protocol for the **Air-Gapped API Security Vulnerability Remediator**. It defines the end-to-end test strategy, environment prerequisites, test data setup, detailed test cases (functional, negative, boundary, security, UI/UX), execution steps, expected outcomes, and sign-off criteria.
 
 ### 1.2 System Under Test (SUT) Scope
-The test scope validates the 7 core sub-systems:
+The test scope validates the 9 core sub-systems:
 1. **Agent Fleet & Registry**: [`BaseAgent`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/base.py#L15) contract, dynamic registration, status tracking, and discovery via [`AgentRegistry`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/base.py#L53).
 2. **ScannerAgent & External Scanners**:
    - Multi-language static analysis across C#/.NET and Node.js/Express ([`JavaScriptLexicalAnalyzer`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/scanner_agent/js_inspector.py)), detecting external egress (`AIRGAP-001`, `AIRGAP-002`, `AIRGAP-003`), SQL injection (`SQLI-001`, `SQLI-002`, `CWE-89`), OS command injection (`CWE-78`), dynamic `eval()` (`CWE-95`), IDOR (`CWE-639`), path traversal (`CWE-22`), auth bypass (`CWE-287`), hardcoded secrets (`CWE-798`), plaintext passwords (`CWE-256`), PII exposure (`CWE-359`), stack trace leakage (`CWE-209`), permissive CORS (`CWE-942`), prototype pollution (`CWE-1321`), SSRF (`CWE-918`), open redirect (`CWE-601`), Insecure Deserialization (`DESERIAL-004`), and Deprecated Cryptography (`CRYPTO-007/008/009`), while excluding dependency lockfiles (`package-lock.json`, `yarn.lock`, etc.).
    - External scanner adapters for offline **Semgrep** (`airgap_rules.yaml`, `nodejs_rules.yaml`) and **Trivy** CLI detection with automatic fallbacks ([`agents/scanner_agent/external_scanners.py`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/scanner_agent/external_scanners.py)).
-   - Interactive HTML and JSON security audit report generation ([`agents/scanner_agent/pipeline.py`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/scanner_agent/pipeline.py)).
-3. **RemediatorAgent & BugFixerAgent**:
+   - Interactive HTML, JSON, and SARIF security audit report generation (`/api/securescan/report`, [`agents/scanner_agent/pipeline.py`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/scanner_agent/pipeline.py)).
+3. **RemediatorAgent, BugFixerAgent & Local Model Discovery**:
    - Dual-mode code remediation: 100% offline deterministic rule-based fixers (including Node.js/Express via [`js_fixer.py`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/remediator_agent/js_fixer.py), C#/.NET, Python — `AIR-GAP OFFLINE`) and local AI engines (**Local Ollama**, **Local OpenAI-compatible LLMs** such as LM Studio or vLLM).
+   - Live local model discovery via [`discover_local_llm_models`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/remediator_agent/llm_client.py#L992-L1064) and `GET /api/llm/models` (Ollama `/api/tags`, `ollama list` CLI, local `~/.ollama/models/manifests` fallback, and OpenAI-compatible `/v1/models`), powering installed-model dropdowns (`#llmModelSelect`, `#schedLlmModelSelect`).
    - Gateway proxy interceptor generation ([`config/airgap_proxy.json`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/remediator_agent/agent.py#L58)) and audit documentation ([`AIRGAP_SECURITY_AUDIT.md`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/remediator_agent/agent.py#L37)).
    - Automated post-remediation verification scans and posture score calculations.
-   - Executive **Remediation & Compliance Dossier** generation ([`REMEDIATION_AUDIT_REPORT.html`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/remediator_agent/reporter.py)) with strict UI gating.
+   - Executive **Remediation & Compliance Dossier** generation ([`REMEDIATION_AUDIT_REPORT.html`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/remediator_agent/reporter.py)) and email dispatch controls strictly gated behind Step 03 completion.
 4. **BuildTester**:
    - Automatic language ecosystem detection (.NET, Python, Node.js / TypeScript, Go, Rust, Java/Maven/Gradle) via [`agents/git_agent/build_tester.py`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/git_agent/build_tester.py).
    - Automated compilation and unit test execution during repository isolation (Step 01) and on-demand (`/api/build-test`).
 5. **GitSubAgent & Providers**:
    - Remote repository workflows (GitHub / GitLab) with credential masking and isolation.
-   - Offline **Local Filesystem Repositories** ([`LocalProvider`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/git_agent/providers/local.py#L25)), atomic commits, and local PR manifest generation (`.git/local_prs/PR-*.md`).
+   - Offline **Local Filesystem Repositories** ([`LocalProvider`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/git_agent/providers/local.py#L25)), atomic commits, optional remote `origin` push + Git auth injection (`token`, `username`), and local PR manifest generation (`.git/local_prs/PR-*.md`).
    - Main repository name identity preservation (showing true repository name rather than ephemeral directory names).
 6. **Multi-Agent Control Center Web Server & GUI**:
-   - Unified multi-threaded HTTP server ([`web_server.py`](file:///Users/krunaldharamshi/Projects/GitAgent/web_server.py)) exposing 17 JSON REST endpoints.
-   - 5-stage Liveline workflow: Step 01 (Repository Isolation), Step 02 (Security Scanner), Step 03 (Autonomous Remediation & Diff Studio), Step 04 (Commit), Step 05 (SecOps PR & Audit Evidence).
+   - Unified multi-threaded HTTP server ([`web_server.py`](file:///Users/krunaldharamshi/Projects/GitAgent/web_server.py)) exposing Single Repo, Scheduler, Local LLM Discovery, and Email Notification REST endpoints.
+   - 5-stage Liveline workflow (`web/index.html`): Step 01 (Repository Isolation + optional local Git auth), Step 02 (Security Scanner), Step 03 (Autonomous Remediation, Installed Model Dropdown, Diff Studio, & Gated Send Report Now), Step 04 (Commit/Push), Step 05 (SecOps PR & Audit Evidence).
    - Light / Dark theme support, multi-browser favicons, real-time repository path validation, and directory navigation modal.
-7. **Model Context Protocol (MCP) Server**:
+7. **Batch Folder Scheduler (`BatchScheduler` & `web/scheduler.html`)**:
+   - Multi-repository folder discovery (shallow or recursive, optional `include_non_git` auto-init), `auto`/`main`/`master` base branch resolution, cron/interval/daily/weekly/one-time scheduling persisted in `scheduler_data/`, cooperative cancellation, remote push with masked credentials, and per-repo email dispatch.
+8. **Email Report Notification Service (`EmailReportNotifier` & `pdf_renderer`)**:
+   - Rich HTML + plain-text remediation summaries, automated HTML-to-PDF conversion attaching `REMEDIATION_AUDIT_REPORT.pdf` and `SECURESCAN_REPORT.pdf` (plus optional JSON) via [`orchestrator/pdf_renderer.py`](file:///Users/krunaldharamshi/Projects/GitAgent/orchestrator/pdf_renderer.py), `.eml` outbox archiving (`reports/email_outbox/`), and SMTP (`STARTTLS`/`SSL`) or HTTPS Webhook (`EMAIL_WEBHOOK_URL`) delivery.
+9. **Model Context Protocol (MCP) Server**:
    - Stdio JSON-RPC 2.0 interface ([`agents/git_agent/mcp_server.py`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/git_agent/mcp_server.py)) compliant with MCP 2024-11-05 for LLM hosts (Claude Desktop, Cursor, Antigravity).
 
 ---
@@ -83,7 +88,7 @@ python3 -m unittest discover tests
 Expected Output:
 ```
 ----------------------------------------------------------------------
-Ran 73 tests in 13.454s
+Ran 99 tests in 35.7s
 
 OK
 ```
@@ -206,11 +211,11 @@ git branch -M main
 | **TC-021** | Web UI Dashboard | Browser Dashboard Layout, Dark/Light Mode & Badges | High | UI / UX |
 | **TC-022** | MCP Protocol | Model Context Protocol JSON-RPC 2.0 stdio Interface | High | Integration |
 | **TC-023** | Security | Token Scrubbing & Credential Masking in Terminal Logs | Critical | Security |
-| **TC-024** | Regression | Full Automated Regression Test Suite (73 Tests) | Critical | Automated Unit Test |
+| **TC-024** | Regression | Full Automated Regression Test Suite (99 Tests) | Critical | Automated Unit Test |
 | **TC-025** | External Scanners | External Scanner CLI Detection & Availability (`/api/scanner/tools`) | Medium | Functional |
-| **TC-026** | Audit Reports | Security Scanner HTML/JSON Audit Report Generation | High | Functional |
+| **TC-026** | Audit Reports | Security Scanner HTML/JSON Audit Report Generation (`/api/securescan/report`) | High | Functional |
 | **TC-027** | Remediator | Post-Scan Verification & Posture Score Calculation | High | Functional |
-| **TC-028** | UI Gate | Strict Step 03 Gate on Remediation & Compliance Dossier | High | Functional / UI |
+| **TC-028** | UI Gate | Strict Step 03 Gate on Remediation Dossier & Send Report Buttons | High | Functional / UI |
 | **TC-029** | BuildTester | Multi-Ecosystem Automated Build & Unit Test Runner (`/api/build-test`) | High | Functional |
 | **TC-030** | Identity | True Repository Name Resolution & Perimeter Isolation Status | Medium | Functional |
 | **TC-031** | Remediation Studio | Step 03 Queued Findings List & File Inspector Transition | High | Functional / UI |
@@ -218,6 +223,11 @@ git branch -M main
 | **TC-033** | Auto-Init | Auto-Initialization of Plain Local Directory (`auto_init: true`) | Critical | Functional |
 | **TC-034** | Pipeline | 5-Stage Remediation on Unlinked Local Project (No Remote) | Critical | Integration |
 | **TC-035** | Workspace Reset | Reset Removes Folder Name & References (`/api/reset-all`) | Critical | Functional / Security |
+| **TC-036** | Local Remote Push | Authenticated Remote Push & PR Creation from Local Folder Repository | Critical | Integration / Security |
+| **TC-037** | Batch Scheduler | Multi-Repo Discovery, Base Branch Resolution & Cron/Interval Scheduling | Critical | Functional / Integration |
+| **TC-038** | Scheduler Auth | Batch Scheduler Per-Schedule Remote Push & Masked Git Credentials | Critical | Security / Functional |
+| **TC-039** | Email Delivery | Post-Remediation SMTP / Webhook Emails, `.eml` Archive & Scheduler Auto-Email | High | Integration |
+| **TC-040** | LLM Discovery | Local Ollama / OpenAI-Compatible Model Discovery & UI Dropdown (`#llmModelSelect`) | High | Functional / UI |
 
 ---
 
@@ -580,25 +590,27 @@ git branch -M main
 
 ---
 
-### TC-024: Full Automated Regression Test Suite (73 Tests)
-- **Objective**: Execute all 73 automated unit and integration tests across the codebase.
+### TC-024: Full Automated Regression Test Suite (99 Tests)
+- **Objective**: Execute all 99 automated unit and integration tests across the codebase.
 - **Test Steps**:
   ```bash
-  python3 -m unittest discover tests
+  python3 -m unittest discover -s tests
   ```
 - **Expected Outcome**:
-  - Test runner executes 73 tests across 9 test modules:
-    - `test_agent.py` (3 tests)
-    - `test_config.py` (11 tests)
+  - Test runner executes 99 tests across 11 test modules:
+    - `test_agent.py` (4 tests)
+    - `test_config.py` (12 tests)
+    - `test_email_notifier.py` (6 tests)
     - `test_external_scanners.py` (4 tests)
     - `test_mcp_server.py` (5 tests)
     - `test_multi_agent.py` (6 tests)
     - `test_providers.py` (11 tests)
     - `test_remediation_report.py` (2 tests)
-    - `test_web_server.py` (30 tests)
+    - `test_scheduler.py` (12 tests)
+    - `test_web_server.py` (36 tests)
     - `test_workspace.py` (1 test)
   - Final status: `OK`. Exit code: `0`.
-- **Pass / Fail Criteria**: Pass if 73/73 tests pass with 0 failures and 0 errors.
+- **Pass / Fail Criteria**: Pass if 99/99 tests pass with 0 failures and 0 errors.
 
 ---
 
@@ -613,16 +625,16 @@ git branch -M main
 
 ---
 
-### TC-026: Security Scanner HTML/JSON Audit Report Generation
-- **Objective**: Verify that `/api/scanner/report` serves both interactive HTML and raw JSON reports.
+### TC-026: Security Scanner HTML/JSON/SARIF Audit Report Generation
+- **Objective**: Verify that `/api/securescan/report` serves interactive HTML, JSON, and SARIF reports.
 - **Test Steps**:
   1. Execute a scan via `/api/scan`.
-  2. Send `GET http://localhost:8080/api/scanner/report?format=html`.
-  3. Send `GET http://localhost:8080/api/scanner/report?format=json`.
+  2. Send `GET http://localhost:8080/api/securescan/report?format=html`.
+  3. Send `GET http://localhost:8080/api/securescan/report?format=json`.
 - **Expected Outcome**:
   - HTML request returns `200 OK` with `Content-Type: text/html` containing finding summary table and threat count cards.
   - JSON request returns `200 OK` with `Content-Type: application/json` containing structured findings.
-- **Pass / Fail Criteria**: Pass if both formats render accurately without 0-threat mismatches when vulnerabilities exist.
+- **Pass / Fail Criteria**: Pass if all formats render accurately without 0-threat mismatches when vulnerabilities exist.
 
 ---
 
@@ -639,18 +651,16 @@ git branch -M main
 
 ---
 
-### TC-028: Strict Step 03 Gate on Remediation & Compliance Dossier
-- **Objective**: Verify that `#remediationSummaryBar` ("🛡️ Remediation & Compliance Dossier") remains strictly hidden until Step 03 completes.
+### TC-028: Strict Step 03 Gate on Remediation Dossier & Send Report Buttons
+- **Objective**: Verify that `#remediationSummaryBar` ("🛡️ Remediation & Compliance Dossier"), `#btnSendReportStep3`, and `#btnModalSendEmailNow` remain strictly hidden until Step 03 completes (and no email button appears in the top-right header).
 - **Test Steps**:
   1. Load the web interface (`http://localhost:8080`).
-  2. Verify `#remediationSummaryBar` has class `hidden`.
-  3. Execute Step 01 (Prepare Repository); verify the dossier bar remains `hidden`.
-  4. Execute Step 02 (Security Scanner); verify the dossier bar remains `hidden`.
-  5. Trigger periodic telemetry sync; verify the dossier bar remains `hidden`.
-  6. Execute Step 03 (Fix Code); verify the dossier bar is revealed with *View Remediation Report* link.
+  2. Verify the top-right header contains no Email Reports button, and `#remediationSummaryBar`, `#btnSendReportStep3`, and `#btnModalSendEmailNow` have class `hidden`.
+  3. Execute Step 01 (Prepare Repository) and Step 02 (Security Scanner), plus periodic telemetry sync; verify all dossier and Send Report buttons remain `hidden`.
+  4. Execute Step 03 (Fix Code); verify the dossier bar, *View Remediation Report* link, `#btnSendReportStep3`, and `#btnModalSendEmailNow` are revealed.
 - **Expected Outcome**:
-  - The dossier bar is strictly hidden in steps 1 and 2 and only rendered after Step 03 completes successfully.
-- **Pass / Fail Criteria**: Pass if dossier bar is never shown prematurely.
+  - Dossier and Send Report actions are strictly gated behind Step 03 completion across all UI states and telemetry polls.
+- **Pass / Fail Criteria**: Pass if dossier and Send Report buttons never appear prematurely before remediation completes.
 
 ---
 
@@ -774,15 +784,87 @@ git branch -M main
 
 ---
 
+### TC-036: Authenticated Remote Push & PR Creation from Local Folder Repository
+- **Objective**: Verify that a local folder repository with a configured `origin` remote can push remediation branches and create remote PRs/MRs when `token` (and optional `username`) are provided in Step 01 (`/api/prepare`) or Step 04 (`/api/commit-push`), while masking credentials in logs and `.git/config`.
+- **Pre-Conditions**: Local Git repository with an `origin` remote URL pointing to a bare remote or GitHub/GitLab repository.
+- **Test Steps**:
+  1. Prepare the local folder path via `POST /api/prepare` with optional `token` / `username`.
+  2. Scan and remediate via `/api/scan` and `/api/fix`.
+  3. Commit & push via `POST /api/commit-push` passing optional `token`, `username`, and `commit_message`.
+- **Expected Outcome**:
+  - HTTP Status: `200 OK`, `pushed: true`, `branch` pushed to `origin` (`remote_url` sanitized).
+  - Plaintext token is injected ephemerally via `GIT_ASKPASS` / transient remote URL and never persisted to `.git/config` or returned in API responses/logs.
+- **Pass / Fail Criteria**: Pass if remote receives the pushed remediation branch cleanly with zero credential leakage.
+
+---
+
+### TC-037: Batch Folder Scheduler Discovery, Base Branch Resolution & Scheduling (`/scheduler`)
+- **Objective**: Verify that `BatchScheduler` discovers repositories inside a folder (excluding the GitAgent app root), resolves `auto`/`main`/`master` base branches cleanly, persists schedules, executes runs sequentially in the background, and supports cooperative cancellation.
+- **Test Steps**:
+  1. Open `/scheduler` or send `POST /api/scheduler/discover` with `folder_path`.
+  2. Create an interval or cron schedule via `POST /api/scheduler/schedules` (`base_branch: "auto"`).
+  3. Trigger execution via `POST /api/scheduler/schedules/run-now` and poll `GET /api/scheduler/runs/detail`.
+  4. Test cancellation on an active run via `POST /api/scheduler/runs/cancel`.
+- **Expected Outcome**:
+  - Discovery lists valid Git repos (and optional non-Git repos when `include_non_git: true`).
+  - Each repository branches cleanly from `main`/`master`, runs scan -> remediation -> commit -> PR, and saves per-repo reports under `scheduler_data/runs/`.
+  - Cancelled runs transition promptly to `CANCELLED`.
+- **Pass / Fail Criteria**: Pass if multi-repo batch remediation executes sequentially and honors base branch & cancellation rules.
+
+---
+
+### TC-038: Batch Scheduler Per-Schedule Remote Push & Masked Git Credentials
+- **Objective**: Verify that scheduling a local folder with `auto_push: true`, `git_token`, and `git_username` pushes local repos that have remote `origin` configured while masking stored tokens in all API responses and edit forms.
+- **Test Steps**:
+  1. Create/update a schedule via `POST /api/scheduler/schedules` with `auto_push: true`, `git_token: "pat_secret_123"`, `git_username: "bot-user"`.
+  2. Retrieve schedules via `GET /api/scheduler/schedules`.
+  3. Run the batch schedule against local repos having a bare `origin` remote.
+  4. Edit and save the schedule without changing the masked `"********"` token field.
+- **Expected Outcome**:
+  - `GET /api/scheduler/schedules` returns `has_git_token: true` and `git_token: "********"`.
+  - Pushed branches appear in the remote repository; updating other schedule fields with `"********"` preserves the underlying token unless `clear_git_token: true` is sent.
+- **Pass / Fail Criteria**: Pass if remote push succeeds and plaintext credentials are never exposed in UI/API payloads.
+
+---
+
+### TC-039: Post-Remediation PDF Email Delivery, Outbox Archive & Scheduler Auto-Email
+- **Objective**: Verify `EmailReportNotifier` builds HTML/text remediation emails, converts audit HTML reports into valid PDF attachments (`REMEDIATION_AUDIT_REPORT.pdf` and `SECURESCAN_REPORT.pdf` with `application/pdf` MIME type), archives `.eml` files in `reports/email_outbox/`, dispatches via SMTP (`STARTTLS`/`SSL`) or HTTPS Webhook (`EMAIL_WEBHOOK_URL`), and automatically sends emails after each repo finishes in `BatchScheduler` when `send_email: true`.
+- **Test Steps**:
+  1. Inspect/update config via `GET` / `POST /api/email/config` (verify `smtp_password` masked as `"********"`).
+  2. Complete Step 03 in the Single Repo Pipeline and click **Send Report Now** (`POST /api/email/send-report`), then check `GET /api/email/outbox`.
+  3. Run a Batch Scheduler job with `send_email: true` (and `email_recipients`) and compare against a run with `send_email: false`.
+- **Expected Outcome**:
+  - Outbox `.eml` file and webhook payload contain `.pdf` report attachments (`application/pdf`, valid `%PDF-1.4` ... `%%EOF` bytes) alongside optional JSON.
+  - Batch Scheduler dispatches an email after each repo scan + remediation completes when `send_email: true`, and skips sending when `send_email: false`.
+- **Pass / Fail Criteria**: Pass if manual gated emails and automatic per-repo batch emails attach valid PDFs, archive cleanly, and respect toggle settings.
+
+---
+
+### TC-040: Local LLM / Ollama Installed Model Discovery & UI Dropdown (`#llmModelSelect`)
+- **Objective**: Verify `GET /api/llm/models` (and `/api/ollama/models`) enumerates locally installed Ollama or OpenAI-compatible models, falls back to CLI/manifest cache when the daemon is offline, and populates the model dropdowns in both `web/index.html` and `web/scheduler.html`.
+- **Test Steps**:
+  1. Send `GET /api/llm/models?provider=ollama` and `GET /api/llm/models?provider=local`.
+  2. Verify `/api/llm/models` returns `models`, `model_names`, `default_model`, `daemon_running`, and `source` (`ollama_api`, `ollama_cli`, `local_manifests`, `openai_compat_api`, or `unavailable`).
+  3. Verify `#llmModelSelect` (Single Repo Step 03) and `#schedLlmModelSelect` (Scheduler Pipeline Options) populate installed models, display size/parameter metadata, support manual refresh (`↻`), and reveal `#llmModel` / `#schedLlmModel` only when `"Custom model name…"` is chosen (or 0 models are detected).
+- **Expected Outcome**:
+  - HTTP Status: `200 OK` with structured model list; selecting a dropdown item updates `#llmModel` / `#schedLlmModel` seamlessly, and editing a saved schedule with a custom model preserves that custom name.
+- **Pass / Fail Criteria**: Pass if local/cached models render accurately and custom fallback works cleanly.
+
+---
+
 ## 5. QA Verification Checklist & Sign-Off Sheet
 
 | Checklist Item | Target Standard | Status | Verified By |
 | :--- | :--- | :--- | :--- |
 | **Zero Runtime Pip Dependencies** | Standard Library only | `[x] PASS` | Automated Suite |
-| **All 73 Unit & Integration Tests Passing** | 100% Pass Rate (73/73) | `[x] PASS` | Automated Suite |
+| **All 99 Unit & Integration Tests Passing** | 100% Pass Rate (99/99 across 11 modules) | `[x] PASS` | Automated Suite |
 | **Reset Removes Folder Name & References** | Clears UI, state & telemetry references | `[x] PASS` | Web Server & UI |
 | **Unlinked Local Project Remediation** | Supports repos with no remote origin | `[x] PASS` | LocalProvider & Pipeline |
+| **Local Folder Remote Push & Auth** | Masked ephemeral credentials push to `origin` | `[x] PASS` | GitSubAgent & Scheduler |
 | **Auto-Init Plain Codebase Folders** | Auto-inits git with baseline commit | `[x] PASS` | LocalProvider & API |
+| **Batch Folder Scheduler & Cancellation** | Multi-repo cron/interval worker & base branch check | `[x] PASS` | BatchScheduler |
+| **Per-Repo & Gated Post-Remediation Email** | SMTP / Webhook + `.eml` archive + Step 03 gate | `[x] PASS` | EmailReportNotifier & UI |
+| **Local Ollama Model Discovery Dropdown** | Live `/api/tags`, CLI, & manifest fallback UI | `[x] PASS` | LLM Client & UI |
 | **Egress URL Detection Accuracy** | Detects HTTP/HTTPS egress | `[x] PASS` | ScannerAgent |
 | **Internal Whitelist Filter** | `*.airgap.internal` whitelisted | `[x] PASS` | ScannerAgent |
 | **External Scanner CLI Fallback** | Semgrep / Trivy tool discovery | `[x] PASS` | ExternalScanners |
@@ -790,8 +872,8 @@ git branch -M main
 | **Local Git In-Place Operation** | Zero internet required | `[x] PASS` | LocalProvider |
 | **Path Traversal Security Check** | Blocked with HTTP 403 | `[x] PASS` | Web Server API |
 | **Local PR Manifest Generation** | Created in `.git/local_prs/` | `[x] PASS` | LocalProvider |
-| **Security Scan Audit Reports** | HTML & JSON format exports | `[x] PASS` | Reporting Engine |
-| **Strict Step 03 Dossier Gate** | Hidden until Step 03 completion | `[x] PASS` | Web UI Controller |
+| **Security Scan Audit Reports** | HTML, JSON & SARIF exports (`/api/securescan/report`) | `[x] PASS` | Reporting Engine |
+| **Strict Step 03 Dossier & Email Gate** | Hidden until Step 03 completion | `[x] PASS` | Web UI Controller |
 | **Target Repository Name Identity** | True base repo name resolved | `[x] PASS` | Web UI & GitAgent |
 | **Web UI Dashboard & Theme Support** | Dark/Light mode + icons | `[x] PASS` | Web UI Controller |
 | **MCP Server Tool Compliance** | Conforms to MCP 2024-11-05 | `[x] PASS` | MCPServer |
@@ -801,7 +883,7 @@ git branch -M main
 ### QA Approvals & Sign-Off
 
 ```
-Lead QA Engineer:  QA Engineering Team         Date: 2026-11-09      Status: [ APPROVED ✓ ]
-Security Auditor:  AppSec & Air-Gap Auditor    Date: 2026-11-09      Status: [ APPROVED ✓ ]
-Engineering Lead:  Multi-Agent Core Team       Date: 2026-11-09      Status: [ APPROVED ✓ ]
+Lead QA Engineer:  QA Engineering Team         Date: 2026-11-11      Status: [ APPROVED ✓ ]
+Security Auditor:  AppSec & Air-Gap Auditor    Date: 2026-11-11      Status: [ APPROVED ✓ ]
+Engineering Lead:  Multi-Agent Core Team       Date: 2026-11-11      Status: [ APPROVED ✓ ]
 ```

@@ -941,6 +941,49 @@ class TestAirGappedScannerAndRemediator(unittest.TestCase):
         self.assertEqual(telem.get("active_workspace_path"), "")
         self.assertEqual(telem.get("workspace_files"), [])
 
+    def test_local_folder_with_remote_origin_commit_and_push_api(self):
+        # Create a bare remote and a local clone on disk
+        bare_remote = self.temp_dir / "origin_remote.git"
+        local_clone = self.temp_dir / "local_selected_folder"
+        subprocess.run(["git", "init", "--bare", str(bare_remote)], check=True, capture_output=True)
+        seed = self.temp_dir / "seed_repo"
+        subprocess.run(["git", "clone", str(bare_remote), str(seed)], check=True, capture_output=True)
+        (seed / "app.py").write_text("import requests\nrequests.get('https://api.external-cloud.com/v1')\n")
+        subprocess.run(["git", "add", "."], cwd=str(seed), check=True, capture_output=True)
+        subprocess.run(["git", "-c", "commit.gpgsign=false", "-c", "user.name=Test", "-c", "user.email=test@test.local", "commit", "-m", "init"], cwd=str(seed), check=True, capture_output=True)
+        subprocess.run(["git", "branch", "-M", "main"], cwd=str(seed), check=True, capture_output=True)
+        subprocess.run(["git", "push", "-u", "origin", "main"], cwd=str(seed), check=True, capture_output=True)
+        subprocess.run(["git", "symbolic-ref", "HEAD", "refs/heads/main"], cwd=str(bare_remote), check=True, capture_output=True)
+        subprocess.run(["git", "clone", str(bare_remote), str(local_clone)], check=True, capture_output=True)
+
+        # Prepare using local folder path + optional auth token
+        p_st, p_data = self._call_post("/api/prepare", {
+            "repo_url": str(local_clone),
+            "token": "ghp_localDemoToken1234",
+            "feature_branch": "remediation/push-from-local",
+        })
+        self.assertEqual(p_st, 200)
+        self.assertTrue(p_data.get("has_remote"))
+
+        # Make a remediation edit and commit+push via /api/commit-push
+        (local_clone / "app.py").write_text("import requests\nrequests.get('http://proxy.airgap.internal:8080/v1')\n")
+        c_st, c_data = self._call_post("/api/commit-push", {
+            "commit_message": "fix(airgap): remediate egress from local folder",
+        })
+        self.assertEqual(c_st, 200)
+        self.assertTrue(c_data.get("pushed"))
+        self.assertEqual(c_data.get("push_status"), "pushed")
+
+        # Verify branch exists in bare remote
+        remote_branches = subprocess.run(
+            ["git", "branch", "--list", "remediation/push-from-local"],
+            cwd=str(bare_remote),
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        self.assertIn("remediation/push-from-local", remote_branches)
+
 
 class NodeJsScannerAndRemediatorTest(unittest.TestCase):
     """Regression suite for multi-language Node.js/Express SAST scanning and offline deterministic remediation."""
@@ -1256,6 +1299,165 @@ class NodeJsScannerAndRemediatorTest(unittest.TestCase):
             post_res = scanner.run({"workspace_path": str(proj_dir), "scanner_engine": "all", "is_post_scan": True})
             residual = post_res.get("post_scan_findings", post_res.get("findings", []))
             self.assertEqual(residual, [])
+
+
+class TestLocalLLMModelDiscovery(unittest.TestCase):
+    """Tests for local Ollama/OpenAI model discovery endpoint and UI dropdown wiring."""
+
+    def setUp(self):
+        self.temp_dir = Path(tempfile.mkdtemp(prefix="test_ollama_models_"))
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def _call_get(self, path: str) -> tuple[int, dict]:
+        handler = MultiAgentAPIHandler.__new__(MultiAgentAPIHandler)
+        handler.rfile = io.BytesIO()
+        handler.wfile = io.BytesIO()
+        handler.headers = {}
+        handler.path = path
+        handler.send_response = MagicMock()
+        handler.send_header = MagicMock()
+        handler.end_headers = MagicMock()
+        handler.do_GET()
+        status_code = handler.send_response.call_args[0][0] if handler.send_response.call_args else 200
+        response_data = json.loads(handler.wfile.getvalue().decode("utf-8")) if handler.wfile.getvalue() else {}
+        return status_code, response_data
+
+    def test_discover_ollama_via_api(self):
+        from unittest.mock import patch
+        from agents.remediator_agent.llm_client import discover_local_llm_models
+
+        fake_tags = {
+            "models": [
+                {
+                    "name": "llama3.2:latest",
+                    "size": 2 * (1024 ** 3),
+                    "modified_at": "2026-01-10T10:00:00Z",
+                    "details": {
+                        "parameter_size": "3.2B",
+                        "family": "llama",
+                        "quantization_level": "Q4_K_M",
+                    },
+                },
+                {
+                    "name": "qwen2.5-coder:3b",
+                    "size": int(1.9 * (1024 ** 3)),
+                    "modified_at": "2026-01-11T10:00:00Z",
+                    "details": {
+                        "parameter_size": "3.1B",
+                        "family": "qwen2",
+                        "quantization_level": "Q4_K_M",
+                    },
+                },
+            ]
+        }
+
+        class FakeResp:
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def read(self):
+                return json.dumps(fake_tags).encode("utf-8")
+
+        with patch("urllib.request.urlopen", return_value=FakeResp()) as mock_open:
+            res = discover_local_llm_models(provider="ollama", base_url="http://127.0.0.1:11434/v1")
+
+        self.assertTrue(mock_open.called)
+        self.assertEqual(res["base_url"], "http://127.0.0.1:11434")
+        self.assertTrue(res["daemon_running"])
+        self.assertEqual(res["source"], "ollama_api")
+        self.assertEqual(res["model_names"], ["llama3.2:latest", "qwen2.5-coder:3b"])
+        self.assertEqual(res["default_model"], "qwen2.5-coder:3b")
+        self.assertEqual(res["models"][0]["size_label"], "2.0 GB")
+        self.assertEqual(res["models"][0]["parameter_size"], "3.2B")
+
+    def test_discover_ollama_manifest_fallback_when_daemon_offline(self):
+        from unittest.mock import patch
+        from agents.remediator_agent.llm_client import discover_local_llm_models
+
+        manifest_base = self.temp_dir / "manifests" / "registry.ollama.ai" / "library"
+        (manifest_base / "llama3.2").mkdir(parents=True, exist_ok=True)
+        (manifest_base / "qwen2.5-coder").mkdir(parents=True, exist_ok=True)
+        (manifest_base / "llama3.2" / "latest").write_text(
+            json.dumps({"config": {"size": 1024}, "layers": [{"size": 500 * 1024 * 1024}]}),
+            encoding="utf-8",
+        )
+        (manifest_base / "qwen2.5-coder" / "3b").write_text(
+            json.dumps({"config": {"size": 2048}, "layers": [{"size": 2 * (1024 ** 3)}]}),
+            encoding="utf-8",
+        )
+
+        with patch("agents.remediator_agent.llm_client._discover_ollama_via_api", return_value=([], "connection refused")), \
+             patch("agents.remediator_agent.llm_client._discover_ollama_via_cli", return_value=([], "ollama daemon stopped")):
+            res = discover_local_llm_models(provider="ollama", models_dir=self.temp_dir)
+
+        self.assertFalse(res["daemon_running"])
+        self.assertEqual(res["source"], "local_manifests")
+        self.assertIn("llama3.2:latest", res["model_names"])
+        self.assertIn("qwen2.5-coder:3b", res["model_names"])
+        self.assertEqual(res["default_model"], "qwen2.5-coder:3b")
+        qwen_entry = next(m for m in res["models"] if m["name"] == "qwen2.5-coder:3b")
+        self.assertEqual(qwen_entry["size_label"], "2.0 GB")
+
+    def test_discover_openai_compat_models(self):
+        from unittest.mock import patch
+        from agents.remediator_agent.llm_client import discover_local_llm_models
+
+        class FakeResp:
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def read(self):
+                return json.dumps({
+                    "data": [{"id": "deepseek-coder-v2-lite", "owned_by": "lm-studio"}]
+                }).encode("utf-8")
+
+        with patch("urllib.request.urlopen", return_value=FakeResp()):
+            res = discover_local_llm_models(provider="local", base_url="http://localhost:1234/v1")
+
+        self.assertEqual(res["provider"], "local")
+        self.assertTrue(res["daemon_running"])
+        self.assertEqual(res["source"], "openai_compat_api")
+        self.assertEqual(res["model_names"], ["deepseek-coder-v2-lite"])
+        self.assertEqual(res["default_model"], "deepseek-coder-v2-lite")
+
+    def test_api_llm_models_endpoint(self):
+        from unittest.mock import patch
+
+        sample = {
+            "provider": "ollama",
+            "base_url": "http://127.0.0.1:11434",
+            "daemon_running": True,
+            "source": "ollama_api",
+            "models": [{"name": "codellama:7b", "size_label": "3.8 GB"}],
+            "model_names": ["codellama:7b"],
+            "default_model": "codellama:7b",
+            "error": None,
+        }
+        with patch("web_server.discover_local_llm_models", return_value=sample) as mock_disc:
+            status, data = self._call_get("/api/llm/models?provider=ollama&base_url=http%3A%2F%2F127.0.0.1%3A11434")
+            self.assertEqual(status, 200)
+            self.assertEqual(data["model_names"], ["codellama:7b"])
+            mock_disc.assert_called_once_with(provider="ollama", base_url="http://127.0.0.1:11434")
+
+            status2, data2 = self._call_get("/api/ollama/models")
+            self.assertEqual(status2, 200)
+            self.assertEqual(data2["model_names"], ["codellama:7b"])
+
+    def test_ui_contains_local_model_dropdowns(self):
+        root = Path(__file__).resolve().parent.parent
+        index_html = (root / "web" / "index.html").read_text(encoding="utf-8")
+        scheduler_html = (root / "web" / "scheduler.html").read_text(encoding="utf-8")
+        self.assertIn('id="llmModelSelect"', index_html)
+        self.assertIn("loadLocalLlmModels", index_html)
+        self.assertIn("/api/llm/models", index_html)
+        self.assertIn('id="schedLlmModelSelect"', scheduler_html)
+        self.assertIn("loadSchedLlmModels", scheduler_html)
+        self.assertIn("/api/llm/models", scheduler_html)
 
 
 if __name__ == "__main__":

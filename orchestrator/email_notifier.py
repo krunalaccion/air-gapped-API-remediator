@@ -1,10 +1,11 @@
 """
 Email Report Notification Service for the Air-Gapped API & SAST Remediator.
 
-Builds rich HTML + Plain-Text security remediation summary emails, attaches
-generated HTML/JSON audit reports (REMEDIATION_AUDIT_REPORT.html, SECURESCAN_REPORT.html,
-and JSON report payloads), archives every message as a standard RFC-5322 `.eml` file
-in `reports/email_outbox/`, and dispatches via configurable SMTP / STARTTLS / SSL.
+Builds rich HTML + Plain-Text security remediation summary emails, converts
+HTML audit reports into PDF attachments (`REMEDIATION_AUDIT_REPORT.pdf`,
+`SECURESCAN_REPORT.pdf`) alongside JSON payloads, archives every message as a
+standard RFC-5322 `.eml` file in `reports/email_outbox/`, and dispatches via
+configurable HTTPS Webhook (Port 443) or SMTP / STARTTLS / SSL.
 """
 
 from __future__ import annotations
@@ -18,10 +19,14 @@ import os
 import re
 import smtplib
 import ssl
+import sys
+import threading
 import urllib.request
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from orchestrator.pdf_renderer import html_to_pdf_bytes
 
 logger = logging.getLogger("orchestrator.email_notifier")
 
@@ -58,11 +63,13 @@ class EmailReportNotifier:
         self.config_path = self.app_root_dir / "scheduler_data" / "email_config.json"
         self.outbox_dir = self.app_root_dir / "reports" / "email_outbox"
         self.outbox_dir.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.RLock()
+        self._dotenv_vars: Dict[str, str] = {}
         self._load_dotenv()
         self._config: Dict[str, Any] = self._load_config()
 
     def _load_dotenv(self) -> None:
-        """Loads key=value pairs from `.env` (and `.env.example` fallback) in app_root_dir into os.environ."""
+        """Loads key=value pairs from `.env` (and `.env.example` fallback) in app_root_dir into instance defaults."""
         for candidate in (self.dotenv_path, self.app_root_dir / ".env.example"):
             if not candidate.exists():
                 continue
@@ -74,29 +81,56 @@ class EmailReportNotifier:
                     key, val = line.split("=", 1)
                     key = key.strip()
                     val = val.strip().strip('"').strip("'")
-                    if key and key not in os.environ:
-                        os.environ[key] = val
+                    if key and key not in self._dotenv_vars:
+                        self._dotenv_vars[key] = val
             except Exception as exc:
                 logger.warning("Could not parse env file at %s: %s", candidate, exc)
 
+    def _env(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        if key in os.environ:
+            return os.environ[key]
+        return self._dotenv_vars.get(key, default)
+
     def _default_config(self) -> Dict[str, Any]:
         return {
-            "enabled": _parse_bool(os.getenv("EMAIL_ENABLED"), True),
-            "auto_send_after_remediation": _parse_bool(os.getenv("EMAIL_AUTO_SEND_ON_REMEDIATION"), True),
-            "auto_send_after_pr": _parse_bool(os.getenv("EMAIL_AUTO_SEND_ON_PR"), False),
-            "webhook_url": os.getenv("EMAIL_WEBHOOK_URL", "").strip(),
-            "smtp_host": os.getenv("SMTP_HOST", "").strip(),
-            "smtp_port": int(os.getenv("SMTP_PORT", "587") or 587),
-            "smtp_username": os.getenv("SMTP_USERNAME", "").strip(),
-            "smtp_password": os.getenv("SMTP_PASSWORD", ""),
-            "use_tls": _parse_bool(os.getenv("SMTP_USE_TLS"), True),
-            "use_ssl": _parse_bool(os.getenv("SMTP_USE_SSL"), False),
-            "sender_email": os.getenv("EMAIL_FROM", "secops-remediator@airgap.local").strip(),
-            "recipient_emails": _split_emails(os.getenv("EMAIL_TO", "")),
-            "subject_prefix": os.getenv("EMAIL_SUBJECT_PREFIX", "[SecOps Remediation Report]").strip(),
-            "attach_remediation_html": _parse_bool(os.getenv("EMAIL_ATTACH_REMEDIATION_HTML"), True),
-            "attach_scan_html": _parse_bool(os.getenv("EMAIL_ATTACH_SCAN_HTML"), True),
-            "attach_remediation_json": _parse_bool(os.getenv("EMAIL_ATTACH_REMEDIATION_JSON"), True),
+            "enabled": _parse_bool(self._env("EMAIL_ENABLED"), True),
+            "auto_send_after_remediation": _parse_bool(self._env("EMAIL_AUTO_SEND_ON_REMEDIATION"), True),
+            "auto_send_after_pr": _parse_bool(self._env("EMAIL_AUTO_SEND_ON_PR"), False),
+            "webhook_url": self._env("EMAIL_WEBHOOK_URL", "").strip(),
+            "smtp_host": self._env("SMTP_HOST", "").strip(),
+            "smtp_port": int(self._env("SMTP_PORT", "587") or 587),
+            "smtp_username": self._env("SMTP_USERNAME", "").strip(),
+            "smtp_password": self._env("SMTP_PASSWORD", ""),
+            "use_tls": _parse_bool(self._env("SMTP_USE_TLS"), True),
+            "use_ssl": _parse_bool(self._env("SMTP_USE_SSL"), False),
+            "sender_email": self._env("EMAIL_FROM", "secops-remediator@airgap.local").strip(),
+            "recipient_emails": _split_emails(self._env("EMAIL_TO", "")),
+            "subject_prefix": self._env("EMAIL_SUBJECT_PREFIX", "[SecOps Remediation Report]").strip(),
+            "attach_remediation_pdf": _parse_bool(
+                self._env("EMAIL_ATTACH_REMEDIATION_PDF")
+                if self._env("EMAIL_ATTACH_REMEDIATION_PDF") is not None
+                else self._env("EMAIL_ATTACH_REMEDIATION_HTML"),
+                True,
+            ),
+            "attach_scan_pdf": _parse_bool(
+                self._env("EMAIL_ATTACH_SCAN_PDF")
+                if self._env("EMAIL_ATTACH_SCAN_PDF") is not None
+                else self._env("EMAIL_ATTACH_SCAN_HTML"),
+                True,
+            ),
+            "attach_remediation_html": _parse_bool(
+                self._env("EMAIL_ATTACH_REMEDIATION_PDF")
+                if self._env("EMAIL_ATTACH_REMEDIATION_PDF") is not None
+                else self._env("EMAIL_ATTACH_REMEDIATION_HTML"),
+                True,
+            ),
+            "attach_scan_html": _parse_bool(
+                self._env("EMAIL_ATTACH_SCAN_PDF")
+                if self._env("EMAIL_ATTACH_SCAN_PDF") is not None
+                else self._env("EMAIL_ATTACH_SCAN_HTML"),
+                True,
+            ),
+            "attach_remediation_json": _parse_bool(self._env("EMAIL_ATTACH_REMEDIATION_JSON"), True),
             "last_sent_at": None,
             "last_sent_status": None,
         }
@@ -117,6 +151,14 @@ class EmailReportNotifier:
                         if k == "sender_email" and v in ("", "secops-remediator@airgap.local") and env_defaults.get("sender_email") != "secops-remediator@airgap.local":
                             continue
                         cfg[k] = v
+                    if "attach_remediation_pdf" in saved:
+                        cfg["attach_remediation_html"] = bool(saved["attach_remediation_pdf"])
+                    elif "attach_remediation_html" in saved:
+                        cfg["attach_remediation_pdf"] = bool(saved["attach_remediation_html"])
+                    if "attach_scan_pdf" in saved:
+                        cfg["attach_scan_html"] = bool(saved["attach_scan_pdf"])
+                    elif "attach_scan_html" in saved:
+                        cfg["attach_scan_pdf"] = bool(saved["attach_scan_html"])
                     cfg["recipient_emails"] = _split_emails(cfg.get("recipient_emails"))
             except Exception as exc:
                 logger.warning("Could not read email config at %s: %s", self.config_path, exc)
@@ -131,56 +173,72 @@ class EmailReportNotifier:
 
     def get_public_config(self) -> Dict[str, Any]:
         """Returns configuration safe for UI display (masks SMTP password)."""
-        pub = dict(self._config)
-        has_password = bool(pub.get("smtp_password"))
-        pub["has_smtp_password"] = has_password
-        pub["smtp_password"] = "********" if has_password else ""
-        pub["recipient_emails_str"] = ", ".join(pub.get("recipient_emails") or [])
-        pub["recent_outbox"] = self.list_outbox(limit=10)
-        return pub
+        with self._lock:
+            pub = dict(self._config)
+            has_password = bool(pub.get("smtp_password"))
+            pub["has_smtp_password"] = has_password
+            pub["smtp_password"] = "********" if has_password else ""
+            pub["recipient_emails_str"] = ", ".join(pub.get("recipient_emails") or [])
+            pub["recent_outbox"] = self.list_outbox(limit=10)
+            return pub
 
     def update_config(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Updates and persists email configuration from UI or API payload."""
-        if "enabled" in payload:
-            self._config["enabled"] = _parse_bool(payload["enabled"], True)
-        if "auto_send_after_remediation" in payload:
-            self._config["auto_send_after_remediation"] = _parse_bool(payload["auto_send_after_remediation"], True)
-        if "auto_send_after_pr" in payload:
-            self._config["auto_send_after_pr"] = _parse_bool(payload["auto_send_after_pr"], False)
-        if "webhook_url" in payload and payload["webhook_url"] is not None:
-            self._config["webhook_url"] = str(payload["webhook_url"]).strip()
-        if "smtp_host" in payload and payload["smtp_host"] is not None:
-            self._config["smtp_host"] = str(payload["smtp_host"]).strip()
-        if "smtp_port" in payload and payload["smtp_port"]:
-            try:
-                self._config["smtp_port"] = int(payload["smtp_port"])
-            except ValueError:
-                pass
-        if "smtp_username" in payload and payload["smtp_username"] is not None:
-            self._config["smtp_username"] = str(payload["smtp_username"]).strip()
-        if "smtp_password" in payload and payload["smtp_password"] is not None:
-            raw_pw = str(payload["smtp_password"])
-            if raw_pw != "********":
-                self._config["smtp_password"] = raw_pw
-        if "use_tls" in payload:
-            self._config["use_tls"] = _parse_bool(payload["use_tls"], True)
-        if "use_ssl" in payload:
-            self._config["use_ssl"] = _parse_bool(payload["use_ssl"], False)
-        if "sender_email" in payload and payload["sender_email"]:
-            self._config["sender_email"] = str(payload["sender_email"]).strip()
-        if "recipient_emails" in payload:
-            self._config["recipient_emails"] = _split_emails(payload["recipient_emails"])
-        if "subject_prefix" in payload and payload["subject_prefix"] is not None:
-            self._config["subject_prefix"] = str(payload["subject_prefix"]).strip()
-        if "attach_remediation_html" in payload:
-            self._config["attach_remediation_html"] = _parse_bool(payload["attach_remediation_html"], True)
-        if "attach_scan_html" in payload:
-            self._config["attach_scan_html"] = _parse_bool(payload["attach_scan_html"], True)
-        if "attach_remediation_json" in payload:
-            self._config["attach_remediation_json"] = _parse_bool(payload["attach_remediation_json"], True)
+        with self._lock:
+            if "enabled" in payload:
+                self._config["enabled"] = _parse_bool(payload["enabled"], True)
+            if "auto_send_after_remediation" in payload:
+                self._config["auto_send_after_remediation"] = _parse_bool(payload["auto_send_after_remediation"], True)
+            if "auto_send_after_pr" in payload:
+                self._config["auto_send_after_pr"] = _parse_bool(payload["auto_send_after_pr"], False)
+            if "webhook_url" in payload and payload["webhook_url"] is not None:
+                self._config["webhook_url"] = str(payload["webhook_url"]).strip()
+            if "smtp_host" in payload and payload["smtp_host"] is not None:
+                self._config["smtp_host"] = str(payload["smtp_host"]).strip()
+            if "smtp_port" in payload and payload["smtp_port"]:
+                try:
+                    self._config["smtp_port"] = int(payload["smtp_port"])
+                except ValueError:
+                    pass
+            if "smtp_username" in payload and payload["smtp_username"] is not None:
+                self._config["smtp_username"] = str(payload["smtp_username"]).strip()
+            if "smtp_password" in payload and payload["smtp_password"] is not None:
+                raw_pw = str(payload["smtp_password"])
+                if raw_pw != "********":
+                    self._config["smtp_password"] = raw_pw
+            if "use_tls" in payload:
+                self._config["use_tls"] = _parse_bool(payload["use_tls"], True)
+            if "use_ssl" in payload:
+                self._config["use_ssl"] = _parse_bool(payload["use_ssl"], False)
+            if "sender_email" in payload and payload["sender_email"]:
+                self._config["sender_email"] = str(payload["sender_email"]).strip()
+            if "recipient_emails" in payload:
+                self._config["recipient_emails"] = _split_emails(payload["recipient_emails"])
+            if "subject_prefix" in payload and payload["subject_prefix"] is not None:
+                self._config["subject_prefix"] = str(payload["subject_prefix"]).strip()
+            if "attach_remediation_pdf" in payload or "attach_remediation_html" in payload:
+                val = _parse_bool(
+                    payload["attach_remediation_pdf"]
+                    if "attach_remediation_pdf" in payload
+                    else payload["attach_remediation_html"],
+                    True,
+                )
+                self._config["attach_remediation_pdf"] = val
+                self._config["attach_remediation_html"] = val
+            if "attach_scan_pdf" in payload or "attach_scan_html" in payload:
+                val = _parse_bool(
+                    payload["attach_scan_pdf"]
+                    if "attach_scan_pdf" in payload
+                    else payload["attach_scan_html"],
+                    True,
+                )
+                self._config["attach_scan_pdf"] = val
+                self._config["attach_scan_html"] = val
+            if "attach_remediation_json" in payload:
+                self._config["attach_remediation_json"] = _parse_bool(payload["attach_remediation_json"], True)
 
-        self._save_config()
-        return self.get_public_config()
+            self._save_config()
+            return self.get_public_config()
 
     def list_outbox(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Lists recent .eml files saved in reports/email_outbox/."""
@@ -220,7 +278,8 @@ class EmailReportNotifier:
         Composes and sends the security remediation report email with attachments.
         Always saves a copy to `reports/email_outbox/*.eml` for offline/air-gapped verification.
         """
-        cfg = self._config
+        with self._lock:
+            cfg = dict(self._config)
         recipients = _split_emails(override_recipients) if override_recipients else list(cfg.get("recipient_emails") or [])
         sender = cfg.get("sender_email") or "secops-remediator@airgap.local"
         now_utc = dt.datetime.now(dt.timezone.utc)
@@ -303,38 +362,65 @@ class EmailReportNotifier:
 
         attached_files: List[str] = []
         webhook_attachments: List[Dict[str, str]] = []
+        pdf_context = {
+            "repo_name": repo_name,
+            "workspace_path": workspace_path or "",
+            "branch": branch,
+            "base_branch": base_branch,
+            "timestamp_str": timestamp_str,
+            "score": score,
+            "grade": grade,
+            "status_label": status_label,
+            "remediated_count": remediated_count,
+            "residual_count": residual_count,
+            "iterations_run": iterations_run,
+            "threats": all_threats,
+            "files_modified": files_modified,
+            "remediation_result": rem_res,
+            "scan_result": init_scan,
+            "post_scan_result": post_scan,
+            "pr_data": pr_data,
+        }
 
-        # 1. Attach Post-Remediation Audit HTML Report
-        if cfg.get("attach_remediation_html", True) and remediation_html:
-            fname = f"{repo_name}_REMEDIATION_AUDIT_REPORT.html"
-            raw_bytes = remediation_html.encode("utf-8")
+        # 1. Attach Post-Remediation Audit Report as PDF
+        if cfg.get("attach_remediation_pdf", cfg.get("attach_remediation_html", True)) and remediation_html:
+            fname = f"{repo_name}_REMEDIATION_AUDIT_REPORT.pdf"
+            raw_bytes = html_to_pdf_bytes(
+                remediation_html,
+                report_kind="remediation",
+                context=pdf_context,
+            )
             msg.add_attachment(
                 raw_bytes,
-                maintype="text",
-                subtype="html",
+                maintype="application",
+                subtype="pdf",
                 filename=fname,
             )
             attached_files.append(fname)
             webhook_attachments.append({
                 "filename": fname,
-                "mime_type": "text/html",
+                "mime_type": "application/pdf",
                 "content_b64": base64.b64encode(raw_bytes).decode("ascii"),
             })
 
-        # 2. Attach Initial/Post Security Scan HTML Report
-        if cfg.get("attach_scan_html", True) and scan_html:
-            fname = f"{repo_name}_SECURESCAN_REPORT.html"
-            raw_bytes = scan_html.encode("utf-8")
+        # 2. Attach Security Scan Report as PDF
+        if cfg.get("attach_scan_pdf", cfg.get("attach_scan_html", True)) and scan_html:
+            fname = f"{repo_name}_SECURESCAN_REPORT.pdf"
+            raw_bytes = html_to_pdf_bytes(
+                scan_html,
+                report_kind="scanner",
+                context=pdf_context,
+            )
             msg.add_attachment(
                 raw_bytes,
-                maintype="text",
-                subtype="html",
+                maintype="application",
+                subtype="pdf",
                 filename=fname,
             )
             attached_files.append(fname)
             webhook_attachments.append({
                 "filename": fname,
-                "mime_type": "text/html",
+                "mime_type": "application/pdf",
                 "content_b64": base64.b64encode(raw_bytes).decode("ascii"),
             })
 
@@ -375,16 +461,23 @@ class EmailReportNotifier:
         use_tls = bool(cfg.get("use_tls", True))
         use_ssl = bool(cfg.get("use_ssl", False))
 
+        in_test_runner = ("PYTEST_CURRENT_TEST" in os.environ) or ("unittest" in sys.modules)
+        has_network_mock = any(
+            "MagicMock" in type(obj).__name__
+            for obj in (
+                smtplib.SMTP,
+                smtplib.SMTP_SSL,
+                urllib.request.urlopen,
+                urllib.request.build_opener,
+                self._send_via_webhook,
+                self._send_via_smtp,
+            )
+        )
+
         if not recipients:
             status = "saved_to_outbox"
             status_msg = f"Email report generated and archived to outbox ({eml_filename}). Configure recipient email(s) to dispatch."
-        elif (
-            "PYTEST_CURRENT_TEST" in os.environ
-            and not os.getenv("ALLOW_SMTP_IN_PYTEST")
-            and "MagicMock" not in type(smtplib.SMTP).__name__
-            and "MagicMock" not in type(smtplib.SMTP_SSL).__name__
-            and "MagicMock" not in type(urllib.request.urlopen).__name__
-        ):
+        elif in_test_runner and not os.getenv("ALLOW_SMTP_IN_PYTEST") and not has_network_mock:
             status = "saved_to_outbox"
             status_msg = f"Test mode active: archived email report to outbox ({eml_filename}) without live network call."
         elif webhook_url:
@@ -456,9 +549,10 @@ class EmailReportNotifier:
                         f"report email with {len(attached_files)} attachment(s) archived to outbox ({eml_filename})."
                     )
 
-        self._config["last_sent_at"] = now_utc.isoformat()
-        self._config["last_sent_status"] = status
-        self._save_config()
+        with self._lock:
+            self._config["last_sent_at"] = now_utc.isoformat()
+            self._config["last_sent_status"] = status
+            self._save_config()
 
         return {
             "status": status,
@@ -651,7 +745,7 @@ class EmailReportNotifier:
 
         lines.extend([
             "",
-            "Full HTML and JSON audit reports are attached to this email.",
+            "Full PDF and JSON audit reports are attached to this email.",
             "======================================================================",
         ])
         return "\n".join(lines)
@@ -794,7 +888,7 @@ class EmailReportNotifier:
       </ul>
 
       <p style="margin-top:18px;font-size:12px;color:#64748b;">
-        The complete standalone HTML and JSON audit reports are attached to this email message.
+        The complete standalone PDF and JSON audit reports are attached to this email message.
       </p>
     </div>
   </div>

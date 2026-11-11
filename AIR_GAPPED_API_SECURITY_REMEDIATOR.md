@@ -81,13 +81,15 @@ The system utilizes an agentic architecture centered around a central orchestrat
 | Component | Source Location | Responsibility |
 | :--- | :--- | :--- |
 | **`BaseAgent` & `AgentRegistry`** | [`agents/base.py`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/base.py) | Abstract base class, lifecycle states (`READY`, `RUNNING`, `COMPLETED`), and global agent registry. |
-| **`ScannerAgent`** | [`agents/scanner_agent/agent.py`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/scanner_agent/agent.py) | Recursive workspace scanner detecting external egress URLs, classification, and severity scoring. |
-| **`RemediatorAgent`** | [`agents/remediator_agent/agent.py`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/remediator_agent/agent.py) | Synthesizes `config/airgap_proxy.json` and `AIRGAP_SECURITY_AUDIT.md` compliance manifests. |
-| **`GitSubAgent`** | [`agents/git_agent/agent.py`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/git_agent/agent.py) | Clones/opens repositories, provisions feature branches, commits patches, and creates PRs. |
-| **`LocalProvider`** | [`agents/git_agent/providers/local.py`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/git_agent/providers/local.py) | Manages offline local repos and generates file-based PR manifests (`.git/local_prs/PR-*.md`). |
+| **`ScannerAgent`** | [`agents/scanner_agent/agent.py`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/scanner_agent/agent.py) | Recursive workspace scanner detecting external egress URLs, C#/.NET & Node.js SAST flaws, and severity scoring. |
+| **`RemediatorAgent` & `LLM Client`** | [`agents/remediator_agent/agent.py`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/remediator_agent/agent.py), [`agents/remediator_agent/llm_client.py`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/remediator_agent/llm_client.py) | Applies deterministic offline / local AI patches, synthesizes proxy & audit manifests, and discovers locally installed Ollama / OpenAI-compatible models (`discover_local_llm_models`). |
+| **`GitSubAgent`** | [`agents/git_agent/agent.py`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/git_agent/agent.py) | Clones/opens repositories, provisions feature branches, commits patches, pushes local/remote branches with auth, and creates PRs. |
+| **`LocalProvider`** | [`agents/git_agent/providers/local.py`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/git_agent/providers/local.py) | Manages offline local repos, supports auto-init and optional remote origin push/PR upgrade, and generates file-based PR manifests (`.git/local_prs/PR-*.md`). |
 | **`MultiAgentPipeline`** | [`orchestrator/pipeline.py`](file:///Users/krunaldharamshi/Projects/GitAgent/orchestrator/pipeline.py) | Coordinates the end-to-end multi-agent execution sequence. |
-| **`Web Server & API`** | [`web_server.py`](file:///Users/krunaldharamshi/Projects/GitAgent/web_server.py) | Multi-threaded HTTP server exposing JSON REST endpoints and serving the Web UI. |
-| **`Web Dashboard`** | [`web/index.html`](file:///Users/krunaldharamshi/Projects/GitAgent/web/index.html) | Responsive GUI with stage visualization, file diffing, interactive folder browser, and PR modal. |
+| **`BatchScheduler`** | [`orchestrator/scheduler.py`](file:///Users/krunaldharamshi/Projects/GitAgent/orchestrator/scheduler.py) | Background worker & cron/interval scheduler discovering folder repositories, running sequential remediations, pushing branches with masked auth, and emailing per-repo reports. |
+| **`EmailReportNotifier` & `PDFRenderer`** | [`orchestrator/email_notifier.py`](file:///Users/krunaldharamshi/Projects/GitAgent/orchestrator/email_notifier.py), [`orchestrator/pdf_renderer.py`](file:///Users/krunaldharamshi/Projects/GitAgent/orchestrator/pdf_renderer.py) | Builds HTML/text remediation emails, converts audit reports to PDF (`REMEDIATION_AUDIT_REPORT.pdf`, `SECURESCAN_REPORT.pdf`) alongside JSON payloads, archives `.eml` files in `reports/email_outbox/`, and delivers via SMTP or HTTPS webhook. |
+| **`Web Server & API`** | [`web_server.py`](file:///Users/krunaldharamshi/Projects/GitAgent/web_server.py) | Multi-threaded HTTP server exposing JSON REST endpoints and serving both the Single Repo and Scheduler UIs. |
+| **`Web Dashboards`** | [`web/index.html`](file:///Users/krunaldharamshi/Projects/GitAgent/web/index.html), [`web/scheduler.html`](file:///Users/krunaldharamshi/Projects/GitAgent/web/scheduler.html) | Responsive GUIs for Single Repo 5-stage remediation and Background Batch Folder Scheduling with live model dropdowns. |
 | **`MCP Server`** | [`agents/git_agent/mcp_server.py`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/git_agent/mcp_server.py) | Model Context Protocol JSON-RPC 2.0 stdio server for LLM hosts (Claude, Cursor, Antigravity). |
 | **`LangGraph Adapter`** | [`orchestrator/langgraph_subagent.py`](file:///Users/krunaldharamshi/Projects/GitAgent/orchestrator/langgraph_subagent.py) | Exposes tool functions ready for LangChain/LangGraph `bind_tools()`. |
 
@@ -207,6 +209,11 @@ Generated at the repository root to verify isolation standards for security revi
   - `[x]` Offline mock fallbacks enabled for disconnected operational state
   - `[x]` Full Git Subagent audit trail generated for peer review
 
+#### 3. Local LLM & Ollama Model Discovery (`discover_local_llm_models`)
+Located in [`agents/remediator_agent/llm_client.py`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/remediator_agent/llm_client.py#L992-L1064), automated model discovery identifies locally installed models for interactive selection:
+- **Ollama (`provider="ollama"`)**: Queries `{base_url}/api/tags`, falls back to `ollama list` CLI if needed, and reads local manifest files under `OLLAMA_MODELS` or `~/.ollama/models/manifests` when the daemon is offline.
+- **OpenAI-Compatible Local Servers (`provider="local"`)**: Queries `/v1/models` on LM Studio, vLLM, or compatible local servers.
+
 ---
 
 ### GitSubAgent: Repository Lifecycle & Air-Gapped Git Support
@@ -215,17 +222,16 @@ Generated at the repository root to verify isolation standards for security revi
 #### Supported Hosting Modes
 1. **GitHub**: API v3 REST integration (supports PR generation, branch detection, draft PRs).
 2. **GitLab**: GitLab REST API v4 (supports Merge Requests, self-hosted GitLab Enterprise URLs).
-3. **Local Filesystem Repositories & Unlinked Projects** (`ProviderType.LOCAL`):
+3. **Local Filesystem Repositories, Unlinked Projects & Remote-Origin Push** (`ProviderType.LOCAL`):
    - Supports local filesystem paths (e.g. `repos/CustomerApi`, `/home/user/project`, `./repo`, `file:///path/to/repo`).
-   - Supports repositories **without any remote upstream** (`origin` unlinked). Changes remain safely committed to the isolated local feature branch without failing on push.
+   - Supports repositories **without any remote upstream** (`origin` unlinked). Changes remain safely committed to the isolated local feature branch without failing on push, generating offline Markdown PR manifests (`.git/local_prs/PR-<id>.md`).
+   - Supports **local repositories with a configured remote (`origin`)**: Automatically resolves GitHub/GitLab remotes from `.git/config`, pushes remediation branches when credentials (`token` / optional `username`) or SSH keys are present, and supports remote PR/MR creation in both the Single Repo Pipeline and Batch Scheduler.
    - Supports **plain local directories** not yet initialized with Git via automated Git repository initialization (`auto_init: true`). Automatically executes `git init`, establishes a baseline commit, and provisions default branches (`main` and `master`).
-   - Runs in-place directly on the existing working tree or inside an isolated branch.
-   - Detects local default branches (`main`, `master`, or tracking refs).
-   - Generates offline Markdown PR manifests (`.git/local_prs/PR-<id>.md` or `.local_prs/PR-<id>.md`).
+   - Resolves clean base branches (`auto`, `main`, or `master`) before creating feature branches (`remediation/airgap-api-compliance`).
 
 #### Token Safety & Scrubbing
-- Authentication tokens are scrubbed from all terminal logs, exception traces, and subprocess calls via [`GitWorkspace.scrub_text()`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/git_agent/workspace.py#L42).
-- When remotes are used, credentials are injected only during ephemeral push commands and never written to `.git/config`.
+- Authentication tokens are scrubbed from all terminal logs, exception traces, API responses (`"********"` masking in scheduler schedules), and subprocess calls via [`GitWorkspace.scrub_text()`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/git_agent/workspace.py#L42).
+- When pushing to remotes, credentials are injected ephemerally via `GIT_ASKPASS` or transient authenticated remote URLs and never persisted to `.git/config`.
 
 ---
 
@@ -320,48 +326,79 @@ python3 web_server.py 8080
 
 ### Dashboard Layout & Features
 
-1. **Connected Agent Fleet Tray**:
+1. **Connected Agent Fleet Tray & Dual Workspace Navigation**:
    - Dynamically polls `/api/agents` to show all active agents (`GitSubAgent`, `ScannerAgent`, `RemediatorAgent`, or custom registered plugins) with their live statuses.
+   - Top navigation switches between the **Single Repo Pipeline** (`/`) and **Batch Scheduler** (`/scheduler`), with a live pulsing dot indicating active or queued background batch runs.
 2. **Interactive 5-Stage Pipeline Cards**:
    - Visual progress indicators reflecting the active execution phase (Setup → Scan → Remediate → Commit → PR).
    - "⚡ Run End-to-End Pipeline" one-click execution button.
-3. **Repository Setup & Validation**:
-   - **Multi-Target Mode**: Accepts remote URLs (`https://github.com/...`), local Git repositories (including unlinked repos without remotes), or local project folders (`repos/CustomerApi`, `/path/to/project`).
+3. **Repository Setup, Validation & Local Remote Auth**:
+   - **Multi-Target Mode**: Accepts remote URLs (`https://github.com/...`), local Git repositories (unlinked or with remote `origin`), or local project folders (`repos/CustomerApi`, `/path/to/project`).
+   - **Optional Local Folder Git Auth**: Expandable credentials panel (`#repoToken`, `#repoUsername`) allowing local folders with a configured remote `origin` to push remediation branches and create remote PRs/MRs.
    - **Interactive Folder Browser**: Built-in modal directory browser (`📂 Browse Local Folders...`) with breadcrumb navigation and quick bookmarks (CustomerApi Demo, Home, Workspace, Projects, Documents, Desktop, Downloads).
    - **One-Click Demo Project**: Instant loading button (`💻 Use Demo Project (repos/CustomerApi)`) to test local remediation instantly.
    - **Dynamic Target Mode Badges**: Real-time visual badge updating between `REMOTE GIT REPOSITORY`, `LOCAL REPOSITORY (UNLINKED)`, and `LOCAL DIRECTORY (AUTO-INIT)`.
    - **Real-Time Git Validation**: `/api/validate-path` verifies directory existence, checks `.git` presence, and supports on-demand initialization.
-4. **Egress Findings & Vulnerability Viewer**:
+4. **Installed Local LLM / Ollama Model Dropdown**:
+   - Both Single Repo Step 03 (`#llmModelSelect`) and Batch Scheduler (`#schedLlmModelSelect`) automatically query `/api/llm/models`, display installed models with size/parameter metadata and refresh (`↻`) + status badge, and fall back to `"Custom model name…"` manual entry when needed.
+5. **Egress Findings & Post-Remediation Email Gate**:
    - Interactive table detailing finding IDs, severity tags (HIGH, MEDIUM, LOW), file locations, offending URLs, and recommendations.
-5. **In-Browser Patch Editor & Diff Viewer**:
+   - In the Single Repo Pipeline, the header email button is omitted and **Send Report Now** (`#btnSendReportStep3` / `#btnModalSendEmailNow`) alongside the **Remediation & Compliance Dossier** (`#remediationSummaryBar`) remain strictly hidden until Step 03 remediation completes.
+6. **In-Browser Patch Editor & Diff Viewer**:
    - Edit any file inside the workspace and save changes directly via `/api/write-file`.
    - Live side-by-side or unified `git diff` output.
-6. **Local PR Review Modal**:
-   - For local/air-gapped repos, opens an inline modal displaying the generated markdown review manifest (`PR-1.md`) with commit details and status.
+7. **Batch Folder Scheduler (`/scheduler`)**:
+   - Create interval, daily, weekly, cron, or one-time background remediation schedules for local folders, configure remote auto-push & masked Git credentials (`auto_push`, `git_token`, `git_username`), enable automatic per-repo post-remediation emails (`send_email`, `email_recipients`), inspect live logs/reports, and cancel running batch jobs cleanly.
+8. **Local PR Review Modal**:
+   - For local/air-gapped repos without remote PR APIs, opens an inline modal displaying the generated markdown review manifest (`PR-1.md`) with commit details and status.
 
 ---
 
 ## 6. Complete REST API Specification
 
-The control server exposes a full REST API for programmatic control and UI integration:
+The control server exposes REST endpoints across Single Repo Automation, Local LLM Model Discovery, Email Delivery, and Batch Scheduling:
 
 ### Endpoint Summary Table
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
 | `GET` | `/` or `/index.html` | Serves the single-page Multi-Agent Control Center HTML application. |
+| `GET` | `/scheduler` or `/scheduler.html` | Serves the Batch Folder Scheduler dashboard UI. |
+| `GET` | `/api/telemetry` | Returns full workspace, agent, scan, remediation, and PR state snapshot. |
 | `GET` | `/api/agents` | Lists all registered agents and their current statuses. |
+| `GET` | `/api/scanner/tools` | Detects installed Semgrep and Trivy CLI availability and versions. |
+| `GET` | `/api/securescan/report` | Serves SecureScanAI report (`?format=html\|json\|sarif`). |
+| `GET` | `/api/llm/models` | Discovers locally installed Ollama or OpenAI-compatible models (`/api/ollama/models` alias). |
+| `GET` | `/api/fix/progress` | Streams live file-by-file remediation progress (`/api/remediator/progress` alias). |
+| `GET` | `/api/remediator/report` | Serves post-remediation **Remediation & Compliance Dossier** (`?format=html\|json`). |
+| `GET` / `POST` | `/api/email/config` | Retrieves (password masked) or updates/persists SMTP & webhook email settings. |
+| `POST` | `/api/email/send-report` | Sends remediation summary email with PDF/JSON attachments and archives `.eml`. |
+| `GET` | `/api/email/outbox` | Lists recently archived `.eml` outbox messages. |
 | `GET` | `/api/status` | Returns the active repository's git status (branch, modified files, untracked files). |
 | `GET` | `/api/diff` | Returns the current workspace git diff. |
 | `GET` | `/api/local-pr` | Fetches the generated local PR markdown review document. |
-| `POST` | `/api/prepare` | Prepares the workspace (clones remote, mounts local repo, or auto-inits local project). |
+| `POST` | `/api/prepare` | Prepares workspace (remote clone or local folder with optional `token`/`username` and `auto_init`). |
 | `POST` | `/api/scan` | Runs `ScannerAgent` across the prepared workspace. |
-| `POST` | `/api/fix` | Runs `RemediatorAgent` to apply proxy configs and audit manifests. |
+| `POST` | `/api/fix` | Runs `RemediatorAgent` to apply fixes, proxy configs, and audit manifests. |
 | `POST` | `/api/write-file` | Writes or edits a file inside the repository workspace. |
-| `POST` | `/api/commit-push` | Stages changes, creates a git commit, and updates the branch. |
+| `POST` | `/api/commit-push` | Stages changes, commits, and pushes branch (supports `token`/`username`/`force` for local repos). |
 | `POST` | `/api/create-pr` | Creates a Pull Request on GitHub/GitLab or generates a Local PR manifest. |
 | `POST` | `/api/pipeline/run` | Executes the complete 5-stage remediation pipeline sequentially. |
+| `POST` | `/api/build-test` | Executes automatic ecosystem build and unit test verification. |
 | `POST` | `/api/validate-path` | Validates directory existence, checks `.git` presence, and supports auto-init. |
 | `POST` | `/api/fs/list` | Lists subdirectories for the interactive UI folder picker. |
+| `POST` | `/api/reset-all` | Resets active pipeline state, findings cache, and UI folder references (`/api/bug-fixer/reset` alias). |
+| `GET` | `/api/scheduler/overview` | Returns live worker status, active/queued runs, schedules, and run history. |
+| `POST` | `/api/scheduler/discover` | Discovers Git repositories (and optional non-Git folders) inside a folder path. |
+| `GET` / `POST` | `/api/scheduler/schedules` | Lists schedules (`GET`) or creates a new folder remediation schedule (`POST`). |
+| `POST` | `/api/scheduler/schedules/update` | Updates an existing schedule (preserves existing masked `git_token` unless changed). |
+| `POST` | `/api/scheduler/schedules/toggle` | Enables or disables a schedule. |
+| `POST` | `/api/scheduler/schedules/delete` | Deletes a saved schedule. |
+| `POST` | `/api/scheduler/schedules/run-now` | Triggers an immediate background batch run for a schedule. |
+| `GET` | `/api/scheduler/runs/detail` | Returns detailed per-repo results, git/PR metadata, and email status for a run. |
+| `GET` | `/api/scheduler/runs/report` | Serves per-repo HTML/JSON remediation or scan report for a batch run. |
+| `GET` | `/api/scheduler/runs/pr` | Retrieves generated Local PR Markdown for a repo within a batch run. |
+| `POST` | `/api/scheduler/runs/cancel` | Cooperatively cancels an active or queued batch run. |
+| `POST` | `/api/scheduler/runs/clear` | Clears finished batch run history records. |
 
 ---
 
@@ -760,19 +797,39 @@ The tools exposed include:
 
 ## 9. Configuration & Deployment
 
-### Environment Variables
-Configure token credentials without committing secrets:
+### Environment Variables (`.env`)
+Configure Git credentials, email/webhook report delivery, and local LLM endpoints without committing secrets (see [`.env.example`](file:///Users/krunaldharamshi/Projects/GitAgent/.env.example)):
 ```bash
-# GitHub Personal Access Token
+# GitHub / GitLab / Generic Tokens (also used for local folder remote push when provided)
 export GITHUB_TOKEN="ghp_yourTokenHere"
-
-# GitLab Personal Access Token
 export GITLAB_TOKEN="glpat-yourTokenHere"
-
-# Generic Git Agent Token
 export GIT_AGENT_TOKEN="yourTokenHere"
+
+# Email Report Notification Service (SMTP STARTTLS/SSL or HTTPS Webhook over port 443)
+EMAIL_ENABLED=true
+EMAIL_AUTO_SEND_ON_REMEDIATION=true
+EMAIL_AUTO_SEND_ON_PR=false
+EMAIL_WEBHOOK_URL=https://script.google.com/macros/s/your-deployment-id/exec
+EMAIL_FROM=secops-remediator@company.local
+EMAIL_TO=secops@company.local
+EMAIL_SUBJECT_PREFIX=[SecOps Remediation Report]
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=your-smtp-user
+SMTP_PASSWORD=your-app-password
+SMTP_USE_TLS=true
+SMTP_USE_SSL=false
+EMAIL_ATTACH_REMEDIATION_PDF=true
+EMAIL_ATTACH_SCAN_PDF=true
+EMAIL_ATTACH_REMEDIATION_JSON=true
+
+# Local LLM & Ollama Model Discovery
+export OLLAMA_URL="http://127.0.0.1:11434"
+export OLLAMA_MODEL="qwen2.5-coder:3b"
+# export OLLAMA_MODELS="/custom/path/to/.ollama/models"
+# export LOCAL_LLM_URL="http://localhost:1234/v1"
 ```
-*(Note: Tokens are completely optional when auditing local filesystem repositories).*
+*(Note: Git tokens are optional for purely unlinked local repositories, and email notifications gracefully archive `.eml` messages to `reports/email_outbox/` even before SMTP/webhook credentials are configured.)*
 
 ### YAML Configuration File (`git_agent_config.example.yaml`)
 ```yaml
@@ -840,7 +897,7 @@ Once registered, the new agent:
 
 ## 11. Testing & Quality Assurance
 
-The codebase includes an exhaustive test suite of **73 automated unit and integration tests** covering all agents, providers, workspaces, web endpoints, workspace resets, unlinked/offline repositories, and multi-language Node.js/Express SAST scanning and offline deterministic remediation.
+The codebase includes an exhaustive test suite of **99 automated unit and integration tests** across **11 modules** covering all agents, providers, workspaces, web endpoints, workspace resets, unlinked/offline repositories, local-folder remote pushes, background batch scheduling, SMTP/webhook PDF email delivery, local LLM model discovery, and multi-language Node.js/Express SAST scanning & offline deterministic remediation.
 
 ### Executing the Test Suite
 Run the standard library test runner:
@@ -850,7 +907,10 @@ python3 -m unittest discover -s tests
 
 ### Test Coverage Highlights
 - [`tests/test_multi_agent.py`](file:///Users/krunaldharamshi/Projects/GitAgent/tests/test_multi_agent.py): Tests `AgentRegistry`, `ScannerAgent` detection of external URLs, `RemediatorAgent` generation of proxy configs, and `MultiAgentPipeline` execution on local git repositories.
-- [`tests/test_web_server.py`](file:///Users/krunaldharamshi/Projects/GitAgent/tests/test_web_server.py): Tests all web API endpoints (`/api/validate-path`, `/api/prepare`, `/api/scan`, `/api/fix`, `/api/local-pr`, `/api/fs/list`), non-git validation (`allow_non_git`), auto-initialization (`auto_init`), unlinked local projects without remotes, reset clearing of folder references, and full 15-CWE Node.js/Express SAST scanning & `auto-fallback` zero-residual remediation (`NodeJsScannerAndRemediatorTest`).
+- [`tests/test_web_server.py`](file:///Users/krunaldharamshi/Projects/GitAgent/tests/test_web_server.py): Tests Single Repo web API endpoints (`/api/validate-path`, `/api/prepare`, `/api/scan`, `/api/fix`, `/api/commit-push`, `/api/local-pr`, `/api/fs/list`, `/api/llm/models`), non-git validation (`allow_non_git`), auto-initialization (`auto_init`), unlinked local projects and local folders with remote `origin` pushes, reset clearing of folder references, 15-CWE Node.js/Express SAST scanning & `auto-fallback` remediation, and Ollama/OpenAI model discovery + UI dropdown wiring.
+- [`tests/test_scheduler.py`](file:///Users/krunaldharamshi/Projects/GitAgent/tests/test_scheduler.py): Tests `discover_repositories`, self-protection, cron/interval parsing, sequential background execution, persistent recovery, fast cooperative cancellation, clean `main`/`master` branching, local-folder remote push with masked `git_token`/`git_username`, per-repo post-remediation emails, and scheduler REST CRUD endpoints.
+- [`tests/test_email_notifier.py`](file:///Users/krunaldharamshi/Projects/GitAgent/tests/test_email_notifier.py): Tests `.env` loading, password masking, `.eml` outbox archiving with PDF/JSON attachments, HTML-to-PDF rendering & multi-page pagination, SMTP STARTTLS delivery, and HTTPS webhook delivery.
+- [`tests/test_agent.py`](file:///Users/krunaldharamshi/Projects/GitAgent/tests/test_agent.py) & [`tests/test_config.py`](file:///Users/krunaldharamshi/Projects/GitAgent/tests/test_config.py): Tests `GitSubAgent` lifecycles, authenticated remote pushes from local folders, provider detection, and URL sanitization/masking.
 - [`tests/test_providers.py`](file:///Users/krunaldharamshi/Projects/GitAgent/tests/test_providers.py): Tests GitHub, GitLab, and `LocalProvider` repository access verification, branch detection, auto-initialization of git repos, and local PR manifest creation.
 - [`tests/test_mcp_server.py`](file:///Users/krunaldharamshi/Projects/GitAgent/tests/test_mcp_server.py): Validates JSON-RPC 2.0 MCP tools, dispatching, and error handling.
 - [`tests/test_workspace.py`](file:///Users/krunaldharamshi/Projects/GitAgent/tests/test_workspace.py): Tests isolated temporary workspaces, git diffing, staging, committing, and token scrubbing.
@@ -860,13 +920,13 @@ python3 -m unittest discover -s tests
 ## 12. Security & Isolation Safeguards
 
 1. **Zero External Runtime Dependencies**:
-   The entire system relies solely on the Python 3.9+ standard library (`http.server`, `urllib`, `subprocess`, `json`, `re`, `pathlib`). No external package installations are required, mitigating supply-chain attack vectors.
+   The entire system relies solely on the Python 3.9+ standard library (`http.server`, `urllib`, `subprocess`, `smtplib`, `json`, `re`, `pathlib`). No external package installations are required, mitigating supply-chain attack vectors.
 2. **Path Traversal Protection**:
-   The `/api/write-file` endpoint validates that all file write requests resolve strictly within the target repository workspace root directory, preventing arbitrary filesystem writes.
+   The `/api/write-file` and report endpoints validate that all file paths resolve strictly within the target repository workspace or artifact root directory, preventing arbitrary filesystem access.
 3. **Sensitive Credential Sanitization**:
-   All tokens are masked during execution and scrubbed from error logs, standard output, and git remotes.
+   All Git and SMTP tokens/passwords are masked during execution (`"********"` in API responses), injected ephemerally via `GIT_ASKPASS` during local-folder pushes, and scrubbed from error logs, standard output, and `.git/config`.
 4. **Local Isolation Mode**:
-   When auditing local repositories, all git transactions are contained locally on disk, and review manifests are placed directly in `.git/local_prs/` without emitting any network packets.
+   When auditing unlinked local repositories, all git transactions remain local on disk, review manifests are placed directly in `.git/local_prs/`, and email payloads archive to `reports/email_outbox/` without requiring external network egress.
 
 ---
 *Generated according to the GitAgent multi-agent codebase specification.*

@@ -12,6 +12,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 from typing import Optional, List, Dict, Tuple
+from urllib.parse import quote
 
 logger = logging.getLogger("git_agent.workspace")
 
@@ -50,9 +51,46 @@ class GitWorkspace:
 
     def _scrub(self, text: str) -> str:
         """Strip sensitive credentials from output strings."""
-        if not self.token_to_scrub or not text:
+        if not text:
             return text
-        return text.replace(self.token_to_scrub, "********")
+        if self.token_to_scrub:
+            text = text.replace(self.token_to_scrub, "********")
+            quoted_tok = quote(self.token_to_scrub, safe="")
+            if quoted_tok and quoted_tok != self.token_to_scrub:
+                text = text.replace(quoted_tok, "********")
+        # Also mask inline URL credentials like https://user:secret@host
+        text = re.sub(r"(https?://[^:/\s@]+:)([^@\s]+)(@)", r"\1********\3", text)
+        return text
+
+    @staticmethod
+    def _has_embedded_credentials(url: Optional[str]) -> bool:
+        if not url or "://" not in url:
+            return False
+        authority = url.split("://", 1)[1].split("/", 1)[0]
+        return "@" in authority
+
+    def get_remote_url(self, remote: str = "origin") -> Optional[str]:
+        """Return configured remote URL for `remote` if present, else None."""
+        code, out, _ = self.run_git(["remote", "get-url", remote], check=False)
+        if code == 0 and out.strip():
+            return out.strip()
+        return None
+
+    def fetch_remote(
+        self,
+        remote: str = "origin",
+        fetch_url: Optional[str] = None,
+        timeout: Optional[int] = None,
+    ) -> Tuple[int, str, str]:
+        """Fetch updates from remote (optionally via an authenticated URL without altering .git/config)."""
+        target = fetch_url or remote
+        args: List[str] = []
+        if self._has_embedded_credentials(target):
+            args.extend(["-c", "credential.helper="])
+            args.extend(["fetch", target, f"+refs/heads/*:refs/remotes/{remote}/*"])
+        else:
+            args.extend(["fetch", target])
+        return self.run_git(args, check=False, timeout=timeout)
 
     def run_git(
         self,
@@ -60,6 +98,7 @@ class GitWorkspace:
         cwd: Optional[Path] = None,
         check: bool = True,
         env: Optional[Dict[str, str]] = None,
+        timeout: Optional[int] = None,
     ) -> Tuple[int, str, str]:
         """
         Execute a git command safely in the workspace directory.
@@ -91,6 +130,7 @@ class GitWorkspace:
             stderr=subprocess.PIPE,
             text=True,
             env=git_env,
+            timeout=timeout,
         )
 
         stdout = self._scrub(proc.stdout)
@@ -113,13 +153,17 @@ class GitWorkspace:
             code, remotes_out, _ = self.run_git(["remote"], check=False)
             if "origin" in [r.strip() for r in remotes_out.splitlines()]:
                 logger.info("Fetching latest changes from origin")
-                self.run_git(["-c", "credential.helper=", "fetch", "origin"], check=False)
+                fetch_target = clone_url if self._has_embedded_credentials(clone_url) else None
+                self.fetch_remote("origin", fetch_url=fetch_target)
             return
 
         # Ensure parent directory exists
         self.workspace_dir.parent.mkdir(parents=True, exist_ok=True)
 
-        args = ["-c", "credential.helper=", "clone"]
+        args = []
+        if self._has_embedded_credentials(clone_url):
+            args.extend(["-c", "credential.helper="])
+        args.append("clone")
         if depth:
             args.extend(["--depth", str(depth)])
         args.extend([clone_url, str(self.workspace_dir)])
@@ -162,7 +206,7 @@ class GitWorkspace:
         curr = self.get_current_branch()
         return curr if curr and curr != "HEAD" else "main"
 
-    def checkout_and_pull_base(self, base_branch: str) -> str:
+    def checkout_and_pull_base(self, base_branch: str, pull_url: Optional[str] = None) -> str:
         """
         Checkout base branch and pull latest changes from remote.
         Gracefully resolves remote tracking branch or falls back to detected default branch (e.g. master/main).
@@ -194,7 +238,10 @@ class GitWorkspace:
         # Pull latest changes if remote 'origin' exists
         code, remotes_out, _ = self.run_git(["remote"], check=False)
         if "origin" in [r.strip() for r in remotes_out.splitlines()]:
-            self.run_git(["pull", "origin", self.base_branch], check=False)
+            if pull_url and self._has_embedded_credentials(pull_url):
+                self.run_git(["-c", "credential.helper=", "pull", pull_url, self.base_branch], check=False)
+            else:
+                self.run_git(["pull", "origin", self.base_branch], check=False)
         return self.base_branch
 
     def create_feature_branch(self, branch_name: str, reset_to_head: bool = False) -> str:
@@ -344,8 +391,11 @@ class GitWorkspace:
         except Exception:
             pass
 
-        # Pass credential.helper= to ensure only the token in the URL is used
-        args = ["-c", "credential.helper=", "push", "-u", target_destination, target_branch]
+        # Pass credential.helper= when credentials are embedded in target URL so explicit auth takes precedence
+        args = []
+        if self._has_embedded_credentials(target_destination):
+            args.extend(["-c", "credential.helper="])
+        args.extend(["push", "-u", target_destination, target_branch])
         if force:
             args.append("--force")
 
