@@ -595,6 +595,11 @@ def _handle_fs_list(handler: Any, payload: Dict[str, Any], ws: Any) -> None:
 
     home = Path.home().resolve()
     quick_access = [{"label": "🏠 Home", "path": str(home)}]
+    repos_dir = (ws.APP_ROOT_DIR / "repos").resolve()
+    if repos_dir.exists() and repos_dir.is_dir():
+        quick_access.append({"label": "📁 App Repos", "path": str(repos_dir)})
+    elif ws.APP_ROOT_DIR.exists() and ws.APP_ROOT_DIR.is_dir():
+        quick_access.append({"label": "📁 Workspace", "path": str(ws.APP_ROOT_DIR.resolve())})
     for rel in ["Projects", "Documents", "Desktop", "Downloads"]:
         candidate = home / rel
         if candidate.exists() and candidate.is_dir():

@@ -314,7 +314,6 @@ class ScannerAgent(BaseAgent):
                                     domain in ("localhost", "127.0.0.1")
                                     or domain.endswith(".airgap.internal")
                                     or domain == "proxy.airgap.internal"
-                                    or "schemastore.org" in domain
                                     or "microsoft.com" in domain
                                     or "w3.org" in domain
                                     or domain in ("registry.npmjs.org", "registry.yarnpkg.com")
