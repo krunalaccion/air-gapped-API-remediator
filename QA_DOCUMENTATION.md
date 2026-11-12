@@ -14,7 +14,7 @@
 | **Version** | `2.1.0` |
 | **Target Release** | Production Release v2.1 / Air-Gap Enclave Certified |
 | **Document Classification** | Engineering & Quality Assurance |
-| **Automated Test Coverage** | 99 Automated Unit & Integration Tests across 11 Test Modules |
+| **Automated Test Coverage** | 102 Automated Unit & Integration Tests across 11 Test Modules |
 | **Sign-Off Status** | **PASSED & CERTIFIED** (100% Pass Rate) |
 
 ---
@@ -33,7 +33,7 @@ The test scope validates the 9 core sub-systems:
    - Interactive HTML, JSON, and SARIF security audit report generation (`/api/securescan/report`, [`agents/scanner_agent/pipeline.py`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/scanner_agent/pipeline.py)).
 3. **RemediatorAgent, BugFixerAgent & Local Model Discovery**:
    - Dual-mode code remediation: 100% offline deterministic rule-based fixers (including Node.js/Express via [`js_fixer.py`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/remediator_agent/js_fixer.py), C#/.NET, Python — `AIR-GAP OFFLINE`) and local AI engines (**Local Ollama**, **Local OpenAI-compatible LLMs** such as LM Studio or vLLM).
-   - Live local model discovery via [`discover_local_llm_models`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/remediator_agent/llm_client.py#L992-L1064) and `GET /api/llm/models` (Ollama `/api/tags`, `ollama list` CLI, local `~/.ollama/models/manifests` fallback, and OpenAI-compatible `/v1/models`), powering installed-model dropdowns (`#llmModelSelect`, `#schedLlmModelSelect`).
+   - Live local model discovery via [`discover_local_llm_models`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/remediator_agent/llm_client.py#L1014-L1086) and `GET /api/llm/models` (Ollama `/api/tags`, `ollama list` CLI, local `~/.ollama/models/manifests` fallback, and OpenAI-compatible `/v1/models`), powering installed-model dropdowns (`#llmModelSelect`, `#schedLlmModelSelect`).
    - Gateway proxy interceptor generation ([`config/airgap_proxy.json`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/remediator_agent/agent.py#L58)) and audit documentation ([`AIRGAP_SECURITY_AUDIT.md`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/remediator_agent/agent.py#L37)).
    - Automated post-remediation verification scans and posture score calculations.
    - Executive **Remediation & Compliance Dossier** generation ([`REMEDIATION_AUDIT_REPORT.html`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/remediator_agent/reporter.py)) and email dispatch controls strictly gated behind Step 03 completion.
@@ -45,7 +45,7 @@ The test scope validates the 9 core sub-systems:
    - Offline **Local Filesystem Repositories** ([`LocalProvider`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/git_agent/providers/local.py#L25)), atomic commits, optional remote `origin` push + Git auth injection (`token`, `username`), and local PR manifest generation (`.git/local_prs/PR-*.md`).
    - Main repository name identity preservation (showing true repository name rather than ephemeral directory names).
 6. **Multi-Agent Control Center Web Server & GUI**:
-   - Unified multi-threaded HTTP server ([`web_server.py`](file:///Users/krunaldharamshi/Projects/GitAgent/web_server.py)) exposing Single Repo, Scheduler, Local LLM Discovery, and Email Notification REST endpoints.
+   - Unified multi-threaded HTTP server ([`web_server.py`](file:///Users/krunaldharamshi/Projects/GitAgent/web_server.py) & [`orchestrator/routes/`](file:///Users/krunaldharamshi/Projects/GitAgent/orchestrator/routes/)) with lazy agent initialization, `SIGTERM` graceful shutdown, `/api/health`, and Single Repo, Scheduler, Local LLM Discovery, and Email Notification REST endpoints.
    - 5-stage Liveline workflow (`web/index.html`): Step 01 (Repository Isolation + optional local Git auth), Step 02 (Security Scanner), Step 03 (Autonomous Remediation, Installed Model Dropdown, Diff Studio, & Gated Send Report Now), Step 04 (Commit/Push), Step 05 (SecOps PR & Audit Evidence).
    - Light / Dark theme support, multi-browser favicons, real-time repository path validation, and directory navigation modal.
 7. **Batch Folder Scheduler (`BatchScheduler` & `web/scheduler.html`)**:
@@ -88,7 +88,7 @@ python3 -m unittest discover tests
 Expected Output:
 ```
 ----------------------------------------------------------------------
-Ran 99 tests in 35.7s
+Ran 102 tests in 34.1s
 
 OK
 ```
@@ -101,8 +101,10 @@ python3 web_server.py 8080
 Verify the server prints:
 ```
 =======================================================
-🤖 Multi-Agent Control Center running at:
-👉 http://localhost:8080
+🤖 Multi-Agent Control Center v2.1.0 running at:
+👉 Single Repo UI:    http://localhost:8080
+🗓️  Batch Scheduler:   http://localhost:8080/scheduler
+🩺 Health Check:      http://localhost:8080/api/health
 📁 Serving common UI from: .../web
 =======================================================
 ```
@@ -211,7 +213,7 @@ git branch -M main
 | **TC-021** | Web UI Dashboard | Browser Dashboard Layout, Dark/Light Mode & Badges | High | UI / UX |
 | **TC-022** | MCP Protocol | Model Context Protocol JSON-RPC 2.0 stdio Interface | High | Integration |
 | **TC-023** | Security | Token Scrubbing & Credential Masking in Terminal Logs | Critical | Security |
-| **TC-024** | Regression | Full Automated Regression Test Suite (99 Tests) | Critical | Automated Unit Test |
+| **TC-024** | Regression | Full Automated Regression Test Suite (102 Tests) | Critical | Automated Unit Test |
 | **TC-025** | External Scanners | External Scanner CLI Detection & Availability (`/api/scanner/tools`) | Medium | Functional |
 | **TC-026** | Audit Reports | Security Scanner HTML/JSON Audit Report Generation (`/api/securescan/report`) | High | Functional |
 | **TC-027** | Remediator | Post-Scan Verification & Posture Score Calculation | High | Functional |
@@ -590,14 +592,14 @@ git branch -M main
 
 ---
 
-### TC-024: Full Automated Regression Test Suite (99 Tests)
-- **Objective**: Execute all 99 automated unit and integration tests across the codebase.
+### TC-024: Full Automated Regression Test Suite (102 Tests)
+- **Objective**: Execute all 102 automated unit and integration tests across the codebase.
 - **Test Steps**:
   ```bash
   python3 -m unittest discover -s tests
   ```
 - **Expected Outcome**:
-  - Test runner executes 99 tests across 11 test modules:
+  - Test runner executes 102 tests across 11 test modules:
     - `test_agent.py` (4 tests)
     - `test_config.py` (12 tests)
     - `test_email_notifier.py` (6 tests)
@@ -607,10 +609,10 @@ git branch -M main
     - `test_providers.py` (11 tests)
     - `test_remediation_report.py` (2 tests)
     - `test_scheduler.py` (12 tests)
-    - `test_web_server.py` (36 tests)
+    - `test_web_server.py` (39 tests)
     - `test_workspace.py` (1 test)
   - Final status: `OK`. Exit code: `0`.
-- **Pass / Fail Criteria**: Pass if 99/99 tests pass with 0 failures and 0 errors.
+- **Pass / Fail Criteria**: Pass if 102/102 tests pass with 0 failures and 0 errors.
 
 ---
 
@@ -857,7 +859,7 @@ git branch -M main
 | Checklist Item | Target Standard | Status | Verified By |
 | :--- | :--- | :--- | :--- |
 | **Zero Runtime Pip Dependencies** | Standard Library only | `[x] PASS` | Automated Suite |
-| **All 99 Unit & Integration Tests Passing** | 100% Pass Rate (99/99 across 11 modules) | `[x] PASS` | Automated Suite |
+| **All 102 Unit & Integration Tests Passing** | 100% Pass Rate (102/102 across 11 modules) | `[x] PASS` | Automated Suite |
 | **Reset Removes Folder Name & References** | Clears UI, state & telemetry references | `[x] PASS` | Web Server & UI |
 | **Unlinked Local Project Remediation** | Supports repos with no remote origin | `[x] PASS` | LocalProvider & Pipeline |
 | **Local Folder Remote Push & Auth** | Masked ephemeral credentials push to `origin` | `[x] PASS` | GitSubAgent & Scheduler |

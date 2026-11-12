@@ -7,6 +7,7 @@ import shutil
 import socket
 import subprocess
 import threading
+import time
 import urllib.request
 import urllib.error
 from typing import Callable, Dict, Any, List, Optional, Tuple
@@ -355,21 +356,42 @@ Return the JSON object containing `explanation`, `remediation_summary`, `confide
     def _http_post(
         url: str, payload: Dict[str, Any], headers: Dict[str, str]
     ) -> Dict[str, Any]:
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(payload).encode("utf-8"),
-            headers=headers,
-            method="POST",
-        )
+        """POST JSON payload with exponential backoff retry on transient HTTP 429/5xx errors."""
+        encoded = json.dumps(payload).encode("utf-8")
         timeout = int(os.getenv("LLM_TIMEOUT", "12"))
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                return json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            body = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"LLM API HTTP {exc.code} error: {body}") from exc
-        except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
-            raise RuntimeError(f"Network error calling LLM API: {exc}") from exc
+        max_retries = max(0, int(os.getenv("LLM_MAX_RETRIES", "2")))
+        base_backoff = float(os.getenv("LLM_RETRY_BACKOFF_SEC", "0.5"))
+        retryable_codes = {429, 502, 503, 504}
+
+        for attempt in range(max_retries + 1):
+            req = urllib.request.Request(
+                url,
+                data=encoded,
+                headers=headers,
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    return json.loads(resp.read().decode("utf-8"))
+            except urllib.error.HTTPError as exc:
+                try:
+                    body = exc.read().decode("utf-8", errors="replace")
+                finally:
+                    exc.close()
+                if exc.code in retryable_codes and attempt < max_retries:
+                    delay = base_backoff * (2 ** attempt)
+                    logger.warning(
+                        "Transient LLM HTTP %d error; retrying in %.2fs (attempt %d/%d)",
+                        exc.code,
+                        delay,
+                        attempt + 1,
+                        max_retries,
+                    )
+                    time.sleep(delay)
+                    continue
+                raise RuntimeError(f"LLM API HTTP {exc.code} error: {body}") from exc
+            except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
+                raise RuntimeError(f"Network error calling LLM API: {exc}") from exc
 
     @staticmethod
     def _parse_response(raw_text: str) -> FixProposal:

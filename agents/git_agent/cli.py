@@ -5,10 +5,10 @@ Allows testing, manual execution, and script automation of git preparation, comm
 
 from __future__ import annotations
 import argparse
-import json
 import logging
-import sys
 from pathlib import Path
+
+DIFF_PREVIEW_MAX_LINES = 20
 
 try:
     from .config import GitAgentConfig, ProviderType
@@ -20,7 +20,8 @@ except (ImportError, ValueError):
     from agents.git_agent.mcp_server import GitAgentMCPServer
 
 
-def setup_logging(verbose: bool = False):
+def setup_logging(verbose: bool = False) -> None:
+    """Configure root logging level and format for CLI execution."""
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(
         level=level,
@@ -28,7 +29,7 @@ def setup_logging(verbose: bool = False):
     )
 
 
-def cmd_prepare(args: argparse.Namespace):
+def cmd_prepare(args: argparse.Namespace) -> None:
     """Clone repo, pull base branch, and create feature branch."""
     config = GitAgentConfig(
         repo_url=args.repo_url,
@@ -48,19 +49,19 @@ def cmd_prepare(args: argparse.Namespace):
     print(f"Repo URL:       {ctx.repo_url}")
 
 
-def cmd_mcp(args: argparse.Namespace):
+def cmd_mcp(args: argparse.Namespace) -> None:
     """Start the MCP server over stdio."""
     server = GitAgentMCPServer()
     server.run_stdio()
 
 
-def cmd_ui(args: argparse.Namespace):
+def cmd_ui(args: argparse.Namespace) -> None:
     """Start the Multi-Agent Web Dashboard."""
     from web_server import run_server
     run_server(port=args.port)
 
 
-def cmd_scan(args: argparse.Namespace):
+def cmd_scan(args: argparse.Namespace) -> None:
     """Run ScannerAgent against a local workspace path."""
     from agents.scanner_agent.agent import ScannerAgent
     scanner = ScannerAgent()
@@ -89,7 +90,7 @@ def cmd_scan(args: argparse.Namespace):
         print("\n✅ Zero security or egress violations detected.")
 
 
-def cmd_remediate(args: argparse.Namespace):
+def cmd_remediate(args: argparse.Namespace) -> None:
     """Run RemediatorAgent directly against a repository workspace."""
     from agents.remediator_agent.agent import RemediatorAgent
     target_path = Path(args.path).resolve()
@@ -119,12 +120,12 @@ def cmd_remediate(args: argparse.Namespace):
         for fpath, diff in file_diffs.items():
             print(f"\n--- {fpath} ---")
             lines = diff.splitlines()
-            print("\n".join(lines[:20]))
-            if len(lines) > 20:
-                print(f"  ... (+ {len(lines) - 20} more lines)")
+            print("\n".join(lines[:DIFF_PREVIEW_MAX_LINES]))
+            if len(lines) > DIFF_PREVIEW_MAX_LINES:
+                print(f"  ... (+ {len(lines) - DIFF_PREVIEW_MAX_LINES} more lines)")
 
 
-def cmd_pipeline(args: argparse.Namespace):
+def cmd_pipeline(args: argparse.Namespace) -> None:
     """Run complete end-to-end multi-agent pipeline (Git prep -> Scan -> Remediate -> PR)."""
     from agents.git_agent.config import GitAgentConfig, ProviderType
     from agents.remediator_agent.agent import RemediatorAgent
@@ -164,7 +165,8 @@ def cmd_pipeline(args: argparse.Namespace):
     print("=======================================================")
 
 
-def main():
+def main() -> None:
+    """Parse CLI arguments and dispatch the selected subcommand."""
     parser = argparse.ArgumentParser(
         prog="airgap-remediator",
         description="Autonomous Air-Gapped Security Scanner & Remediation Agent.",

@@ -1459,6 +1459,63 @@ class TestLocalLLMModelDiscovery(unittest.TestCase):
         self.assertIn("loadSchedLlmModels", scheduler_html)
         self.assertIn("/api/llm/models", scheduler_html)
 
+    def test_api_health_endpoint(self):
+        status, data = self._call_get("/api/health")
+        self.assertEqual(status, 200)
+        self.assertEqual(data.get("status"), "ok")
+        self.assertEqual(data.get("version"), "2.1.0")
+        self.assertGreaterEqual(data.get("uptime_seconds", -1), 0)
+        self.assertGreaterEqual(data.get("agents_total", 0), 3)
+
+    def test_web_server_import_has_no_scheduler_side_effect(self):
+        import sys
+        res = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import web_server; "
+                "assert web_server.BATCH_SCHEDULER is None; "
+                "assert web_server.EMAIL_NOTIFIER is None; "
+                "assert web_server.SCANNER_AGENT is None; "
+                "assert web_server.REMEDIATOR_AGENT is None",
+            ],
+            cwd=str(Path(__file__).resolve().parent.parent),
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(res.returncode, 0, msg=res.stderr)
+
+    def test_llm_client_retries_transient_http_503(self):
+        import os
+        import urllib.error
+        from unittest.mock import patch
+        from agents.remediator_agent.llm_client import CloudLLMClient
+
+        calls = {"count": 0}
+
+        class FakeResp:
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def read(self):
+                return b'{"ok": true}'
+
+        def flaky_urlopen(req, timeout=12):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise urllib.error.HTTPError(
+                    req.full_url, 503, "Service Unavailable", {}, io.BytesIO(b"busy")
+                )
+            return FakeResp()
+
+        with patch.dict(os.environ, {"LLM_MAX_RETRIES": "2", "LLM_RETRY_BACKOFF_SEC": "0.01"}):
+            with patch("urllib.request.urlopen", side_effect=flaky_urlopen):
+                out = CloudLLMClient._http_post("http://127.0.0.1:9999/test", {"a": 1}, {"Content-Type": "application/json"})
+
+        self.assertEqual(out, {"ok": True})
+        self.assertEqual(calls["count"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Configure Git identity for tests
+        run: |
+          git config --global user.name "CI Runner"
+          git config --global user.email "ci@example.com"
+
+      - name: Syntax & import-hermeticity check
+        run: |
+          python3 -m compileall -q agents orchestrator tests web_server.py airgap_remediator.py
+          python3 -c "import web_server; assert web_server.BATCH_SCHEDULER is None"
+
+      - name: Run unit and integration test suite
+        run: python3 -m unittest discover -s tests -v
+

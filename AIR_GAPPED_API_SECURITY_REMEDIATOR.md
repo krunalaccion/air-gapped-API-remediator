@@ -88,7 +88,7 @@ The system utilizes an agentic architecture centered around a central orchestrat
 | **`MultiAgentPipeline`** | [`orchestrator/pipeline.py`](file:///Users/krunaldharamshi/Projects/GitAgent/orchestrator/pipeline.py) | Coordinates the end-to-end multi-agent execution sequence. |
 | **`BatchScheduler`** | [`orchestrator/scheduler.py`](file:///Users/krunaldharamshi/Projects/GitAgent/orchestrator/scheduler.py) | Background worker & cron/interval scheduler discovering folder repositories, running sequential remediations, pushing branches with masked auth, and emailing per-repo reports. |
 | **`EmailReportNotifier` & `PDFRenderer`** | [`orchestrator/email_notifier.py`](file:///Users/krunaldharamshi/Projects/GitAgent/orchestrator/email_notifier.py), [`orchestrator/pdf_renderer.py`](file:///Users/krunaldharamshi/Projects/GitAgent/orchestrator/pdf_renderer.py) | Builds HTML/text remediation emails, converts audit reports to PDF (`REMEDIATION_AUDIT_REPORT.pdf`, `SECURESCAN_REPORT.pdf`) alongside JSON payloads, archives `.eml` files in `reports/email_outbox/`, and delivers via SMTP or HTTPS webhook. |
-| **`Web Server & API`** | [`web_server.py`](file:///Users/krunaldharamshi/Projects/GitAgent/web_server.py) | Multi-threaded HTTP server exposing JSON REST endpoints and serving both the Single Repo and Scheduler UIs. |
+| **`Web Server & API`** | [`web_server.py`](file:///Users/krunaldharamshi/Projects/GitAgent/web_server.py), [`orchestrator/routes/`](file:///Users/krunaldharamshi/Projects/GitAgent/orchestrator/routes/) | Multi-threaded HTTP server with lazy agent initialization, `SIGTERM` graceful shutdown, and modular Git, Scan/Fix, and Scheduler route handlers. |
 | **`Web Dashboards`** | [`web/index.html`](file:///Users/krunaldharamshi/Projects/GitAgent/web/index.html), [`web/scheduler.html`](file:///Users/krunaldharamshi/Projects/GitAgent/web/scheduler.html) | Responsive GUIs for Single Repo 5-stage remediation and Background Batch Folder Scheduling with live model dropdowns. |
 | **`MCP Server`** | [`agents/git_agent/mcp_server.py`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/git_agent/mcp_server.py) | Model Context Protocol JSON-RPC 2.0 stdio server for LLM hosts (Claude, Cursor, Antigravity). |
 | **`LangGraph Adapter`** | [`orchestrator/langgraph_subagent.py`](file:///Users/krunaldharamshi/Projects/GitAgent/orchestrator/langgraph_subagent.py) | Exposes tool functions ready for LangChain/LangGraph `bind_tools()`. |
@@ -210,7 +210,7 @@ Generated at the repository root to verify isolation standards for security revi
   - `[x]` Full Git Subagent audit trail generated for peer review
 
 #### 3. Local LLM & Ollama Model Discovery (`discover_local_llm_models`)
-Located in [`agents/remediator_agent/llm_client.py`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/remediator_agent/llm_client.py#L992-L1064), automated model discovery identifies locally installed models for interactive selection:
+Located in [`agents/remediator_agent/llm_client.py`](file:///Users/krunaldharamshi/Projects/GitAgent/agents/remediator_agent/llm_client.py#L1014-L1086), automated model discovery identifies locally installed models for interactive selection:
 - **Ollama (`provider="ollama"`)**: Queries `{base_url}/api/tags`, falls back to `ollama list` CLI if needed, and reads local manifest files under `OLLAMA_MODELS` or `~/.ollama/models/manifests` when the daemon is offline.
 - **OpenAI-Compatible Local Servers (`provider="local"`)**: Queries `/v1/models` on LM Studio, vLLM, or compatible local servers.
 
@@ -367,6 +367,7 @@ The control server exposes REST endpoints across Single Repo Automation, Local L
 | `GET` | `/api/agents` | Lists all registered agents and their current statuses. |
 | `GET` | `/api/scanner/tools` | Detects installed Semgrep and Trivy CLI availability and versions. |
 | `GET` | `/api/securescan/report` | Serves SecureScanAI report (`?format=html\|json\|sarif`). |
+| `GET` | `/api/health` | Returns service health status, version (`2.1.0`), uptime seconds, and registered agent count. |
 | `GET` | `/api/llm/models` | Discovers locally installed Ollama or OpenAI-compatible models (`/api/ollama/models` alias). |
 | `GET` | `/api/fix/progress` | Streams live file-by-file remediation progress (`/api/remediator/progress` alias). |
 | `GET` | `/api/remediator/report` | Serves post-remediation **Remediation & Compliance Dossier** (`?format=html\|json`). |
@@ -806,30 +807,40 @@ export GITLAB_TOKEN="glpat-yourTokenHere"
 export GIT_AGENT_TOKEN="yourTokenHere"
 
 # Email Report Notification Service (SMTP STARTTLS/SSL or HTTPS Webhook over port 443)
-EMAIL_ENABLED=true
-EMAIL_AUTO_SEND_ON_REMEDIATION=true
+# Copy .env.example to .env and configure your real credentials locally (.env is gitignored).
+EMAIL_ENABLED=false
+EMAIL_AUTO_SEND_ON_REMEDIATION=false
 EMAIL_AUTO_SEND_ON_PR=false
-EMAIL_WEBHOOK_URL=https://script.google.com/macros/s/your-deployment-id/exec
-EMAIL_FROM=secops-remediator@company.local
-EMAIL_TO=secops@company.local
+# EMAIL_WEBHOOK_URL=https://script.google.com/macros/s/YOUR_APPS_SCRIPT_DEPLOYMENT_ID/exec
+EMAIL_FROM=secops-remediator@example.com
+EMAIL_TO=security-team@example.com
 EMAIL_SUBJECT_PREFIX=[SecOps Remediation Report]
-SMTP_HOST=smtp.gmail.com
+SMTP_HOST=smtp.example.com
 SMTP_PORT=587
-SMTP_USERNAME=your-smtp-user
-SMTP_PASSWORD=your-app-password
+SMTP_USERNAME=secops-remediator@example.com
+SMTP_PASSWORD=replace-with-app-password
 SMTP_USE_TLS=true
 SMTP_USE_SSL=false
 EMAIL_ATTACH_REMEDIATION_PDF=true
 EMAIL_ATTACH_SCAN_PDF=true
 EMAIL_ATTACH_REMEDIATION_JSON=true
 
-# Local LLM & Ollama Model Discovery
+# Local LLM, Retry Policy & Ollama Model Discovery
 export OLLAMA_URL="http://127.0.0.1:11434"
 export OLLAMA_MODEL="qwen2.5-coder:3b"
+export LLM_MAX_RETRIES="2"
+export LLM_RETRY_BACKOFF_SEC="0.5"
 # export OLLAMA_MODELS="/custom/path/to/.ollama/models"
 # export LOCAL_LLM_URL="http://localhost:1234/v1"
 ```
 *(Note: Git tokens are optional for purely unlinked local repositories, and email notifications gracefully archive `.eml` messages to `reports/email_outbox/` even before SMTP/webhook credentials are configured.)*
+
+### Containerized Deployment (`Dockerfile` & `docker-compose.yml`)
+Build and run the control center in an isolated container with persistent `scheduler_data/`, `reports/`, and `repos/` volumes and an automated `/api/health` check:
+```bash
+docker compose up --build
+```
+Or use the included [`Makefile`](file:///Users/krunaldharamshi/Projects/GitAgent/Makefile) (`make install`, `make test`, `make lint`, `make run`, `make docker-run`).
 
 ### YAML Configuration File (`git_agent_config.example.yaml`)
 ```yaml
@@ -897,7 +908,7 @@ Once registered, the new agent:
 
 ## 11. Testing & Quality Assurance
 
-The codebase includes an exhaustive test suite of **99 automated unit and integration tests** across **11 modules** covering all agents, providers, workspaces, web endpoints, workspace resets, unlinked/offline repositories, local-folder remote pushes, background batch scheduling, SMTP/webhook PDF email delivery, local LLM model discovery, and multi-language Node.js/Express SAST scanning & offline deterministic remediation.
+The codebase includes an exhaustive test suite of **102 automated unit and integration tests** across **11 modules** covering all agents, providers, workspaces, web endpoints, workspace resets, unlinked/offline repositories, local-folder remote pushes, background batch scheduling, SMTP/webhook PDF email delivery, local LLM model discovery, transient HTTP retry backoff, hermetic server imports, and multi-language Node.js/Express SAST scanning & offline deterministic remediation.
 
 ### Executing the Test Suite
 Run the standard library test runner:
@@ -907,7 +918,7 @@ python3 -m unittest discover -s tests
 
 ### Test Coverage Highlights
 - [`tests/test_multi_agent.py`](file:///Users/krunaldharamshi/Projects/GitAgent/tests/test_multi_agent.py): Tests `AgentRegistry`, `ScannerAgent` detection of external URLs, `RemediatorAgent` generation of proxy configs, and `MultiAgentPipeline` execution on local git repositories.
-- [`tests/test_web_server.py`](file:///Users/krunaldharamshi/Projects/GitAgent/tests/test_web_server.py): Tests Single Repo web API endpoints (`/api/validate-path`, `/api/prepare`, `/api/scan`, `/api/fix`, `/api/commit-push`, `/api/local-pr`, `/api/fs/list`, `/api/llm/models`), non-git validation (`allow_non_git`), auto-initialization (`auto_init`), unlinked local projects and local folders with remote `origin` pushes, reset clearing of folder references, 15-CWE Node.js/Express SAST scanning & `auto-fallback` remediation, and Ollama/OpenAI model discovery + UI dropdown wiring.
+- [`tests/test_web_server.py`](file:///Users/krunaldharamshi/Projects/GitAgent/tests/test_web_server.py): Tests Single Repo web API endpoints (`/api/health`, `/api/validate-path`, `/api/prepare`, `/api/scan`, `/api/fix`, `/api/commit-push`, `/api/local-pr`, `/api/fs/list`, `/api/llm/models`), import-time hermeticity, non-git validation (`allow_non_git`), auto-initialization (`auto_init`), unlinked local projects and local folders with remote `origin` pushes, reset clearing of folder references, 15-CWE Node.js/Express SAST scanning & `auto-fallback` remediation, transient LLM HTTP 503 retry backoff, and Ollama/OpenAI model discovery + UI dropdown wiring.
 - [`tests/test_scheduler.py`](file:///Users/krunaldharamshi/Projects/GitAgent/tests/test_scheduler.py): Tests `discover_repositories`, self-protection, cron/interval parsing, sequential background execution, persistent recovery, fast cooperative cancellation, clean `main`/`master` branching, local-folder remote push with masked `git_token`/`git_username`, per-repo post-remediation emails, and scheduler REST CRUD endpoints.
 - [`tests/test_email_notifier.py`](file:///Users/krunaldharamshi/Projects/GitAgent/tests/test_email_notifier.py): Tests `.env` loading, password masking, `.eml` outbox archiving with PDF/JSON attachments, HTML-to-PDF rendering & multi-page pagination, SMTP STARTTLS delivery, and HTTPS webhook delivery.
 - [`tests/test_agent.py`](file:///Users/krunaldharamshi/Projects/GitAgent/tests/test_agent.py) & [`tests/test_config.py`](file:///Users/krunaldharamshi/Projects/GitAgent/tests/test_config.py): Tests `GitSubAgent` lifecycles, authenticated remote pushes from local folders, provider detection, and URL sanitization/masking.

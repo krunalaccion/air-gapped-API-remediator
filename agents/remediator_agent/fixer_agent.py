@@ -10,6 +10,10 @@ from .tools import RepositoryTools
 
 logger = logging.getLogger("BugFixerAgent")
 
+CONTEXT_WINDOW_LINES = 10
+TRUNCATION_CHECK_MIN_LINES = 10
+MIN_LINE_RETENTION_RATIO = 0.6
+
 
 class BugFixerAgent:
     """
@@ -117,7 +121,7 @@ class BugFixerAgent:
             finding.line_number = actual_line
 
         _, numbered_context = self.tools.get_numbered_context(
-            original_content, finding.line_number, window=10
+            original_content, finding.line_number, window=CONTEXT_WINDOW_LINES
         )
 
         # Step 3: Call LLM to analyze vulnerability and synthesize fix
@@ -194,7 +198,7 @@ class BugFixerAgent:
         # Check for severe truncation
         orig_line_count = len(original_content.splitlines())
         fixed_line_count = len(fixed_content.splitlines())
-        if orig_line_count > 10 and fixed_line_count < int(orig_line_count * 0.6):
+        if orig_line_count > TRUNCATION_CHECK_MIN_LINES and fixed_line_count < int(orig_line_count * MIN_LINE_RETENTION_RATIO):
             raise ValueError(
                 f"Proposed fix is severely truncated ({fixed_line_count} lines vs {orig_line_count} original lines)."
             )
