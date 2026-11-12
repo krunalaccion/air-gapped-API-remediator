@@ -56,7 +56,7 @@ A production-ready, autonomous multi-agent security remediation system designed 
   - Raises automated Pull Requests / Merge Requests with draft options and security dossiers.
   - Safe credential management: tokens are masked in logs, scrubbed from process outputs, and kept out of persistent remote configurations.
 
-- **Interactive Web Control Center (`web/index.html`, `web/scheduler.html` & `web_server.py`)**:
+- **Interactive Web Control Center (`web/index.html`, `web/scheduler.html`, `web_server.py` & `orchestrator/routes/`)**:
   - Single Repo Pipeline (`/`) with real-time Liveline visualizer tracking all 5 stages, plus dedicated Batch Folder Scheduler (`/scheduler`) with live active-run status indicator.
   - Dark Mode and Light Mode support with persistent user preferences.
   - Multi-browser and high-resolution touch icon support (Apple Touch Icons, standard SVG/PNG favicons).
@@ -198,6 +198,7 @@ The multi-threaded server (`web_server.py`) exposes REST endpoints across the Si
 | :--- | :--- | :--- | :--- |
 | `GET` | `/` or `/index.html` | Serves the Single Repo Multi-Agent Control Center UI | _(none)_ |
 | `GET` | `/scheduler` or `/scheduler.html` | Serves the Background Batch Folder Scheduler UI | _(none)_ |
+| `GET` | `/api/health` | Returns service health status, version, uptime, and registered agent count | _(none)_ |
 | `GET` | `/api/telemetry` | Returns real-time state of all agents, workspace files, git status, PRs, and build status | _(none)_ |
 | `GET` | `/api/agents` | Lists registered specialist agents and their operational status | _(none)_ |
 | `GET` | `/api/scanner/tools` | Detects availability of external scanner CLIs (**Semgrep**, **Trivy**) | _(none)_ |
@@ -371,9 +372,43 @@ python3 -m unittest discover -s tests
 Output:
 ```
 ----------------------------------------------------------------------
-Ran 99 tests in 35.7s
+Ran 102 tests in 34.1s
 
 OK
 ```
 
-All **99 unit and integration tests** across **11 test modules** pass cleanly with a 100% pass rate.
+All **102 unit and integration tests** across **11 test modules** pass cleanly with a 100% pass rate.
+
+---
+
+## 🐳 Docker & Makefile Support
+
+Run the application in a container or via `Makefile` shortcuts:
+
+```bash
+# Using Makefile
+make install       # pip install .
+make test          # Run full unittest suite
+make run           # Start web server on port 8080
+
+# Using Docker Compose
+docker compose up --build
+```
+
+---
+
+## 🔧 Troubleshooting & FAQ
+
+| Issue | Likely Cause | Resolution |
+| :--- | :--- | :--- |
+| `Address already in use` on port `8080` | Another process is bound to `8080` | Pass an alternate port: `python3 web_server.py 8090` |
+| Ollama models not listed or LLM fails | Ollama daemon is not running or offline | Start Ollama (`ollama serve`) or select `auto-fallback` / offline deterministic fixer |
+| `git push` or PR creation rejected | Missing/expired PAT or insufficient repo scopes | Export `GITHUB_TOKEN` (with `repo` scope) or `GITLAB_TOKEN` (with `api` scope), or use Local PR mode |
+| Email notifications not sent | Credentials still set to template placeholders | Copy `.env.example` to `.env`, set `EMAIL_ENABLED=true`, and configure SMTP or `EMAIL_WEBHOOK_URL` |
+| Semgrep / Trivy shows unavailable | Optional scanner CLIs not installed on `$PATH` | Built-in C#, JS/TS, and air-gap egress scanners run automatically with zero external tools |
+
+---
+
+## 📄 License
+
+Provided for internal security engineering and hackathon evaluation. See repository maintainers for distribution terms.

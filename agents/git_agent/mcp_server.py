@@ -404,7 +404,7 @@ class GitAgentMCPServer:
                     },
                     "serverInfo": {
                         "name": "git-agent-mcp",
-                        "version": "0.1.0",
+                        "version": "2.1.0",
                     },
                 },
             }

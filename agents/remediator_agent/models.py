@@ -19,6 +19,7 @@ class Finding:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Finding":
+        """Construct a Finding instance from a normalized or raw scanner dictionary."""
         finding_id = str(data.get("finding_id") or data.get("id") or "FINDING")
         rule_id = str(data.get("rule_id") or data.get("rule") or "security-violation")
         severity = str(data.get("severity") or "MEDIUM").upper()
@@ -44,6 +45,7 @@ class Finding:
         )
 
     def to_dict(self) -> Dict[str, Any]:
+        """Serialize the Finding dataclass into a JSON-compatible dictionary."""
         return asdict(self)
 
 
@@ -73,6 +75,7 @@ class FixReport:
     )
 
     def to_dict(self) -> Dict[str, Any]:
+        """Serialize the FixReport and nested Finding into a JSON-compatible dictionary."""
         return {
             "finding": self.finding.to_dict(),
             "target_file": self.target_file,

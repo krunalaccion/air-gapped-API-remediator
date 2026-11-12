@@ -41,6 +41,7 @@ class RawSecurityFinding:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
+        """Serialize the RawSecurityFinding into a JSON-compatible dictionary."""
         data = asdict(self)
         data["severity"] = self.severity.value if isinstance(self.severity, Enum) else str(self.severity)
         data["classification"] = (

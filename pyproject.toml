@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "airgap-remediator"
-version = "0.1.0"
+version = "2.1.0"
 description = "Autonomous Air-Gapped Security Scanner & Remediation Agent"
 readme = "README.md"
 authors = [{ name = "AirGap Remediator Developer" }]
@@ -31,6 +31,9 @@ airgap-agent = "agents.git_agent.cli:main"
 airgap-mcp = "agents.git_agent.mcp_server:main"
 airgap-server = "web_server:run_server"
 git-agent = "agents.git_agent.cli:main"
+
+[tool.setuptools]
+py-modules = ["web_server", "airgap_remediator"]
 
 [tool.setuptools.packages.find]
 where = ["."]

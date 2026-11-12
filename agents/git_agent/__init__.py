@@ -15,7 +15,7 @@ except (ImportError, ValueError):
     from agents.git_agent.workspace import GitWorkspace, GitCommandError
     from agents.git_agent.mcp_server import GitAgentMCPServer
 
-__version__ = "0.1.0"
+__version__ = "2.1.0"
 
 __all__ = [
     "GitAgentConfig",

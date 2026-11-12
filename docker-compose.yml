@@ -1,0 +1,17 @@
+services:
+  airgap-remediator:
+    build: .
+    container_name: airgap-remediator
+    ports:
+      - "8080:8080"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
+    volumes:
+      - ./scheduler_data:/app/scheduler_data
+      - ./reports:/app/reports
+      - ./repos:/app/repos
+    restart: unless-stopped
+
