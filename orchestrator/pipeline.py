@@ -15,6 +15,7 @@ from agents.git_agent.agent import GitSubAgent, WorkspaceContext, FinalizeResult
 from agents.git_agent.config import GitAgentConfig
 from agents.scanner_agent.agent import ScannerAgent
 from agents.remediator_agent.agent import RemediatorAgent
+from agents.remediator_agent.llm_client import preload_local_llm_model_async
 from orchestrator.email_notifier import EmailReportNotifier
 
 logger = logging.getLogger("orchestrator.pipeline")
@@ -57,6 +58,17 @@ class MultiAgentPipeline:
         3. Fix: RemediatorAgent applies proxy configs, offline mocks, and BugFixerAgent SAST patches.
         4. Finalize: GitSubAgent commits changes and raises Pull Request.
         """
+        effective_provider = (provider or self.remediator.llm_provider or "").strip().lower()
+        effective_model = model or self.remediator.model
+        effective_base_url = base_url or self.remediator.base_url
+        if effective_provider in ("ollama", "local"):
+            logger.info("Preloading selected local LLM model '%s' into memory (%s)...", effective_model or "default", effective_provider)
+            preload_local_llm_model_async(
+                provider=effective_provider,
+                model=effective_model,
+                base_url=effective_base_url,
+            )
+
         logger.info("=== STEP 1: GitSubAgent Prepares Remediation Workspace ===")
         ctx: WorkspaceContext = self.git_agent.prepare_workspace()
         logger.info("Workspace ready at %s on branch '%s'", ctx.repo_path, ctx.feature_branch)

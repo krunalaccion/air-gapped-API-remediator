@@ -433,6 +433,60 @@ class TestAirGappedScannerAndRemediator(unittest.TestCase):
         self.assertIn('btnScan', content)
         self.assertIn('btnPrepare', content)
 
+    def test_step3_realtime_and_modified_files_consistency(self):
+        from web_server import get_web_dir
+        import subprocess, shutil
+
+        html_path = get_web_dir() / "index.html"
+        content = html_path.read_text(encoding="utf-8")
+        self.assertIn("function isRemediatedWorkspaceFile", content)
+        self.assertIn("function isInternalReportArtifact", content)
+        self.assertIn("res.progress", content)
+        self.assertNotIn('p.includes("report") ||', content)
+        self.assertNotIn('p.includes("audit") ||', content)
+
+        # If node is installed, verify the exact JS filter functions against real-world paths
+        if shutil.which("node"):
+            start = content.index("function isInternalReportArtifact(")
+            end = content.index("// Liveline Progress & Step View Controller")
+            js_snippet = content[start:end]
+            test_js = js_snippet + """
+const assert = require('assert');
+assert.strictEqual(isRemediatedWorkspaceFile('src/ERMS.API/appsettings.json'), true);
+assert.strictEqual(isRemediatedWorkspaceFile('config/airgap_proxy.json'), true);
+assert.strictEqual(isRemediatedWorkspaceFile('AIRGAP_SECURITY_AUDIT.md'), true);
+assert.strictEqual(isRemediatedWorkspaceFile('src/Controllers/ReportsController.cs'), true);
+assert.strictEqual(isRemediatedWorkspaceFile('src/config/db.js'), true);
+assert.strictEqual(isRemediatedWorkspaceFile('reports/SEMGREP-001_report.json'), false);
+assert.strictEqual(isCodeFile('src/Controllers/ReportsController.cs'), true);
+assert.strictEqual(isCodeFile('src/Services/AuditService.cs'), true);
+assert.strictEqual(isCodeFile('src/config/db.js'), true);
+assert.strictEqual(isCodeFile('reports/SEMGREP-001_report.json'), false);
+console.log('JS_FILTER_OK');
+"""
+            proc = subprocess.run(["node", "-e", test_js], capture_output=True, text=True)
+            self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+            self.assertIn("JS_FILTER_OK", proc.stdout)
+
+        # Also verify /api/fix includes authoritative final progress snapshot matching files_modified
+        test_repo = self.temp_dir / "consistency_repo"
+        test_repo.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["git", "init", "-b", "main"], cwd=str(test_repo), check=True, capture_output=True)
+        (test_repo / "appsettings.json").write_text('{\n  "AllowedHosts": "*"\n}\n', encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=str(test_repo), check=True, capture_output=True)
+        subprocess.run(["git", "-c", "commit.gpgsign=false", "-c", "user.name=Test", "-c", "user.email=test@test.local", "commit", "-m", "init"], cwd=str(test_repo), check=True, capture_output=True)
+
+        self._call_post("/api/prepare", {"repo_url": str(test_repo)})
+        self._call_post("/api/scan", {"workspace_path": str(test_repo)})
+        f_status, f_res = self._call_post("/api/fix", {"workspace_path": str(test_repo), "provider": "auto-fallback"})
+        self.assertEqual(f_status, 200)
+        self.assertIn("progress", f_res)
+        self.assertEqual(f_res["progress"]["status"], "COMPLETED")
+        prog_files = {itm["file"] for itm in f_res["progress"]["items"] if itm.get("id") != "POST-SCAN-VERIFY"}
+        mod_files = set(f_res.get("files_modified", []))
+        for pf in prog_files:
+            self.assertIn(pf, mod_files)
+
     def test_csharp_deserialization_cwe502_comment_handling(self):
         from agents.scanner_agent.inspectors import CSharpLexicalAnalyzer
         from agents.remediator_agent.llm_client import CloudLLMClient
@@ -1515,6 +1569,90 @@ class TestLocalLLMModelDiscovery(unittest.TestCase):
 
         self.assertEqual(out, {"ok": True})
         self.assertEqual(calls["count"], 2)
+
+    def test_scheduler_form_resets_all_fields_after_create_or_edit(self):
+        from web_server import get_web_dir
+        sched_html = (get_web_dir() / "scheduler.html").read_text(encoding="utf-8")
+        self.assertIn("resetScheduleForm();", sched_html)
+        start = sched_html.index("function resetScheduleForm()")
+        end = sched_html.index("async function toggleSchedule(", start)
+        reset_fn = sched_html[start:end]
+        for expected in (
+            'getElementById("schedName").value = ""',
+            'getElementById("schedFolderPath").value = ""',
+            'getElementById("schedRecursive").checked = false',
+            'getElementById("schedIncludeNonGit").checked = false',
+            'discoverReposNow()',
+            'setScheduleType("interval")',
+            'getElementById("schedIntervalValue").value = "60"',
+            'getElementById("schedIntervalUnit").value = "1"',
+            'getElementById("schedTimeOfDay").value = "02:00"',
+            'setSelectedWeekDays([0])',
+            'getElementById("schedCronExpr").value = "0 2 * * *"',
+            'getElementById("schedRunAt").value = ""',
+            'getElementById("schedScannerEngine").value = "all"',
+            'getElementById("schedBaseBranch").value = "auto"',
+            'getElementById("schedFeatureBranch").value = "remediation/airgap-api-compliance"',
+            'getElementById("schedBuildTest").checked = true',
+            'getElementById("schedAutoCommit").checked = true',
+            'getElementById("schedAutoPush").checked = true',
+            'getElementById("schedAutoPr").checked = true',
+            'getElementById("schedTimestampBranch").checked = false',
+            'getElementById("schedGitToken").value = ""',
+            'getElementById("schedGitUsername").value = ""',
+            'getElementById("schedSendEmail").checked = true',
+            'getElementById("schedEmailRecipients").value = ""',
+            'getElementById("schedRunImmediately").checked = false',
+        ):
+            self.assertIn(expected, reset_fn)
+
+    def test_preload_local_llm_model_and_scheduler_startup(self):
+        from unittest.mock import patch
+        from agents.remediator_agent.llm_client import preload_local_llm_model
+        from web_server import get_web_dir
+
+        # 1. Non-local providers skip preloading
+        skipped = preload_local_llm_model(provider="auto-fallback", model="rule-based-security-fixer")
+        self.assertFalse(skipped["loaded"])
+        self.assertTrue(skipped["skipped"])
+
+        # 2. Ollama native preload hits /api/generate with prompt="" and keep_alive
+        captured = {}
+
+        class FakeResp:
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def read(self):
+                return b'{"done": true}'
+
+        def fake_urlopen(req, timeout=120):
+            captured["url"] = req.full_url
+            captured["body"] = json.loads(req.data.decode("utf-8"))
+            return FakeResp()
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            res = preload_local_llm_model(
+                provider="ollama",
+                model="gemma4:12b",
+                base_url="http://127.0.0.1:11434",
+                keep_alive="30m",
+            )
+        self.assertTrue(res["loaded"])
+        self.assertEqual(captured["url"], "http://127.0.0.1:11434/api/generate")
+        self.assertEqual(captured["body"]["model"], "gemma4:12b")
+        self.assertEqual(captured["body"]["prompt"], "")
+        self.assertEqual(captured["body"]["keep_alive"], "30m")
+        self.assertIn("num_ctx", captured["body"]["options"])
+
+        # 3. Verify interactive UI hooks /api/llm/preload when process starts
+        index_html = (get_web_dir() / "index.html").read_text(encoding="utf-8")
+        self.assertIn("function preloadSelectedLlmModel", index_html)
+        self.assertIn("/api/llm/preload", index_html)
+        self.assertIn('preloadSelectedLlmModel("Step 01 start")', index_html)
+        self.assertIn('preloadSelectedLlmModel("Step 02 start")', index_html)
+        self.assertIn('preloadSelectedLlmModel("Full Pipeline start")', index_html)
 
 
 if __name__ == "__main__":

@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from agents.git_agent.agent import GitSubAgent
 from agents.git_agent.config import GitAgentConfig, ProviderType
 from agents.remediator_agent.agent import RemediatorAgent
+from agents.remediator_agent.llm_client import preload_local_llm_model_async
 from agents.scanner_agent.agent import ScannerAgent
 from agents.scanner_agent.models import (
     DependencyManifestAudit,
@@ -1394,6 +1395,47 @@ class BatchScheduler:
             "Scheduler",
             f"Discovered {len(discovered)} repository(s) to process sequentially: {', '.join(r['name'] for r in discovered)}",
         )
+
+        # Immediately load the schedule's selected local LLM model into memory when the process starts
+        sched_llm_provider = (sched.get("llm_provider") or "ollama").strip().lower()
+        sched_llm_model = sched.get("llm_model") or None
+        sched_llm_base_url = sched.get("llm_base_url") or None
+        if sched_llm_provider in ("ollama", "local"):
+            target_label = sched_llm_model or "default"
+            self._append_log(
+                run_data,
+                "info",
+                "RemediatorAgent",
+                f"Loading selected LLM model '{target_label}' into memory ({sched_llm_provider})...",
+            )
+
+            def _on_preload_done(res: Dict[str, Any]) -> None:
+                if cancel_ev.is_set() or self._stop_event.is_set():
+                    return
+                if res.get("loaded"):
+                    sec = round((res.get("elapsed_ms") or 0) / 1000.0, 2)
+                    self._append_log(
+                        run_data,
+                        "success",
+                        "RemediatorAgent",
+                        f"Selected LLM model '{res.get('model')}' loaded in memory ({sec}s, keep_alive={res.get('keep_alive', '30m')}).",
+                    )
+                elif res.get("error"):
+                    self._append_log(
+                        run_data,
+                        "warn",
+                        "RemediatorAgent",
+                        f"Could not preload LLM model '{res.get('model')}' into memory ({res.get('error')}); deterministic fallback ready if unreachable.",
+                    )
+                self._persist_run_detail(run_data)
+
+            preload_local_llm_model_async(
+                provider=sched_llm_provider,
+                model=sched_llm_model,
+                base_url=sched_llm_base_url,
+                on_complete=_on_preload_done,
+            )
+
         self._persist_run_detail(run_data)
 
         # Process every repository strictly one by one

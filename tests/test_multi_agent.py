@@ -195,6 +195,207 @@ class TestMultiAgentArchitecture(unittest.TestCase):
         self.assertEqual(remediator.model, "qwen2.5-coder:3b")
         self.assertEqual(remediator.base_url, "http://127.0.0.1:11434")
 
+    def test_llm_client_timeout_and_secret_remediation(self):
+        import os
+        from unittest.mock import patch
+        from agents.remediator_agent.llm_client import CloudLLMClient
+        from agents.remediator_agent.fixer_agent import Finding
+
+        # 1. Verify default timeout is 180 seconds
+        client_default = CloudLLMClient(provider="mock")
+        self.assertEqual(client_default.timeout, 180)
+
+        # 2. Verify custom timeout override
+        client_custom = CloudLLMClient(provider="mock", timeout=60)
+        self.assertEqual(client_custom.timeout, 60)
+
+        # 3. Verify environment variable LLM_TIMEOUT override
+        with patch.dict(os.environ, {"LLM_TIMEOUT": "240"}):
+            client_env = CloudLLMClient(provider="mock")
+            self.assertEqual(client_env.timeout, 240)
+
+        # 4. Verify C# hardcoded JwtSecret with redacted snippet is properly remediated
+        secret_finding = Finding(
+            finding_id="SECRET-0001",
+            rule_id="csharp.secret.hardcoded-credential",
+            severity="CRITICAL",
+            file_path="src/ERMS.Shared/Constants/SecurityConstants.cs",
+            line_number=5,
+            message="Hardcoded credential assigned to variable 'JwtSecret'.",
+            code_snippet='string JwtSecret = "***REDACTED***";',
+            repository="LargeRepo",
+            cwe_id="CWE-798",
+        )
+        csharp_code = (
+            "namespace ERMS.Shared.Constants\n"
+            "{\n"
+            "    public static class SecurityConstants\n"
+            "    {\n"
+            '        public const string JwtSecret = "mysupersecretjwtsigningkey1234567890";\n'
+            "    }\n"
+            "}\n"
+        )
+        proposal_secret = client_default.generate_fix(secret_finding, csharp_code, csharp_code)
+        self.assertIsNotNone(proposal_secret)
+        self.assertNotIn("mysupersecretjwtsigningkey1234567890", proposal_secret.fixed_file_content)
+        self.assertIn("Environment.GetEnvironmentVariable", proposal_secret.fixed_file_content)
+        self.assertIn("JwtSecret", proposal_secret.fixed_file_content)
+
+        # 5. Verify C# hardcoded ApiKey property assignment (SEMGREP-001) is properly remediated
+        apikey_finding = Finding(
+            finding_id="SEMGREP-001",
+            rule_id="airgap.generic.secrets.hardcoded-credentials",
+            severity="HIGH",
+            file_path="src/ERMS.Persistence/Seed/DatabaseSeeder.cs",
+            line_number=8,
+            message="Hardcoded secret detected in source code.",
+            code_snippet='ApiKey = "xoxb-test-api-key-sample",',
+            repository="LargeRepo",
+            cwe_id="CWE-798",
+        )
+        seeder_code = (
+            "        {\n"
+            '            Name = "Enterprise Slack Webhook",\n'
+            '            BaseUrl = "http://proxy.airgap.internal:8080/services/TEST",\n'
+            '            ApiKey = "xoxb-test-api-key-sample",\n'
+            "            IsActive = true\n"
+            "        }\n"
+        )
+        proposal_apikey = client_default.generate_fix(apikey_finding, seeder_code, seeder_code)
+        self.assertIsNotNone(proposal_apikey)
+        self.assertNotIn("xoxb-test-api-key-sample", proposal_apikey.fixed_file_content)
+        self.assertIn("Environment.GetEnvironmentVariable", proposal_apikey.fixed_file_content)
+        self.assertIn("ApiKey", proposal_apikey.fixed_file_content)
+
+    def test_local_ai_error_message_and_allowed_hosts_fallback(self):
+        from agents.remediator_agent.llm_client import CloudLLMClient
+        from agents.remediator_agent.models import Finding
+
+        client = CloudLLMClient(provider="mock")
+
+        # 1. Verify error message uses local AI phrasing (no cloud API keys)
+        unknown_finding = Finding(
+            finding_id="UNKNOWN-001",
+            rule_id="custom.unsupported.rule",
+            severity="HIGH",
+            file_path="src/Unknown.cs",
+            line_number=10,
+            message="Unsupported rule",
+            code_snippet="doSomethingUnsupported();",
+            repository="TestRepo",
+        )
+        with self.assertRaises(RuntimeError) as ctx:
+            client.generate_fix(unknown_finding, "doSomethingUnsupported();", "doSomethingUnsupported();")
+        
+        err_msg = str(ctx.exception)
+        self.assertIn("No local AI model available (ensure Ollama is running)", err_msg)
+        self.assertIn("custom.unsupported.rule", err_msg)
+        self.assertNotIn("GEMINI_API_KEY", err_msg)
+        self.assertNotIn("OPENAI_API_KEY", err_msg)
+        self.assertNotIn("ANTHROPIC_API_KEY", err_msg)
+        self.assertNotIn("Cloud API key", err_msg)
+
+        # 2. Verify aspnet.config.allowed-hosts-wildcard is properly remediated
+        hosts_finding = Finding(
+            finding_id="CONFIG-001",
+            rule_id="aspnet.config.allowed-hosts-wildcard",
+            severity="LOW",
+            file_path="appsettings.json",
+            line_number=1,
+            message="AllowedHosts is set to *.",
+            code_snippet='"AllowedHosts": "*"',
+            repository="CustomerApi",
+        )
+        appsettings_json = (
+            "{\n"
+            '  "Logging": {\n'
+            '    "LogLevel": {\n'
+            '      "Default": "Information"\n'
+            "    }\n"
+            "  },\n"
+            '  "AllowedHosts": "*"\n'
+            "}\n"
+        )
+        proposal = client.generate_fix(hosts_finding, appsettings_json, appsettings_json)
+        self.assertIsNotNone(proposal)
+        self.assertIn('"AllowedHosts": "localhost;*.airgap.internal"', proposal.fixed_file_content)
+        self.assertNotIn('"AllowedHosts": "*"', proposal.fixed_file_content)
+
+    def test_shared_llm_client_memoizes_offline_fallback_across_findings(self):
+        import tempfile
+        from unittest.mock import patch
+        from agents.remediator_agent.agent import RemediatorAgent
+
+        tmp_dir = Path(tempfile.mkdtemp(prefix="test_shared_llm_"))
+        (tmp_dir / "file1.cs").write_text('var q = $"SELECT * FROM Users WHERE Id = \'{id}\'";\n', encoding="utf-8")
+        (tmp_dir / "file2.cs").write_text('var q = $"SELECT * FROM Orders WHERE Id = \'{id}\'";\n', encoding="utf-8")
+
+        remediator = RemediatorAgent(
+            reports_dir=tmp_dir / "reports",
+            llm_provider="ollama",
+            model="gemma4:12b",
+        )
+        call_count = 0
+
+        def failing_ollama_call(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            raise RuntimeError("Connection timed out")
+
+        finding1 = {
+            "finding_id": "SQLI-001",
+            "rule_id": "csharp-sql-injection",
+            "severity": "HIGH",
+            "file_path": "file1.cs",
+            "line_number": 1,
+            "message": "SQLi",
+            "code_snippet": 'var q = $"SELECT * FROM Users WHERE Id = \'{id}\'";',
+            "repository": "TempRepo",
+        }
+        finding2 = {
+            "finding_id": "SQLI-002",
+            "rule_id": "csharp-sql-injection",
+            "severity": "HIGH",
+            "file_path": "file2.cs",
+            "line_number": 1,
+            "message": "SQLi",
+            "code_snippet": 'var q = $"SELECT * FROM Orders WHERE Id = \'{id}\'";',
+            "repository": "TempRepo",
+        }
+
+        with patch.object(remediator, "load_scanner_findings", return_value=[finding1, finding2]), \
+             patch("agents.remediator_agent.llm_client.CloudLLMClient._call_ollama", side_effect=failing_ollama_call):
+            res = remediator.remediate(workspace_path=tmp_dir)
+            self.assertEqual(len(res["bug_fixes"]), 2)
+            # Verified: _call_ollama is called once and falls back immediately for finding 2!
+            self.assertEqual(call_count, 1)
+
+    def test_compress_source_context_short_file(self):
+        from agents.remediator_agent.llm_client import CloudLLMClient
+        short_file = "\n".join([f"line_{i}" for i in range(1, 30)])
+        compressed = CloudLLMClient._compress_source_context(short_file, target_line=15)
+        self.assertEqual(compressed, short_file)
+
+    def test_compress_source_context_large_file(self):
+        from agents.remediator_agent.llm_client import CloudLLMClient
+        large_file = "\n".join([f"line_{i} = {i};" for i in range(1, 200)])
+        compressed = CloudLLMClient._compress_source_context(large_file, target_line=100)
+        self.assertIn("line_1 = 1;", compressed)
+        self.assertIn("Omitted", compressed)
+        self.assertIn("line_100 = 100;", compressed)
+        # Should not include lines way far away (e.g. line 45)
+        self.assertNotIn("line_45 = 45;", compressed)
+
+    def test_apply_snippet_replacement(self):
+        from agents.remediator_agent.llm_client import _apply_snippet_replacement
+        content = "public void DoSomething() {\n    var q = \"SELECT * FROM Users\";\n    return q;\n}"
+        orig = 'var q = "SELECT * FROM Users";'
+        repl = 'var q = "SELECT * FROM Users WHERE active = 1";'
+        updated = _apply_snippet_replacement(content, orig, repl)
+        self.assertIsNotNone(updated)
+        self.assertIn('active = 1', updated)
+        self.assertNotIn('"SELECT * FROM Users";\n', updated)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -289,6 +289,8 @@ class EmailReportNotifier:
         init_scan = scan_result or {}
 
         all_threats = rem_res.get("all_threats") or init_scan.get("findings") or init_scan.get("bug_findings") or []
+        from agents.scanner_agent.deduplicator import deduplicate_findings
+        all_threats = deduplicate_findings(all_threats)
         files_modified = rem_res.get("files_modified") or []
         iterations_run = rem_res.get("iterations_run") or 1
         residual_findings = (
@@ -296,8 +298,9 @@ class EmailReportNotifier:
             if post_scan.get("findings") is not None
             else (post_scan.get("bug_findings") or [])
         )
+        residual_findings = deduplicate_findings(residual_findings)
         residual_count = len(residual_findings)
-        remediated_count = max(len(all_threats), len(rem_res.get("bug_fixes") or []))
+        remediated_count = len(all_threats)
 
         posture = post_scan.get("posture") or {"score": 100 if residual_count == 0 else 75, "grade": "A+" if residual_count == 0 else "B"}
         score = posture.get("score", 100)

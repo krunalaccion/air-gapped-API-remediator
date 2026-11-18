@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Callable, Dict, Any, List, Optional, Set
 
 from agents.base import BaseAgent
+from agents.scanner_agent.deduplicator import deduplicate_findings, is_duplicate_finding, clean_duplicate_finding_files
 from .fixer_agent import BugFixerAgent
 from .llm_client import CloudLLMClient
 from .models import Finding, FixProposal, FixReport
@@ -214,16 +215,17 @@ class RemediatorAgent(BaseAgent):
         return default_file
 
     def load_scanner_findings(self) -> List[Dict[str, Any]]:
-        """Reads all finding `*.json` files from `agents/scanner_agent/findings/`."""
+        """Reads all finding `*.json` files from `agents/scanner_agent/findings/`, deduplicates, and cleans duplicate files."""
         findings: List[Dict[str, Any]] = []
         if self.scanner_findings_dir.exists():
             for f in sorted(self.scanner_findings_dir.glob("*.json")):
                 try:
                     data = json.loads(f.read_text(encoding="utf-8"))
+                    data["_source_file"] = f.name
                     findings.append(data)
                 except Exception as exc:
                     logger.warning("Failed to parse finding JSON %s: %s", f, exc)
-        return findings
+        return deduplicate_findings(findings, remove_files=True, findings_dir=self.scanner_findings_dir)
 
     def reset_demo(self, workspace_path: Optional[Path] = None) -> Dict[str, Any]:
         """Resets CustomerApi files (UsersController.cs, Program.cs, appsettings.json) back to their vulnerable state."""
@@ -292,7 +294,7 @@ class RemediatorAgent(BaseAgent):
         }
 
     def list_reports(self, workspace_path: Optional[Path] = None) -> List[Dict[str, Any]]:
-        """Lists saved JSON remediation reports from BugFixerAgent."""
+        """Lists saved JSON remediation reports from BugFixerAgent, ignoring duplicate vulnerability reports."""
         reports: List[Dict[str, Any]] = []
         target_dir = (workspace_path / "reports") if (workspace_path and (workspace_path / "reports").exists()) else self.reports_dir
         if target_dir.exists():
@@ -307,7 +309,20 @@ class RemediatorAgent(BaseAgent):
                     reports.append(data)
                 except Exception:
                     continue
-        return reports
+
+        # Deduplicate reports so no duplicate vulnerabilities appear in report lists
+        deduped_reports: List[Dict[str, Any]] = []
+        for rep in reports:
+            rep_f = rep.get("finding") or {}
+            is_dup = False
+            for cur in deduped_reports:
+                cur_f = cur.get("finding") or {}
+                if is_duplicate_finding(cur_f, rep_f):
+                    is_dup = True
+                    break
+            if not is_dup:
+                deduped_reports.append(rep)
+        return deduped_reports
 
     def render_html_report(self, workspace_path: Optional[str] = None) -> str:
         """Renders the executive post-remediation HTML audit report."""
@@ -340,6 +355,7 @@ class RemediatorAgent(BaseAgent):
         model: Optional[str] = None,
         base_url: Optional[str] = None,
         cancel_check: Optional[Callable[[], bool]] = None,
+        llm_client: Optional[CloudLLMClient] = None,
     ) -> Dict[str, Any]:
         """
         Executes BugFixerAgent (from fixer_agent.py) against a single finding dict.
@@ -402,7 +418,7 @@ class RemediatorAgent(BaseAgent):
         effective_model = model or self.model
         effective_base_url = base_url or self.base_url
 
-        llm_client = CloudLLMClient(
+        effective_llm_client = llm_client or CloudLLMClient(
             provider=effective_provider,
             model=effective_model,
             base_url=effective_base_url,
@@ -411,7 +427,7 @@ class RemediatorAgent(BaseAgent):
         fixer = BugFixerAgent(
             repos_root=effective_repos_root,
             reports_dir=self.reports_dir,
-            llm_client=llm_client,
+            llm_client=effective_llm_client,
         )
 
         report: FixReport = fixer.process_finding(
@@ -654,6 +670,13 @@ class RemediatorAgent(BaseAgent):
         effective_model = model or self.model
         effective_base_url = base_url or self.base_url
 
+        shared_llm_client = CloudLLMClient(
+            provider=effective_provider,
+            model=effective_model,
+            base_url=effective_base_url,
+            cancel_check=cancel_check,
+        )
+
         # 1. Ingest existing saved reports into accumulated state (ensuring persistence across multiple runs)
         for rep in self.list_reports(workspace_path):
             f_info = rep.get("finding", {})
@@ -708,8 +731,29 @@ class RemediatorAgent(BaseAgent):
                     continue
             valid_findings.append(finding_dict)
 
-        # Build initial real-time progress task items
+        valid_findings = deduplicate_findings(valid_findings)
+
+        # Build initial real-time progress task items (preserving already-remediated items from earlier iterations)
         progress_items: List[Dict[str, Any]] = []
+        active_fids = {f.get("finding_id", "FINDING") for f in valid_findings}
+        already_completed = 0
+        for prev_fid, prev_t in self.accumulated_threats.items():
+            if prev_fid in active_fids or prev_fid == "AIRGAP-EGRESS-001":
+                continue
+            prev_file = prev_t.get("file_path", "")
+            prev_rule = prev_t.get("rule_id", "security-rule")
+            prev_sev = prev_t.get("severity", "HIGH")
+            progress_items.append({
+                "id": prev_fid,
+                "file": prev_file,
+                "rule": prev_rule,
+                "severity": prev_sev,
+                "title": f"Remediate {prev_rule} in {Path(prev_file).name if prev_file else 'source'}",
+                "status": "remediated",
+                "action": prev_t.get("remediation_action") or "Remediated in previous iteration",
+            })
+            already_completed += 1
+
         for f in valid_findings:
             fid = f.get("finding_id", "FINDING")
             f_p = f.get("file_path", "")
@@ -763,11 +807,11 @@ class RemediatorAgent(BaseAgent):
         self.current_progress = {
             "status": "RUNNING",
             "phase": "initializing",
-            "message": f"Queued {len(progress_items)} remediation targets...",
+            "message": f"Queued {len(valid_findings)} remediation targets...",
             "percent": 5,
             "current_file": None,
             "total_targets": len(progress_items),
-            "completed_targets": 0,
+            "completed_targets": already_completed,
             "items": progress_items,
             "iteration": current_iter,
             "max_iterations": current_max,
@@ -811,6 +855,7 @@ class RemediatorAgent(BaseAgent):
                     model=effective_model,
                     base_url=effective_base_url,
                     cancel_check=cancel_check,
+                    llm_client=shared_llm_client,
                 )
                 bug_fixes.append(bf_res)
                 if bf_res.get("diff"):

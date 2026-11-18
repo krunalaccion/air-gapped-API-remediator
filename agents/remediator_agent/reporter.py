@@ -10,6 +10,8 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from agents.scanner_agent.deduplicator import is_duplicate_finding
+
 
 class RemediationReporter:
     """Generates an executive-grade, air-gapped Post-Remediation & Compliance HTML Audit Report."""
@@ -62,11 +64,16 @@ class RemediationReporter:
         ]
         display_files = code_files if code_files else files_modified
 
-        # Build Patch Details Cards
+        # Build Patch Details Cards (deduplicated)
         patch_cards = []
+        seen_patch_findings: List[Dict[str, Any]] = []
         for idx, bf in enumerate(bug_fixes, 1):
             rep = bf.get("report") or {}
             f_info = rep.get("finding") or {}
+            if f_info and any(is_duplicate_finding(sf, f_info) for sf in seen_patch_findings):
+                continue
+            if f_info:
+                seen_patch_findings.append(f_info)
             finding_id = f_info.get("finding_id") or bf.get("finding_id") or f"FINDING-{idx:03d}"
             rule_id = f_info.get("rule_id") or bf.get("rule_id") or "airgap-security-rule"
             severity = (f_info.get("severity") or bf.get("severity") or "HIGH").upper()

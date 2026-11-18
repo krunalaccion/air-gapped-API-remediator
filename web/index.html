@@ -1448,7 +1448,7 @@
                 </h3>
                 <span id="remediatedFilesCountBadge"
                   class="px-2 py-0.5 rounded text-[10px] bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-600 font-bold font-mono">0
-                  CODE FILES MODIFIED</span>
+                  FILES MODIFIED</span>
               </div>
               <div class="flex items-center gap-3 text-xs font-mono">
                 <span id="diffStatsSummary"
@@ -1464,7 +1464,7 @@
                 class="lg:col-span-4 border-r border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/60 p-3 flex flex-col space-y-3">
                 <div class="flex items-center justify-between">
                   <span class="text-[11px] font-mono font-bold text-slate-700 dark:text-slate-300 uppercase"
-                    id="step3FilesNavTitle">Code Files Changed</span>
+                    id="step3FilesNavTitle">Modified Files</span>
                   <span class="text-[10px] text-slate-500 dark:text-slate-400 font-mono" id="step3FilesNavSubtext">Click
                     file to inspect</span>
                 </div>
@@ -1472,14 +1472,14 @@
                 <!-- Filter search input -->
                 <div class="relative">
                   <input type="text" id="fileFilterInput" oninput="filterRemediatedFiles(this.value)"
-                    placeholder="Filter modified code files..."
+                    placeholder="Filter modified workspace files..."
                     class="soc-input w-full text-xs font-mono pl-7 pr-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
                   <span class="absolute left-2.5 top-2 text-slate-400 text-xs">🔍</span>
                 </div>
 
                 <!-- Interactive List of Modified Files -->
                 <div class="flex-1 overflow-y-auto custom-scroll space-y-1.5 max-h-[520px]" id="remediatedFilesList">
-                  <div class="text-xs text-slate-400 italic p-3 text-center font-mono">No code files modified yet.
+                  <div class="text-xs text-slate-400 italic p-3 text-center font-mono">No workspace files modified yet.
                     Complete Step 01 &amp; 02, then run Step 03.</div>
                 </div>
 
@@ -2413,66 +2413,40 @@
     }
 
     /**
-     * Identifies code-related files and filters out reports and configuration files.
-     * Used across the Step 3 "REMEDIATED & MODIFIED WORKSPACE FILES" studio to display only code files.
+     * Identifies internal per-finding JSON report artifacts saved under reports/
+     * (excluded from workspace file lists, while keeping remediated code, config, proxy & audit files).
      */
-    function isCodeFile(filePath) {
-      if (!filePath || typeof filePath !== "string") return false;
-      const p = filePath.trim().toLowerCase();
-
-      // Exclude report, compliance, audit, and log artifacts
-      if (
+    function isInternalReportArtifact(filePath) {
+      if (!filePath || typeof filePath !== "string") return true;
+      const p = filePath.trim().replace(/\\/g, "/").toLowerCase();
+      return (
         p.startsWith("reports/") ||
         p.includes("/reports/") ||
-        p.startsWith("report/") ||
-        p.includes("/report/") ||
         p.endsWith("_report.json") ||
         p.endsWith(".report.json") ||
         p.endsWith("_audit.json") ||
-        p.endsWith(".audit.json") ||
-        p.includes("report") ||
-        p.includes("audit") ||
-        p.endsWith(".md") ||
-        p.endsWith(".markdown") ||
-        p.endsWith(".txt") ||
-        p.endsWith(".log")
-      ) {
-        return false;
-      }
+        p.endsWith(".audit.json")
+      );
+    }
 
-      // Exclude configuration, project manifests, environment, and container files
-      if (
-        p.startsWith("config/") ||
-        p.includes("/config/") ||
-        p.startsWith("configs/") ||
-        p.includes("/configs/") ||
-        p.startsWith(".config/") ||
-        p.includes("/.config/") ||
-        p.includes("airgap_proxy") ||
-        p.includes("appsettings") ||
-        p.endsWith(".config") ||
-        p.endsWith(".json") ||
-        p.endsWith(".yaml") ||
-        p.endsWith(".yml") ||
-        p.endsWith(".toml") ||
-        p.endsWith(".ini") ||
-        p.endsWith(".env") ||
-        p.endsWith(".env.example") ||
-        p.endsWith(".xml") ||
-        p.endsWith(".props") ||
-        p.endsWith(".targets") ||
-        p.endsWith(".csproj") ||
-        p.endsWith(".vbproj") ||
-        p.endsWith(".fsproj") ||
-        p.endsWith(".sln") ||
-        p.endsWith(".properties") ||
-        p.endsWith(".lock") ||
-        p === "dockerfile" ||
-        p.endsWith("/dockerfile") ||
-        p.endsWith(".dockerignore") ||
-        p.endsWith(".gitignore") ||
-        p.endsWith(".gitattributes")
-      ) {
+    /**
+     * Identifies workspace files that were actually remediated or generated during Step 3,
+     * keeping both source code and remediated config/air-gap files in sync with "REMEDIATING FILES IN REAL-TIME".
+     */
+    function isRemediatedWorkspaceFile(filePath) {
+      if (!filePath || typeof filePath !== "string") return false;
+      return !isInternalReportArtifact(filePath);
+    }
+
+    /**
+     * Identifies programming source files for general workspace browsing.
+     * Preserves source files whose path contains "report", "audit", or "config/" (e.g., ReportsController.cs, src/config/db.js).
+     */
+    function isCodeFile(filePath) {
+      if (!filePath || typeof filePath !== "string") return false;
+      const p = filePath.trim().replace(/\\/g, "/").toLowerCase();
+
+      if (isInternalReportArtifact(p)) {
         return false;
       }
 
@@ -3173,9 +3147,9 @@
 
     function populateStep3AwaitingFindings(findings) {
       if (!Array.isArray(findings) || findings.length === 0) return;
-      // Filter findings to only those relating to code files
-      const codeFindings = findings.filter(f => isCodeFile(f.file || f.file_path || ""));
-      const effectiveFindings = codeFindings.length > 0 ? codeFindings : findings;
+      // Include all non-internal-report findings (code + config/manifest targets) so the list matches Real-Time Progress
+      const workspaceFindings = findings.filter(f => isRemediatedWorkspaceFile(f.file || f.file_path || ""));
+      const effectiveFindings = workspaceFindings.length > 0 ? workspaceFindings : findings;
       currentAwaitingFindings = effectiveFindings;
 
       // If Step 3 has already completed remediation, do not overwrite the completed remediation studio
@@ -3198,10 +3172,10 @@
 
       if (emptyOverlay) emptyOverlay.classList.add("hidden");
       if (navTitle) navTitle.textContent = "Queued Targets";
-      if (navSub) navSub.textContent = `${effectiveFindings.length} code findings awaiting fix`;
+      if (navSub) navSub.textContent = `${effectiveFindings.length} finding${effectiveFindings.length === 1 ? "" : "s"} awaiting fix`;
 
       if (countBadge) {
-        countBadge.textContent = `${effectiveFindings.length} CODE FINDING${effectiveFindings.length === 1 ? "" : "S"} AWAITING FIX`;
+        countBadge.textContent = `${effectiveFindings.length} FINDING${effectiveFindings.length === 1 ? "" : "S"} AWAITING FIX`;
         countBadge.className = "text-[10px] px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700 font-mono font-bold";
       }
 
@@ -3364,15 +3338,25 @@
 
       const navTitle = document.getElementById("step3FilesNavTitle");
       const navSub = document.getElementById("step3FilesNavSubtext");
-      if (navTitle) navTitle.textContent = "Code Files Changed";
+      if (navTitle) navTitle.textContent = "Modified Files";
       if (navSub) navSub.textContent = "Click file to inspect";
 
       const rawFiles = Array.isArray(res.files_modified) && res.files_modified.length > 0
         ? res.files_modified
         : Object.keys(res.patched_files || {});
 
-      // Filter: Show ONLY files related to code; hide report and config files
-      const files = rawFiles.filter(isCodeFile);
+      // Keep all remediated & modified workspace files (code, config/appsettings, air-gap proxy & audit dossier);
+      // hide only internal per-finding JSON report artifacts under reports/
+      const seenNormalized = new Set();
+      const files = [];
+      for (const f of rawFiles) {
+        if (!isRemediatedWorkspaceFile(f)) continue;
+        const norm = f.replace(/^\.\//, "").replace(/\\/g, "/");
+        if (!seenNormalized.has(norm)) {
+          seenNormalized.add(norm);
+          files.push(f);
+        }
+      }
 
       const emptyOverlay = document.getElementById("remediationEmptyState");
       const countBadge = document.getElementById("remediatedFilesCountBadge");
@@ -3382,17 +3366,20 @@
 
       if (files.length === 0) {
         if (emptyOverlay) emptyOverlay.classList.remove("hidden");
-        if (countBadge) countBadge.textContent = "0 CODE FILES MODIFIED";
+        if (countBadge) countBadge.textContent = "0 FILES MODIFIED";
         if (filesListEl) {
-          filesListEl.innerHTML = `<div class="text-xs text-slate-400 italic p-3 text-center font-mono">No code files modified yet (report &amp; config files are hidden). Complete Step 01 &amp; 02, then run Step 03.</div>`;
+          filesListEl.innerHTML = `<div class="text-xs text-slate-400 italic p-3 text-center font-mono">No workspace files modified yet. Complete Step 01 &amp; 02, then run Step 03.</div>`;
         }
         return;
       }
 
       if (emptyOverlay) emptyOverlay.classList.add("hidden");
-      if (countBadge) countBadge.textContent = `${files.length} CODE FILE${files.length === 1 ? "" : "S"} MODIFIED`;
+      if (countBadge) {
+        countBadge.textContent = `${files.length} FILE${files.length === 1 ? "" : "S"} MODIFIED`;
+        countBadge.className = "px-2 py-0.5 rounded text-[10px] bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 font-bold font-mono";
+      }
       if (step3StatusBadge) {
-        step3StatusBadge.textContent = `REMEDIATED (${files.length} CODE FILES)`;
+        step3StatusBadge.textContent = `REMEDIATED (${files.length} FILE${files.length === 1 ? "" : "S"})`;
         step3StatusBadge.className = "text-[10px] px-2 py-0.5 rounded bg-emerald-200 dark:bg-emerald-950/80 text-emerald-900 dark:text-emerald-300 border border-emerald-400 font-mono font-bold";
       }
 
@@ -3406,7 +3393,7 @@
         });
       });
       if (diffSummaryEl) {
-        diffSummaryEl.innerHTML = `Code Changes: <strong class="text-emerald-700 dark:text-emerald-400">+${totalAdd}</strong> / <strong class="text-rose-700 dark:text-rose-400">-${totalDel}</strong> lines in ${files.length} code file${files.length === 1 ? "" : "s"}`;
+        diffSummaryEl.innerHTML = `Workspace Changes: <strong class="text-emerald-700 dark:text-emerald-400">+${totalAdd}</strong> / <strong class="text-rose-700 dark:text-rose-400">-${totalDel}</strong> lines in ${files.length} file${files.length === 1 ? "" : "s"}`;
       }
 
       if (filesListEl) {
@@ -3418,16 +3405,32 @@
           const fileName = parts.pop() || file;
           const dirPath = parts.join("/") || "./";
           const icon = getFileIcon(file);
+          const normFile = file.replace(/^\.\//, "").replace(/\\/g, "/");
 
-          const bf = (res.bug_fixes || []).find(b => b.file_path === file || b.target_file === file);
+          const fileFixes = (res.bug_fixes || []).filter(b => {
+            const fp = (b.file_path || "").replace(/^\.\//, "").replace(/\\/g, "/");
+            const tf = (b.target_file || "").replace(/^\.\//, "").replace(/\\/g, "/");
+            return fp === normFile || tf === normFile || tf.endsWith("/" + normFile);
+          });
+          const bf = fileFixes[0];
           let statusLabel = "MODIFIED";
           let statusColor = "bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-700";
-          let findingTag = `<span class="text-blue-700 dark:text-blue-400 font-medium">Remediated Code</span>`;
+          let findingTag = `<span class="text-blue-700 dark:text-blue-400 font-medium">Remediated File</span>`;
 
           if (bf) {
             statusLabel = "PATCHED";
             statusColor = "bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700";
-            findingTag = `<span class="px-1 py-0.2 rounded bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">${escapeHtml(bf.finding_id || "ALERT")}</span>`;
+            const primaryFid = bf.finding_id || bf.report?.finding?.finding_id || "ALERT";
+            const extraCount = fileFixes.length > 1 ? ` +${fileFixes.length - 1}` : "";
+            findingTag = `<span class="px-1 py-0.2 rounded bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">${escapeHtml(primaryFid + extraCount)}</span>`;
+          } else if (normFile.includes("airgap_proxy")) {
+            statusLabel = "GENERATED";
+            statusColor = "bg-indigo-100 dark:bg-indigo-950/80 text-indigo-800 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-700";
+            findingTag = `<span class="px-1 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">AIRGAP-PROXY-001</span>`;
+          } else if (normFile.includes("AIRGAP_SECURITY_AUDIT")) {
+            statusLabel = "AUDIT LOG";
+            statusColor = "bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700";
+            findingTag = `<span class="px-1 py-0.2 rounded bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">AIRGAP-AUDIT-001</span>`;
           }
 
           const fileDiff = (res.file_diffs && res.file_diffs[file]) || (bf && bf.diff) || "";
@@ -3610,7 +3613,7 @@
 
       const set = new Set();
       if (Array.isArray(modifiedFiles)) {
-        modifiedFiles.filter(isCodeFile).forEach(f => set.add(f));
+        modifiedFiles.filter(isRemediatedWorkspaceFile).forEach(f => set.add(f));
       }
       if (Array.isArray(wsFiles)) {
         wsFiles.filter(f => f.exists && isCodeFile(f.relative_path)).forEach(f => set.add(f.relative_path));
@@ -4405,6 +4408,34 @@ ${filesFormatted}
     // 5-Step Pipeline Execution Handlers
     // =========================================================
 
+    // Preload selected local LLM model into memory when a pipeline/step process starts
+    let _lastPreloadKey = "";
+    let _lastPreloadAt = 0;
+    function preloadSelectedLlmModel(reason = "process start") {
+      const provider = (document.getElementById("llmProvider")?.value || "ollama").trim().toLowerCase();
+      if (provider !== "ollama" && provider !== "local") return;
+      const model = (document.getElementById("llmModel")?.value || "").trim();
+      const baseUrl = (document.getElementById("llmBaseUrl")?.value || "").trim();
+      const key = `${provider}|${model}|${baseUrl}`;
+      const now = Date.now();
+      // Avoid redundant preload calls within 60s for the exact same model
+      if (key === _lastPreloadKey && (now - _lastPreloadAt) < 60000) return;
+      _lastPreloadKey = key;
+      _lastPreloadAt = now;
+
+      log(`Loading selected LLM model '${model || "default"}' into memory (${provider}) on ${reason}...`, "info", "RemediatorAgent");
+      fetch("/api/llm/preload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: provider,
+          model: model || undefined,
+          base_url: baseUrl || undefined,
+          async: true
+        })
+      }).catch(err => console.debug("LLM preload trigger:", err));
+    }
+
     // Step 1: Repository Preparation (GitSubAgent)
     async function handlePrepare() {
       if (isPipelineRunning && !window.isFullPipelineRunning) return;
@@ -4418,6 +4449,8 @@ ${filesFormatted}
         document.getElementById("repoUrl").focus();
         return;
       }
+
+      preloadSelectedLlmModel("Step 01 start");
 
       const isLocal = window.isLocalProject || repoUrl.startsWith("/") || repoUrl.startsWith("./") || repoUrl.startsWith("~") || repoUrl.includes("repos/");
       const actionMsg = isLocal ? "Mounting and isolating local project" : "Cloning repository";
@@ -4654,6 +4687,7 @@ ${filesFormatted}
         setGlobalActionLock(true, "Step 02: Scanning Code", "btnScan");
       }
       setStage(2, "SCANNING...", false);
+      preloadSelectedLlmModel("Step 02 start");
       log(`Running ScannerAgent (Security Scan)...`, "info", "ScannerAgent");
       const btn = document.getElementById("btnScan");
       if (btn) {
@@ -4962,10 +4996,12 @@ ${filesFormatted}
 
       // Start real-time status polling loop
       if (fixProgressInterval) clearInterval(fixProgressInterval);
+      let lastBackendProgress = null;
       const pollProgress = async () => {
         try {
           const prog = await apiGet("/api/fix/progress");
           if (prog && prog.status && prog.status !== "IDLE") {
+            lastBackendProgress = prog;
             updateStep3FixProgress(prog);
           }
         } catch (err) {
@@ -5001,16 +5037,32 @@ ${filesFormatted}
           setStage(3, "FAILED", false);
           log(`Fix error: ${res.error}`, "error", "RemediatorAgent");
         } else {
-          // Render 100% complete state on live progress card
-          updateStep3FixProgress({
-            status: "COMPLETED",
-            percent: 100,
-            completed_targets: initialTargets.length,
-            total_targets: initialTargets.length,
-            current_file: "All files remediated",
-            message: "All code targets successfully remediated and verified (100/100 Grade A+).",
-            items: initialTargets.map(t => ({ ...t, status: "remediated" }))
-          });
+          // Render authoritative final backend progress snapshot (falls back to polled snapshot or initialTargets)
+          const finalProg = (res.progress && Array.isArray(res.progress.items) && res.progress.items.length > 0)
+            ? res.progress
+            : (lastBackendProgress && Array.isArray(lastBackendProgress.items) && lastBackendProgress.items.length > 0
+              ? {
+                  ...lastBackendProgress,
+                  status: "COMPLETED",
+                  percent: 100,
+                  completed_targets: lastBackendProgress.items.length,
+                  total_targets: lastBackendProgress.items.length,
+                  current_file: "All files remediated",
+                  items: lastBackendProgress.items.map(t => t.status === "error" ? t : ({ ...t, status: "remediated" }))
+                }
+              : {
+                  status: "COMPLETED",
+                  percent: 100,
+                  completed_targets: initialTargets.length,
+                  total_targets: initialTargets.length,
+                  current_file: "All files remediated",
+                  message: "All workspace targets successfully remediated and verified (100/100 Grade A+).",
+                  items: initialTargets.map(t => ({ ...t, status: "remediated" }))
+                });
+          updateStep3FixProgress(finalProg);
+
+          // Render interactive clickable tabs & diffs immediately so both panels match before progress hides
+          renderRemediatedFilesUI(res);
 
           await sleep(2500);
           hideStep3FixProgress();
@@ -5021,18 +5073,16 @@ ${filesFormatted}
             }
           }
 
-          // Render interactive clickable tabs & diffs for all modified files
-          renderRemediatedFilesUI(res);
-
           if (res.iterations_run) {
             log(`Iterative remediation completed: executed ${res.iterations_run} iteration(s) of max ${res.max_iterations || 5} (All Threats Resolved: ${res.resolved_all !== false ? "YES" : "NO"}).`, "info", "RemediatorAgent");
           }
 
           log(res.summary || res.message, "success", "RemediatorAgent");
           if (res.files_modified) {
-            const codeFiles = res.files_modified.filter(isCodeFile);
-            log(`Modified code files: ${(codeFiles.length > 0 ? codeFiles : res.files_modified).join(", ")}`, "success", "RemediatorAgent");
-            document.getElementById("commitStatusPill").textContent = `${codeFiles.length > 0 ? codeFiles.length : res.files_modified.length} code file${codeFiles.length === 1 ? "" : "s"} modified & ready to commit`;
+            const wsFiles = res.files_modified.filter(isRemediatedWorkspaceFile);
+            const displayFiles = wsFiles.length > 0 ? wsFiles : res.files_modified;
+            log(`Modified workspace files: ${displayFiles.join(", ")}`, "success", "RemediatorAgent");
+            document.getElementById("commitStatusPill").textContent = `${displayFiles.length} file${displayFiles.length === 1 ? "" : "s"} modified & ready to commit`;
             document.getElementById("commitStatusPill").className = "text-[11px] text-blue-700 font-mono font-semibold";
           }
 
@@ -5400,11 +5450,11 @@ ${filesFormatted}
       if (emptyOverlay) emptyOverlay.classList.remove("hidden");
       const remBadge = document.getElementById("remediatedFilesCountBadge");
       if (remBadge) {
-        remBadge.textContent = "0 CODE FILES MODIFIED";
+        remBadge.textContent = "0 FILES MODIFIED";
         remBadge.className = "text-[10px] px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-600 font-mono font-bold";
       }
       const navTitle = document.getElementById("step3FilesNavTitle");
-      if (navTitle) navTitle.textContent = "Code Files Changed";
+      if (navTitle) navTitle.textContent = "Modified Files";
       const navSub = document.getElementById("step3FilesNavSubtext");
       if (navSub) navSub.textContent = "Click file to inspect";
       const diffSum = document.getElementById("diffStatsSummary");
@@ -5416,7 +5466,7 @@ ${filesFormatted}
       }
       const filesListEl = document.getElementById("remediatedFilesList");
       if (filesListEl) {
-        filesListEl.innerHTML = `<div class="text-xs text-slate-400 italic p-3 text-center font-mono">No code files modified yet. Complete Step 01 &amp; 02, then run Step 03.</div>`;
+        filesListEl.innerHTML = `<div class="text-xs text-slate-400 italic p-3 text-center font-mono">No workspace files modified yet. Complete Step 01 &amp; 02, then run Step 03.</div>`;
       }
       const unifDiff = document.getElementById("unifiedDiffContainer");
       if (unifDiff) unifDiff.innerHTML = "";
@@ -5620,6 +5670,7 @@ ${filesFormatted}
         await sleep(500);
 
         log("Initiating End-to-End 3-Process SecOps Playbook (Steps 01 → 05)...", "info", "Orchestrator");
+        preloadSelectedLlmModel("Full Pipeline start");
         if (btn) btn.innerHTML = `<span>⏳</span> <span>Step 1/5: Initiating Repo...</span>`;
         selectPipelineStep(1);
         await handlePrepare();
