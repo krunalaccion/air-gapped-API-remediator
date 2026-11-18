@@ -97,7 +97,7 @@ class RepositoryTools:
             actual = lines[line_number - 1] if 1 <= line_number <= len(lines) else (lines[0] if lines else "")
             return True, line_number, actual or "<missing_heuristic>"
 
-        # Check for redacted secrets in snippet (e.g. connection string with Password=***REDACTED***)
+        # Check for redacted secrets in snippet (e.g. connection string with Password=***REDACTED*** or variable = "***REDACTED***")
         if "***REDACTED***" in normalized_snippet or "***" in normalized_snippet:
             key_m = re.search(r'\"(?P<key>[\w\.\-]+)\"\s*:\s*\"', normalized_snippet)
             if key_m:
@@ -105,6 +105,17 @@ class RepositoryTools:
                 for idx, line in enumerate(lines, start=1):
                     if f'"{key}"' in line:
                         return True, idx, line
+
+            var_m = re.search(
+                r'(?i)\b(?:string|var|const|let)\s+(?P<var>[a-zA-Z0-9_]+)\s*[:=]|(?P<var2>[a-zA-Z0-9_]*(?:password|pwd|secret|apiKey|api_key|token|privateKey|jwtSecret|bearer)[a-zA-Z0-9_]*)\s*[:=]',
+                normalized_snippet,
+            )
+            if var_m:
+                v_name = var_m.group("var") or var_m.group("var2")
+                if v_name and v_name.lower() not in ("string", "var", "const", "let"):
+                    for idx, line in enumerate(lines, start=1):
+                        if re.search(rf'\b{re.escape(v_name)}\b', line):
+                            return True, idx, line
 
         # 1. Check exact line first (1-based index)
         if 1 <= line_number <= len(lines):

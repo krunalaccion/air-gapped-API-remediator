@@ -19,6 +19,7 @@ from agents.base import BaseAgent
 from .external_scanners import get_scanner_tools_status
 from .models import RawSecurityFinding, ScanReportBundle
 from .pipeline import SecureScanPipeline
+from .deduplicator import deduplicate_findings, clean_duplicate_finding_files, is_duplicate_finding
 
 logger = logging.getLogger("agents.scanner")
 
@@ -60,6 +61,7 @@ class ScannerAgent(BaseAgent):
     def load_bug_findings(self) -> List[Dict[str, Any]]:
         """
         Loads structured JSON bug/SAST findings stored in `agents/scanner_agent/findings/*.json`.
+        Ignores duplicates and removes duplicate finding files from disk.
         """
         bug_findings: List[Dict[str, Any]] = []
         if self.findings_dir.exists():
@@ -70,7 +72,11 @@ class ScannerAgent(BaseAgent):
                     bug_findings.append(data)
                 except Exception as exc:
                     logger.warning("Skipping invalid finding file %s: %s", json_file, exc)
-        return bug_findings
+        return deduplicate_findings(bug_findings, remove_files=True, findings_dir=self.findings_dir)
+
+    def deduplicate_and_clean_findings(self) -> List[str]:
+        """Scans findings directory, removes duplicate finding files from disk, and returns removed filenames."""
+        return clean_duplicate_finding_files(self.findings_dir)
 
     @staticmethod
     def _default_recommendation_for_rule(rule_id: str, cwe_id: Optional[str]) -> str:
@@ -471,10 +477,14 @@ class ScannerAgent(BaseAgent):
             real_egress_findings = self.scan_real_egress(effective_scan_dir) if effective_scan_dir else []
             combined_findings = securescan_findings + real_egress_findings
 
+        # Deduplicate all findings across internal inspectors and external scanners
+        combined_findings = deduplicate_findings(combined_findings)
+
         # Only fall back to synthetic scan_workspace defaults if no workspace_path was provided and engine is "all"
         if not combined_findings and not securescan_data.get("executed") and ws_path is None and scanner_engine in ("all", "auto"):
             combined_findings = self.scan_workspace(None)
 
+        combined_findings = deduplicate_findings(combined_findings)
         is_post_scan = bool(context.get("is_post_scan", False))
 
         if not is_post_scan:

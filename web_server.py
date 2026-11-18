@@ -28,7 +28,11 @@ from agents.git_agent.config import GitAgentConfig, ProviderType
 from agents.git_agent.agent import GitSubAgent
 from agents.scanner_agent.agent import ScannerAgent
 from agents.remediator_agent.agent import RemediatorAgent
-from agents.remediator_agent.llm_client import discover_local_llm_models
+from agents.remediator_agent.llm_client import (
+    discover_local_llm_models,
+    preload_local_llm_model,
+    preload_local_llm_model_async,
+)
 from orchestrator.scheduler import BatchScheduler
 from orchestrator.email_notifier import EmailReportNotifier
 from orchestrator.routes import (
@@ -574,6 +578,36 @@ class MultiAgentAPIHandler(http.server.SimpleHTTPRequestHandler):
                 or handle_post_scan_fix_routes(self, path, payload, ws)
                 or handle_post_scheduler_routes(self, path, payload, ws)
             ):
+                return
+
+            if path in ("/api/llm/preload", "/api/ollama/preload"):
+                provider = (payload.get("provider") or "ollama").strip().lower()
+                model = (payload.get("model") or "").strip() or None
+                base_url = (payload.get("base_url") or "").strip() or None
+                keep_alive = (payload.get("keep_alive") or "").strip() or None
+                run_async = payload.get("async", True)
+                if run_async:
+                    preload_local_llm_model_async(
+                        provider=provider,
+                        model=model,
+                        base_url=base_url,
+                        keep_alive=keep_alive,
+                    )
+                    self._send_json({
+                        "status": "loading",
+                        "provider": provider,
+                        "model": model or "",
+                        "base_url": base_url or "",
+                    })
+                else:
+                    self._send_json(
+                        preload_local_llm_model(
+                            provider=provider,
+                            model=model,
+                            base_url=base_url,
+                            keep_alive=keep_alive,
+                        )
+                    )
                 return
 
             if path == "/api/email/config":

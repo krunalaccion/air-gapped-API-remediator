@@ -109,22 +109,54 @@
       box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
     }
 
-    body.dark .bg-white { background-color: #111827 !important; }
-    body.dark .bg-slate-50 { background-color: #0f172a !important; }
-    body.dark .bg-slate-100 { background-color: #1e293b !important; }
+    body.dark .bg-white {
+      background-color: #111827 !important;
+    }
+
+    body.dark .bg-slate-50 {
+      background-color: #0f172a !important;
+    }
+
+    body.dark .bg-slate-100 {
+      background-color: #1e293b !important;
+    }
+
     body.dark .border-slate-200,
-    body.dark .border-slate-300 { border-color: #334155 !important; }
+    body.dark .border-slate-300 {
+      border-color: #334155 !important;
+    }
+
     body.dark .text-slate-900,
-    body.dark .text-slate-800 { color: #f1f5f9 !important; }
-    body.dark .text-slate-700 { color: #cbd5e1 !important; }
+    body.dark .text-slate-800 {
+      color: #f1f5f9 !important;
+    }
+
+    body.dark .text-slate-700 {
+      color: #cbd5e1 !important;
+    }
+
     body.dark .text-slate-600,
-    body.dark .text-slate-500 { color: #94a3b8 !important; }
+    body.dark .text-slate-500 {
+      color: #94a3b8 !important;
+    }
 
-    .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
-    .custom-scroll::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 4px; }
-    body.dark .custom-scroll::-webkit-scrollbar-thumb { background: #475569; }
+    .custom-scroll::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
 
-    .hidden { display: none !important; }
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: #94a3b8;
+      border-radius: 4px;
+    }
+
+    body.dark .custom-scroll::-webkit-scrollbar-thumb {
+      background: #475569;
+    }
+
+    .hidden {
+      display: none !important;
+    }
   </style>
 </head>
 
@@ -133,7 +165,8 @@
   <!-- Top Navigation & Theme Bar -->
   <div class="bg-slate-900 border-b border-slate-800 text-slate-200 px-4 py-2 text-[11px] font-mono shadow-sm">
     <div class="max-w-[1680px] mx-auto flex flex-wrap items-center justify-between gap-3 text-slate-300">
-      <nav class="inline-flex items-center rounded-lg border border-slate-700 bg-slate-800/90 p-0.5 text-xs font-mono shadow-sm">
+      <nav
+        class="inline-flex items-center rounded-lg border border-slate-700 bg-slate-800/90 p-0.5 text-xs font-mono shadow-sm">
         <a href="/" id="navSingleRepo"
           class="px-3 py-1 rounded-md text-slate-300 hover:text-white hover:bg-slate-700/70 transition flex items-center gap-1.5 font-semibold">
           <span>🛡️</span> Single Repo Pipeline
@@ -141,12 +174,14 @@
         <a href="/scheduler" id="navBatchScheduler"
           class="px-3 py-1 rounded-md bg-blue-600 text-white font-bold shadow-sm transition flex items-center gap-1.5">
           <span>🗓️</span> Batch Scheduler
-          <span id="navSchedulerLiveDot" class="hidden w-2 h-2 rounded-full bg-emerald-400 animate-pulse" title="Background batch running"></span>
+          <span id="navSchedulerLiveDot" class="hidden w-2 h-2 rounded-full bg-emerald-400 animate-pulse"
+            title="Background batch running"></span>
         </a>
       </nav>
 
       <div class="flex items-center gap-4">
-        <div class="inline-flex items-center rounded-lg border border-slate-700 bg-slate-800/90 p-0.5 text-xs font-mono shadow-sm">
+        <div
+          class="inline-flex items-center rounded-lg border border-slate-700 bg-slate-800/90 p-0.5 text-xs font-mono shadow-sm">
           <button type="button" id="btnThemeLight" onclick="setPortalTheme('light')"
             class="px-2.5 py-1 rounded-md text-slate-400 hover:text-white transition flex items-center gap-1.5 cursor-pointer font-semibold">
             <span>☀️</span> Light
@@ -166,13 +201,16 @@
 
     <!-- Header & Live Scheduler KPI Strip -->
     <header class="soc-panel rounded-xl p-4 md:p-5 space-y-4">
-      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3.5 border-b border-slate-200 dark:border-slate-800">
+      <div
+        class="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3.5 border-b border-slate-200 dark:border-slate-800">
         <div class="flex items-center gap-3">
-          <div class="w-10 h-10 rounded-xl bg-slate-900 border border-slate-700/60 p-1 flex items-center justify-center shadow-md flex-shrink-0">
+          <div
+            class="w-10 h-10 rounded-xl bg-slate-900 border border-slate-700/60 p-1 flex items-center justify-center shadow-md flex-shrink-0">
             <span class="text-xl">🗓️</span>
           </div>
           <div>
-            <h1 class="text-base sm:text-lg md:text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100 flex items-center gap-2 flex-wrap">
+            <h1
+              class="text-base sm:text-lg md:text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100 flex items-center gap-2 flex-wrap">
               <span>Scheduled Batch Repository Remediation</span>
               <span id="daemonStatusBadge"
                 class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700 font-mono font-bold">
@@ -180,7 +218,8 @@
               </span>
             </h1>
             <p class="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
-              Automatically discovers all repositories inside a local folder &amp; executes Prepare → Scan → Remediate → Commit → PR sequentially in the background
+              Automatically discovers all repositories inside a local folder &amp; executes Prepare → Scan → Remediate →
+              Commit → PR sequentially in the background
             </p>
           </div>
         </div>
@@ -199,42 +238,59 @@
 
       <!-- 3-Column KPI Strip -->
       <div class="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-        <div class="p-3.5 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/60 border-l-4 border-l-blue-600">
-          <div class="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 font-mono uppercase font-semibold">
+        <div
+          class="p-3.5 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/60 border-l-4 border-l-blue-600">
+          <div
+            class="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 font-mono uppercase font-semibold">
             <span>Background Worker</span>
-            <span id="kpiWorkerBadge" class="px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-[10px]">IDLE</span>
+            <span id="kpiWorkerBadge"
+              class="px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-[10px]">IDLE</span>
           </div>
           <div class="mt-1 flex items-baseline justify-between gap-2">
-            <div class="text-lg font-bold text-slate-900 dark:text-slate-100 font-mono truncate" id="kpiWorkerStatus">Standby (Background Active)</div>
-            <span class="text-xs text-slate-600 dark:text-slate-400 font-mono flex-shrink-0" id="kpiQueueText">Queue: 0</span>
+            <div class="text-lg font-bold text-slate-900 dark:text-slate-100 font-mono truncate" id="kpiWorkerStatus">
+              Standby (Background Active)</div>
+            <span class="text-xs text-slate-600 dark:text-slate-400 font-mono flex-shrink-0" id="kpiQueueText">Queue:
+              0</span>
           </div>
           <div class="mt-1 text-[10px] text-slate-500 dark:text-slate-400 font-mono truncate" id="kpiWorkerSubtext">
             Jobs continue running on the server even if you close this browser tab
           </div>
         </div>
 
-        <div class="p-3.5 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/60 border-l-4 border-l-indigo-600">
-          <div class="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 font-mono uppercase font-semibold">
+        <div
+          class="p-3.5 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/60 border-l-4 border-l-indigo-600">
+          <div
+            class="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 font-mono uppercase font-semibold">
             <span>Saved Schedules</span>
-            <span id="kpiSchedCountBadge" class="px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-200 font-bold text-[10px]">0 ACTIVE</span>
+            <span id="kpiSchedCountBadge"
+              class="px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-200 font-bold text-[10px]">0
+              ACTIVE</span>
           </div>
           <div class="mt-1 flex items-baseline justify-between gap-2">
-            <div class="text-lg font-bold text-slate-900 dark:text-slate-100 font-mono truncate" id="kpiNextRunText">No upcoming schedule</div>
-            <span class="text-xs text-indigo-600 dark:text-indigo-400 font-mono font-bold flex-shrink-0" id="kpiNextCountdown"></span>
+            <div class="text-lg font-bold text-slate-900 dark:text-slate-100 font-mono truncate" id="kpiNextRunText">No
+              upcoming schedule</div>
+            <span class="text-xs text-indigo-600 dark:text-indigo-400 font-mono font-bold flex-shrink-0"
+              id="kpiNextCountdown"></span>
           </div>
           <div class="mt-1 text-[10px] text-slate-500 dark:text-slate-400 font-mono truncate" id="kpiNextScheduleName">
             Create a folder schedule below to begin automated scanning
           </div>
         </div>
 
-        <div class="p-3.5 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/60 border-l-4 border-l-emerald-600">
-          <div class="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 font-mono uppercase font-semibold">
+        <div
+          class="p-3.5 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/60 border-l-4 border-l-emerald-600">
+          <div
+            class="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 font-mono uppercase font-semibold">
             <span>Batch Remediation Totals</span>
-            <span id="kpiRunsTotalBadge" class="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 font-bold text-[10px]">0 RUNS</span>
+            <span id="kpiRunsTotalBadge"
+              class="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 font-bold text-[10px]">0
+              RUNS</span>
           </div>
           <div class="mt-1 flex items-baseline justify-between gap-2">
-            <div class="text-lg font-bold text-emerald-700 dark:text-emerald-400 font-mono" id="kpiTotalRemediated">0 Issues Fixed</div>
-            <span class="text-xs text-slate-600 dark:text-slate-400 font-mono" id="kpiTotalRepos">0 Repos Processed</span>
+            <div class="text-lg font-bold text-emerald-700 dark:text-emerald-400 font-mono" id="kpiTotalRemediated">0
+              Issues Fixed</div>
+            <span class="text-xs text-slate-600 dark:text-slate-400 font-mono" id="kpiTotalRepos">0 Repos
+              Processed</span>
           </div>
           <div class="mt-1 text-[10px] text-slate-500 dark:text-slate-400 font-mono truncate" id="kpiLatestRunSummary">
             No batch runs executed yet
@@ -250,21 +306,25 @@
       <section class="xl:col-span-5 soc-panel rounded-xl p-5 space-y-4 border-t-4 border-t-blue-600">
         <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
           <div>
-            <h2 id="formHeading" class="text-sm font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wide font-mono">
+            <h2 id="formHeading"
+              class="text-sm font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wide font-mono">
               Create Background Folder Schedule
             </h2>
             <p class="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
               Select a local parent folder; all repos inside will run sequentially one by one
             </p>
           </div>
-          <span id="editingBadge" class="hidden text-[10px] px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 font-mono font-bold">
+          <span id="editingBadge"
+            class="hidden text-[10px] px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 font-mono font-bold">
             EDITING
           </span>
         </div>
 
         <input type="hidden" id="editingScheduleId" value="">
 
-        <div id="schedFormError" class="hidden p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 text-xs font-mono text-rose-700 dark:text-rose-300"></div>
+        <div id="schedFormError"
+          class="hidden p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 text-xs font-mono text-rose-700 dark:text-rose-300">
+        </div>
 
         <div class="space-y-3.5">
           <!-- Schedule Name -->
@@ -276,13 +336,13 @@
 
           <!-- Target Local Folder Path + Discovery -->
           <div>
-            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
+            <label
+              class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
               <span>Local Parent Folder Path</span>
               <span class="text-[10px] text-blue-600 dark:text-blue-400 font-mono">Picks all repos inside</span>
             </label>
             <input type="text" id="schedFolderPath" placeholder="/path/to/repos-folder or repos"
-              oninput="debouncedDiscoverRepos()"
-              class="soc-input w-full text-xs font-mono px-3 py-2 rounded-lg">
+              oninput="debouncedDiscoverRepos()" class="soc-input w-full text-xs font-mono px-3 py-2 rounded-lg">
 
             <div class="flex items-center gap-1.5 flex-wrap mt-2">
               <button type="button" onclick="openFolderPickerModal()"
@@ -301,32 +361,39 @@
 
             <div class="flex items-center gap-4 mt-2 text-[11px] font-mono text-slate-600 dark:text-slate-400">
               <label class="flex items-center gap-1.5 cursor-pointer">
-                <input type="checkbox" id="schedRecursive" onchange="discoverReposNow()" class="rounded border-slate-300">
+                <input type="checkbox" id="schedRecursive" onchange="discoverReposNow()"
+                  class="rounded border-slate-300">
                 <span>Recursive subfolders</span>
               </label>
               <label class="flex items-center gap-1.5 cursor-pointer">
-                <input type="checkbox" id="schedIncludeNonGit" onchange="discoverReposNow()" class="rounded border-slate-300">
+                <input type="checkbox" id="schedIncludeNonGit" onchange="discoverReposNow()"
+                  class="rounded border-slate-300">
                 <span>Auto-init non-Git folders</span>
               </label>
             </div>
 
             <!-- Discovered Repositories Preview -->
-            <div id="discoveredReposBox" class="mt-2 p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 space-y-1.5">
+            <div id="discoveredReposBox"
+              class="mt-2 p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 space-y-1.5">
               <div class="flex items-center justify-between text-[11px] font-mono">
                 <span class="font-bold text-slate-700 dark:text-slate-300">Discovered Repositories</span>
-                <span id="discoveredCountBadge" class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-[10px]">
+                <span id="discoveredCountBadge"
+                  class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-[10px]">
                   Enter a folder path
                 </span>
               </div>
-              <div id="discoveredReposList" class="max-h-32 overflow-y-auto custom-scroll space-y-1 text-[11px] font-mono text-slate-500">
+              <div id="discoveredReposList"
+                class="max-h-32 overflow-y-auto custom-scroll space-y-1 text-[11px] font-mono text-slate-500">
                 Select or enter a folder to preview repositories that will run one by one.
               </div>
             </div>
           </div>
 
           <!-- Schedule Timing Type -->
-          <div class="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 space-y-3">
-            <label class="block text-xs font-bold font-mono text-slate-800 dark:text-slate-200 uppercase">Schedule Frequency</label>
+          <div
+            class="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 space-y-3">
+            <label class="block text-xs font-bold font-mono text-slate-800 dark:text-slate-200 uppercase">Schedule
+              Frequency</label>
 
             <div class="grid grid-cols-5 gap-1 bg-slate-200/70 dark:bg-slate-900 p-1 rounded-lg text-[11px] font-mono">
               <button type="button" data-stype="interval" onclick="setScheduleType('interval')"
@@ -360,19 +427,28 @@
             <!-- Daily / Weekly Time Controls -->
             <div id="cfg-time" class="hidden space-y-2.5">
               <div id="cfg-weekly-days" class="hidden">
-                <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Days of Week</label>
+                <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Days of
+                  Week</label>
                 <div class="flex flex-wrap gap-1.5 font-mono text-[11px]">
-                  <button type="button" data-day="0" onclick="toggleWeekDay(this)" class="dow-btn px-2.5 py-1 rounded border bg-blue-600 text-white border-blue-600 font-bold cursor-pointer">Mon</button>
-                  <button type="button" data-day="1" onclick="toggleWeekDay(this)" class="dow-btn px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer">Tue</button>
-                  <button type="button" data-day="2" onclick="toggleWeekDay(this)" class="dow-btn px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer">Wed</button>
-                  <button type="button" data-day="3" onclick="toggleWeekDay(this)" class="dow-btn px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer">Thu</button>
-                  <button type="button" data-day="4" onclick="toggleWeekDay(this)" class="dow-btn px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer">Fri</button>
-                  <button type="button" data-day="5" onclick="toggleWeekDay(this)" class="dow-btn px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer">Sat</button>
-                  <button type="button" data-day="6" onclick="toggleWeekDay(this)" class="dow-btn px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer">Sun</button>
+                  <button type="button" data-day="0" onclick="toggleWeekDay(this)"
+                    class="dow-btn px-2.5 py-1 rounded border bg-blue-600 text-white border-blue-600 font-bold cursor-pointer">Mon</button>
+                  <button type="button" data-day="1" onclick="toggleWeekDay(this)"
+                    class="dow-btn px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer">Tue</button>
+                  <button type="button" data-day="2" onclick="toggleWeekDay(this)"
+                    class="dow-btn px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer">Wed</button>
+                  <button type="button" data-day="3" onclick="toggleWeekDay(this)"
+                    class="dow-btn px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer">Thu</button>
+                  <button type="button" data-day="4" onclick="toggleWeekDay(this)"
+                    class="dow-btn px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer">Fri</button>
+                  <button type="button" data-day="5" onclick="toggleWeekDay(this)"
+                    class="dow-btn px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer">Sat</button>
+                  <button type="button" data-day="6" onclick="toggleWeekDay(this)"
+                    class="dow-btn px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 cursor-pointer">Sun</button>
                 </div>
               </div>
               <div>
-                <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Execution Time (Local 24h)</label>
+                <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Execution Time
+                  (Local 24h)</label>
                 <input type="time" id="schedTimeOfDay" value="02:00"
                   class="soc-input w-full text-xs font-mono px-2.5 py-1.5 rounded-lg">
               </div>
@@ -381,32 +457,44 @@
             <!-- Cron Controls -->
             <div id="cfg-cron" class="hidden space-y-2">
               <div>
-                <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-1">5-Field Cron Expression (min hour dom month dow)</label>
+                <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-1">5-Field Cron
+                  Expression (min hour dom month dow)</label>
                 <input type="text" id="schedCronExpr" value="0 2 * * *" placeholder="0 2 * * *"
                   class="soc-input w-full text-xs font-mono px-2.5 py-1.5 rounded-lg">
               </div>
               <div class="flex flex-wrap gap-1.5 text-[10px] font-mono">
-                <button type="button" onclick="setCronPreset('*/15 * * * *')" class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 cursor-pointer">Every 15m</button>
-                <button type="button" onclick="setCronPreset('0 * * * *')" class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 cursor-pointer">Hourly</button>
-                <button type="button" onclick="setCronPreset('0 2 * * *')" class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 cursor-pointer">Daily 02:00</button>
-                <button type="button" onclick="setCronPreset('0 3 * * 1-5')" class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 cursor-pointer">Weekdays 03:00</button>
+                <button type="button" onclick="setCronPreset('*/15 * * * *')"
+                  class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 cursor-pointer">Every
+                  15m</button>
+                <button type="button" onclick="setCronPreset('0 * * * *')"
+                  class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 cursor-pointer">Hourly</button>
+                <button type="button" onclick="setCronPreset('0 2 * * *')"
+                  class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 cursor-pointer">Daily
+                  02:00</button>
+                <button type="button" onclick="setCronPreset('0 3 * * 1-5')"
+                  class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 cursor-pointer">Weekdays
+                  03:00</button>
               </div>
             </div>
 
             <!-- Once Controls -->
             <div id="cfg-once" class="hidden">
-              <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Run At (Local Date &amp; Time)</label>
+              <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Run At (Local Date
+                &amp; Time)</label>
               <input type="datetime-local" id="schedRunAt"
                 class="soc-input w-full text-xs font-mono px-2.5 py-1.5 rounded-lg">
             </div>
           </div>
 
           <!-- Pipeline Execution Options -->
-          <div class="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 space-y-2.5 text-xs">
-            <div class="font-bold font-mono text-slate-800 dark:text-slate-200 uppercase text-[11px]">Pipeline Options (Per Repo)</div>
+          <div
+            class="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 space-y-2.5 text-xs">
+            <div class="font-bold font-mono text-slate-800 dark:text-slate-200 uppercase text-[11px]">Pipeline Options
+              (Per Repo)</div>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <div>
-                <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">Scanner Engine</label>
+                <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">Scanner
+                  Engine</label>
                 <select id="schedScannerEngine" class="soc-input w-full text-xs font-mono px-2 py-1.5 rounded-lg">
                   <option value="all" selected>All Engines (Recommended)</option>
                   <option value="securescan">SecureScanAI Built-in</option>
@@ -415,15 +503,18 @@
                 </select>
               </div>
               <div>
-                <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">AI Remediation Engine</label>
-                <select id="schedLlmProvider" onchange="handleSchedLlmChange()" class="soc-input w-full text-xs font-mono px-2 py-1.5 rounded-lg">
+                <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">AI Remediation
+                  Engine</label>
+                <select id="schedLlmProvider" onchange="handleSchedLlmChange()"
+                  class="soc-input w-full text-xs font-mono px-2 py-1.5 rounded-lg">
                   <option value="ollama" selected>Local Ollama (Auto-Fallback)</option>
                   <option value="local">Local OpenAI (LM Studio / vLLM)</option>
                   <option value="auto-fallback">Offline Deterministic Fixer</option>
                 </select>
               </div>
               <div>
-                <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">Base Branch (Always main / master)</label>
+                <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">Base Branch
+                  (Always main / master)</label>
                 <select id="schedBaseBranch" class="soc-input w-full text-xs font-mono px-2 py-1.5 rounded-lg">
                   <option value="auto" selected>Auto (main / master)</option>
                   <option value="main">main (fallback master)</option>
@@ -431,7 +522,8 @@
                 </select>
               </div>
               <div>
-                <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">Remediation Branch</label>
+                <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">Remediation
+                  Branch</label>
                 <input type="text" id="schedFeatureBranch" value="remediation/airgap-api-compliance"
                   class="soc-input w-full text-xs font-mono px-2 py-1.5 rounded-lg">
               </div>
@@ -440,9 +532,11 @@
             <div id="schedLlmEndpointGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <div>
                 <div class="flex items-center justify-between gap-1 mb-0.5">
-                  <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400">Installed Model</label>
+                  <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400">Installed
+                    Model</label>
                   <div class="flex items-center gap-1">
-                    <span id="schedLlmModelsStatus" class="text-[9px] font-mono text-slate-500 dark:text-slate-400">Checking…</span>
+                    <span id="schedLlmModelsStatus"
+                      class="text-[9px] font-mono text-slate-500 dark:text-slate-400">Checking…</span>
                     <button type="button" id="btnRefreshSchedModels" onclick="loadSchedLlmModels(true)"
                       title="Refresh locally installed models"
                       class="text-[10px] font-mono px-1.5 py-0 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 leading-tight">↻</button>
@@ -457,7 +551,8 @@
                   class="soc-input w-full text-xs font-mono px-2 py-1.5 rounded-lg mt-1 hidden">
               </div>
               <div>
-                <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">Local Server Base URL</label>
+                <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">Local Server
+                  Base URL</label>
                 <input type="text" id="schedLlmBaseUrl" value="http://127.0.0.1:11434"
                   onchange="loadSchedLlmModels(false)"
                   class="soc-input w-full text-xs font-mono px-2 py-1.5 rounded-lg">
@@ -490,33 +585,34 @@
             <!-- Git Remote Authentication (For Pushing Local Folder Repos) -->
             <div class="pt-2 border-t border-slate-200 dark:border-slate-700 space-y-2">
               <div class="flex items-center justify-between gap-2 flex-wrap">
-                <label class="text-[11px] font-mono font-bold text-blue-700 dark:text-blue-300 flex items-center gap-1.5">
+                <label
+                  class="text-[11px] font-mono font-bold text-blue-700 dark:text-blue-300 flex items-center gap-1.5">
                   <span>🔑</span>
                   <span>Git Remote Auth (Optional — For Pushing Local Repos)</span>
                 </label>
               </div>
               <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <div class="sm:col-span-2">
-                  <input type="password" id="schedGitToken"
-                    placeholder="Personal Access Token (ghp_... or glpat-...)"
-                    autocomplete="new-password"
-                    class="soc-input w-full text-[11px] font-mono px-2.5 py-1.5 rounded-lg">
+                  <input type="password" id="schedGitToken" placeholder="Personal Access Token (ghp_... or glpat-...)"
+                    autocomplete="new-password" class="soc-input w-full text-[11px] font-mono px-2.5 py-1.5 rounded-lg">
                 </div>
                 <div>
-                  <input type="text" id="schedGitUsername"
-                    placeholder="Username (optional)"
+                  <input type="text" id="schedGitUsername" placeholder="Username (optional)"
                     class="soc-input w-full text-[11px] font-mono px-2.5 py-1.5 rounded-lg">
                 </div>
               </div>
               <div class="text-[10px] font-mono text-slate-500 dark:text-slate-400">
-                Used to fetch &amp; push remediation branches to each repo's <code class="text-slate-700 dark:text-slate-300">origin</code> remote (leave blank for SSH or local-only repos).
+                Used to fetch &amp; push remediation branches to each repo's <code
+                  class="text-slate-700 dark:text-slate-300">origin</code> remote (leave blank for SSH or local-only
+                repos).
               </div>
             </div>
 
             <!-- Per-Schedule Email Report Delivery -->
             <div class="pt-2 border-t border-slate-200 dark:border-slate-700 space-y-2">
               <div class="flex items-center justify-between gap-2 flex-wrap">
-                <label class="flex items-center gap-1.5 cursor-pointer text-[11px] font-mono font-bold text-emerald-700 dark:text-emerald-300">
+                <label
+                  class="flex items-center gap-1.5 cursor-pointer text-[11px] font-mono font-bold text-emerald-700 dark:text-emerald-300">
                   <input type="checkbox" id="schedSendEmail" checked class="rounded border-slate-300 text-emerald-600">
                   <span>✉️ Email Reports After Each Repo Completes</span>
                 </label>
@@ -529,13 +625,15 @@
                 <input type="text" id="schedEmailRecipients"
                   placeholder="Optional recipient override (comma-separated), or leave blank for defaults"
                   class="soc-input w-full text-[11px] font-mono px-2.5 py-1.5 rounded-lg">
-                <div id="schedEmailDefaultHint" class="text-[10px] font-mono text-slate-500 dark:text-slate-400 mt-1 truncate">
+                <div id="schedEmailDefaultHint"
+                  class="text-[10px] font-mono text-slate-500 dark:text-slate-400 mt-1 break-words">
                   Default recipients: loading...
                 </div>
               </div>
             </div>
 
-            <label id="runImmediatelyRow" class="flex items-center gap-2 pt-1.5 border-t border-slate-200 dark:border-slate-700 text-xs font-mono font-semibold text-blue-700 dark:text-blue-300 cursor-pointer">
+            <label id="runImmediatelyRow"
+              class="flex items-center gap-2 pt-1.5 border-t border-slate-200 dark:border-slate-700 text-xs font-mono font-semibold text-blue-700 dark:text-blue-300 cursor-pointer">
               <input type="checkbox" id="schedRunImmediately" class="rounded border-slate-300">
               <span>⚡ Run immediately in background after creating schedule</span>
             </label>
@@ -557,7 +655,8 @@
 
       <!-- SAVED SCHEDULES LIST -->
       <section class="xl:col-span-7 soc-panel rounded-xl p-5 space-y-4 border-t-4 border-t-indigo-600">
-        <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3 flex-wrap gap-2">
+        <div
+          class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3 flex-wrap gap-2">
           <div>
             <h2 class="text-sm font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wide font-mono">
               Configured Batch Schedules
@@ -566,13 +665,15 @@
               Schedules trigger automatically in the background or can be launched immediately with Run Now
             </p>
           </div>
-          <span id="schedulesTotalPill" class="text-[11px] px-2.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 font-mono font-bold">
+          <span id="schedulesTotalPill"
+            class="text-[11px] px-2.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 font-mono font-bold">
             0 Schedules
           </span>
         </div>
 
         <div id="schedulesListContainer" class="space-y-3 max-h-[650px] overflow-y-auto custom-scroll pr-1">
-          <div class="p-8 text-center text-xs text-slate-500 font-mono border border-dashed border-slate-300 dark:border-slate-700 rounded-xl">
+          <div
+            class="p-8 text-center text-xs text-slate-500 font-mono border border-dashed border-slate-300 dark:border-slate-700 rounded-xl">
             No schedules configured yet. Create a schedule on the left to automate batch repository remediation.
           </div>
         </div>
@@ -582,11 +683,14 @@
 
     <!-- BOTTOM SECTION: BACKGROUND EXECUTION QUEUE, REPO-BY-REPO MONITOR & LOGS -->
     <section class="soc-panel rounded-xl p-5 space-y-4 border-t-4 border-t-emerald-600">
-      <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3 flex-wrap gap-2">
+      <div
+        class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3 flex-wrap gap-2">
         <div>
-          <h2 class="text-sm font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wide font-mono flex items-center gap-2">
+          <h2
+            class="text-sm font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wide font-mono flex items-center gap-2">
             <span>Background Batch Execution Monitor</span>
-            <span id="activeRunBadge" class="hidden px-2 py-0.5 rounded text-[10px] bg-blue-100 dark:bg-blue-900/80 text-blue-700 dark:text-blue-200 border border-blue-300 dark:border-blue-700 font-bold animate-pulse">
+            <span id="activeRunBadge"
+              class="hidden px-2 py-0.5 rounded text-[10px] bg-blue-100 dark:bg-blue-900/80 text-blue-700 dark:text-blue-200 border border-blue-300 dark:border-blue-700 font-bold animate-pulse">
               ● RUNNING IN BACKGROUND
             </span>
           </h2>
@@ -605,9 +709,11 @@
 
         <!-- LEFT: Run History Selector (4 cols) -->
         <div class="lg:col-span-4 space-y-2">
-          <div class="text-[11px] font-mono font-bold text-slate-600 dark:text-slate-400 uppercase">Batch Run History</div>
+          <div class="text-[11px] font-mono font-bold text-slate-600 dark:text-slate-400 uppercase">Batch Run History
+          </div>
           <div id="runsHistoryList" class="space-y-2 max-h-[540px] overflow-y-auto custom-scroll pr-1">
-            <div class="p-6 text-center text-xs text-slate-500 font-mono border border-dashed border-slate-300 dark:border-slate-700 rounded-xl">
+            <div
+              class="p-6 text-center text-xs text-slate-500 font-mono border border-dashed border-slate-300 dark:border-slate-700 rounded-xl">
               No batch runs recorded yet.
             </div>
           </div>
@@ -615,14 +721,19 @@
 
         <!-- RIGHT: Selected Run Details + Repo-by-Repo Sequential Progress + Logs (8 cols) -->
         <div class="lg:col-span-8 space-y-4">
-          <div id="runDetailHeader" class="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 space-y-3">
+          <div id="runDetailHeader"
+            class="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 space-y-3">
             <div class="flex items-center justify-between flex-wrap gap-2">
               <div class="min-w-0">
                 <div class="flex items-center gap-2 flex-wrap">
-                  <span id="detailRunTitle" class="text-sm font-bold font-mono text-slate-900 dark:text-slate-100">Select or trigger a batch run</span>
-                  <span id="detailRunStatusPill" class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200">IDLE</span>
+                  <span id="detailRunTitle"
+                    class="text-sm font-bold font-mono text-slate-900 dark:text-slate-100">Select or trigger a batch
+                    run</span>
+                  <span id="detailRunStatusPill"
+                    class="rounded text-[10px] font-mono font-bold text-slate-700 dark:text-slate-200">IDLE</span>
                 </div>
-                <div id="detailRunMeta" class="text-[11px] font-mono text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+                <div id="detailRunMeta"
+                  class="text-[11px] font-mono text-slate-500 dark:text-slate-400 mt-0.5 truncate">
                   Repositories inside the selected folder are processed sequentially one by one in background.
                 </div>
               </div>
@@ -639,19 +750,23 @@
                 <span id="detailProgressText" class="font-bold text-blue-600 dark:text-blue-400">0%</span>
               </div>
               <div class="w-full h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
-                <div id="detailProgressBar" class="h-full rounded-full bg-gradient-to-r from-blue-500 to-emerald-500 transition-all duration-300" style="width: 0%;"></div>
+                <div id="detailProgressBar"
+                  class="h-full rounded-full bg-gradient-to-r from-blue-500 to-emerald-500 transition-all duration-300"
+                  style="width: 0%;"></div>
               </div>
             </div>
           </div>
 
           <!-- Repo-by-Repo Queue Cards -->
           <div class="space-y-2">
-            <div class="text-[11px] font-mono font-bold text-slate-600 dark:text-slate-400 uppercase flex items-center justify-between">
+            <div
+              class="text-[11px] font-mono font-bold text-slate-600 dark:text-slate-400 uppercase flex items-center justify-between">
               <span>Sequential Repository Execution Queue (One by One)</span>
               <span id="detailReposSummary" class="text-[10px] text-slate-500">0 Repositories</span>
             </div>
             <div id="detailReposList" class="space-y-2 max-h-[340px] overflow-y-auto custom-scroll pr-1">
-              <div class="p-6 text-center text-xs text-slate-500 font-mono border border-dashed border-slate-300 dark:border-slate-700 rounded-xl">
+              <div
+                class="p-6 text-center text-xs text-slate-500 font-mono border border-dashed border-slate-300 dark:border-slate-700 rounded-xl">
                 Trigger a schedule to watch repositories execute sequentially here.
               </div>
             </div>
@@ -659,7 +774,8 @@
 
           <!-- Background Worker Log Console -->
           <div class="space-y-1.5">
-            <div class="text-[11px] font-mono font-bold text-slate-600 dark:text-slate-400 uppercase">Background Execution Logs</div>
+            <div class="text-[11px] font-mono font-bold text-slate-600 dark:text-slate-400 uppercase">Background
+              Execution Logs</div>
             <div id="detailLogsBox"
               class="h-44 bg-slate-950 text-slate-200 p-3 rounded-xl border border-slate-800 font-mono text-[11px] overflow-y-auto custom-scroll space-y-1">
               <div class="text-slate-500 italic">Waiting for background run logs...</div>
@@ -678,19 +794,23 @@
     onclick="if(event.target === this) closeFolderPickerModal()">
     <div class="soc-panel rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden"
       onclick="event.stopPropagation()">
-      <div class="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900">
+      <div
+        class="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900">
         <div class="flex items-center gap-2.5 min-w-0">
           <span class="text-xl">📁</span>
           <div class="min-w-0">
-            <h3 class="text-sm font-bold text-slate-900 dark:text-slate-100 truncate font-mono">Select Parent Folder Containing Repositories</h3>
-            <p class="text-[11px] text-slate-500 font-mono truncate">All repositories inside the selected folder will be processed sequentially</p>
+            <h3 class="text-sm font-bold text-slate-900 dark:text-slate-100 truncate font-mono">Select Parent Folder
+              Containing Repositories</h3>
+            <p class="text-[11px] text-slate-500 font-mono truncate">All repositories inside the selected folder will be
+              processed sequentially</p>
           </div>
         </div>
         <button onclick="closeFolderPickerModal()"
           class="text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 p-1 rounded-lg text-lg flex-shrink-0 cursor-pointer">✕</button>
       </div>
 
-      <div class="px-4 py-2.5 bg-slate-100/70 dark:bg-slate-950/40 border-b border-slate-200 dark:border-slate-800 flex items-center gap-2 overflow-x-auto text-[11px] font-mono">
+      <div
+        class="px-4 py-2.5 bg-slate-100/70 dark:bg-slate-950/40 border-b border-slate-200 dark:border-slate-800 flex items-center gap-2 overflow-x-auto text-[11px] font-mono">
         <span class="text-slate-500 font-semibold flex-shrink-0">Bookmarks:</span>
         <button type="button" onclick="loadFolderList('repos')"
           class="px-2.5 py-1 rounded-md bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-700 hover:bg-blue-200 flex-shrink-0 cursor-pointer font-bold">
@@ -699,20 +819,25 @@
         <div id="modalQuickAccess" class="flex items-center gap-1.5 flex-shrink-0"></div>
       </div>
 
-      <div class="px-4 py-2 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center gap-2">
+      <div
+        class="px-4 py-2 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center gap-2">
         <button type="button" onclick="navigateParentFolder()" id="btnFolderUp"
           class="px-2.5 py-1 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-mono font-bold cursor-pointer">
           ⬆ Up
         </button>
-        <div id="modalCurrentPathDisplay" class="text-xs font-mono text-slate-700 dark:text-slate-300 truncate flex-1 font-semibold"></div>
-        <button type="button" onclick="refreshFolderList()" class="p-1 rounded text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer text-xs">↻</button>
+        <div id="modalCurrentPathDisplay"
+          class="text-xs font-mono text-slate-700 dark:text-slate-300 truncate flex-1 font-semibold"></div>
+        <button type="button" onclick="refreshFolderList()"
+          class="p-1 rounded text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer text-xs">↻</button>
       </div>
 
-      <div class="p-3 flex-1 overflow-y-auto custom-scroll space-y-2 bg-slate-50/50 dark:bg-slate-950/20" id="modalFolderListContainer">
+      <div class="p-3 flex-1 overflow-y-auto custom-scroll space-y-2 bg-slate-50/50 dark:bg-slate-950/20"
+        id="modalFolderListContainer">
         <div class="text-xs text-slate-500 text-center py-8 font-mono">Loading folders...</div>
       </div>
 
-      <div class="p-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex items-center justify-between gap-3">
+      <div
+        class="p-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex items-center justify-between gap-3">
         <span class="text-[11px] text-slate-500 font-mono">Pick the parent directory holding your repositories.</span>
         <div class="flex items-center gap-2">
           <button onclick="confirmCurrentFolder()"
@@ -734,11 +859,13 @@
     onclick="if(event.target === this) closeLocalPrModal()">
     <div class="soc-panel rounded-2xl w-full max-w-3xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden"
       onclick="event.stopPropagation()">
-      <div class="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900">
+      <div
+        class="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900">
         <div class="flex items-center gap-2.5 min-w-0">
           <span class="text-xl">📄</span>
           <div class="min-w-0">
-            <h3 class="text-sm font-bold text-slate-900 dark:text-slate-100 truncate font-mono" id="modalPrTitle">Local Pull Request</h3>
+            <h3 class="text-sm font-bold text-slate-900 dark:text-slate-100 truncate font-mono" id="modalPrTitle">Local
+              Pull Request</h3>
             <p class="text-[11px] text-slate-500 font-mono truncate" id="modalPrFilePath"></p>
           </div>
         </div>
@@ -762,12 +889,15 @@
     onclick="if(event.target === this) closeEmailReportModal()">
     <div class="soc-panel rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col max-h-[88vh] overflow-hidden"
       onclick="event.stopPropagation()">
-      <div class="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900">
+      <div
+        class="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900">
         <div class="flex items-center gap-2.5 min-w-0">
           <span class="text-xl">✉️</span>
           <div class="min-w-0">
-            <h3 class="text-sm font-bold text-slate-900 dark:text-slate-100 truncate font-mono">Scheduler Email Report Settings</h3>
-            <p class="text-[11px] text-slate-500 font-mono truncate">Configure automatic per-repo scan &amp; remediation report emails, attachments &amp; SMTP/Webhook</p>
+            <h3 class="text-sm font-bold text-slate-900 dark:text-slate-100 truncate font-mono">Scheduler Email Report
+              Settings</h3>
+            <p class="text-[11px] text-slate-500 font-mono truncate">Configure automatic per-repo scan &amp; remediation
+              report emails, attachments &amp; SMTP/Webhook</p>
           </div>
         </div>
         <button onclick="closeEmailReportModal()"
@@ -779,12 +909,14 @@
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div class="sm:col-span-2">
-            <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Default Recipient Email Address(es) (comma-separated)</label>
+            <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Default Recipient Email
+              Address(es) (comma-separated)</label>
             <input type="text" id="modalEmailRecipients" placeholder="secops@company.com, ciso@company.com"
               class="soc-input w-full text-xs font-mono px-3 py-1.5 rounded-lg">
           </div>
           <div>
-            <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Sender (From) Email</label>
+            <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Sender (From)
+              Email</label>
             <input type="text" id="modalEmailSender" placeholder="secops-remediator@company.local"
               class="soc-input w-full text-xs font-mono px-3 py-1.5 rounded-lg">
           </div>
@@ -795,17 +927,20 @@
           </div>
         </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
+        <div
+          class="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
           <div class="space-y-1.5">
             <div class="text-[11px] font-bold uppercase text-slate-700 dark:text-slate-300">Global Email Delivery</div>
             <label class="flex items-center gap-2 cursor-pointer text-[11px]">
               <input type="checkbox" id="modalEmailEnabled" checked class="rounded border-slate-300 text-emerald-600">
               <span>Enable Email Report Dispatch</span>
             </label>
-            <p class="text-[10px] text-slate-500">Applies across scheduled batch repositories once each repo scan &amp; remediation completes.</p>
+            <p class="text-[10px] text-slate-500">Applies across scheduled batch repositories once each repo scan &amp;
+              remediation completes.</p>
           </div>
           <div class="space-y-1.5">
-            <div class="text-[11px] font-bold uppercase text-slate-700 dark:text-slate-300">Attached Report Dossiers</div>
+            <div class="text-[11px] font-bold uppercase text-slate-700 dark:text-slate-300">Attached Report Dossiers
+            </div>
             <label class="flex items-center gap-2 cursor-pointer text-[11px]">
               <input type="checkbox" id="modalAttachRemHtml" checked class="rounded border-slate-300 text-blue-600">
               <span>REMEDIATION_AUDIT_REPORT.pdf</span>
@@ -821,14 +956,18 @@
           </div>
         </div>
 
-        <div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-2.5">
+        <div
+          class="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-2.5">
           <div>
-            <label class="block text-[10px] font-bold uppercase text-emerald-700 dark:text-emerald-400 mb-0.5">HTTPS Gmail / Email Webhook URL (Port 443 — Works Through Corporate Firewalls)</label>
-            <input type="text" id="modalEmailWebhookUrl" placeholder="https://script.google.com/macros/s/.../exec (optional — overrides blocked SMTP)"
+            <label class="block text-[10px] font-bold uppercase text-emerald-700 dark:text-emerald-400 mb-0.5">HTTPS
+              Gmail / Email Webhook URL (Port 443 — Works Through Corporate Firewalls)</label>
+            <input type="text" id="modalEmailWebhookUrl"
+              placeholder="https://script.google.com/macros/s/.../exec (optional — overrides blocked SMTP)"
               class="soc-input w-full text-xs font-mono px-2.5 py-1.5 rounded-lg">
           </div>
           <div class="flex items-center justify-between pt-1 border-t border-slate-200 dark:border-slate-700">
-            <span class="text-[11px] font-bold uppercase text-slate-700 dark:text-slate-300">Or Direct SMTP Relay Configuration</span>
+            <span class="text-[11px] font-bold uppercase text-slate-700 dark:text-slate-300">Or Direct SMTP Relay
+              Configuration</span>
             <span class="text-[10px] text-slate-500">Always archives .eml to reports/email_outbox/</span>
           </div>
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
@@ -843,12 +982,14 @@
                 class="soc-input w-full text-xs font-mono px-2.5 py-1.5 rounded-lg">
             </div>
             <div>
-              <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">SMTP Username</label>
+              <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">SMTP
+                Username</label>
               <input type="text" id="modalSmtpUser" placeholder="(optional)"
                 class="soc-input w-full text-xs font-mono px-2.5 py-1.5 rounded-lg">
             </div>
             <div>
-              <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">SMTP Password / App Key</label>
+              <label class="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">SMTP Password /
+                App Key</label>
               <input type="password" id="modalSmtpPass" placeholder="(optional)"
                 class="soc-input w-full text-xs font-mono px-2.5 py-1.5 rounded-lg">
             </div>
@@ -866,14 +1007,17 @@
         </div>
 
         <div class="space-y-1.5">
-          <div class="text-[11px] font-bold uppercase text-slate-700 dark:text-slate-300">Recent Dispatched &amp; Outbox Archive (reports/email_outbox/)</div>
-          <div id="modalOutboxList" class="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-400 max-h-28 overflow-y-auto custom-scroll">
+          <div class="text-[11px] font-bold uppercase text-slate-700 dark:text-slate-300">Recent Dispatched &amp; Outbox
+            Archive (reports/email_outbox/)</div>
+          <div id="modalOutboxList"
+            class="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-400 max-h-28 overflow-y-auto custom-scroll">
             No report emails generated yet.
           </div>
         </div>
       </div>
 
-      <div class="p-3.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex items-center justify-between gap-3">
+      <div
+        class="p-3.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex items-center justify-between gap-3">
         <button type="button" onclick="saveEmailSettings()" id="btnSaveEmailConfig"
           class="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs text-white font-mono font-bold cursor-pointer">
           💾 Save Email Settings
@@ -1244,8 +1388,8 @@
           const badgeClass = !r.has_git
             ? "bg-amber-100 text-amber-800"
             : (r.base_branch
-                ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300"
-                : "bg-rose-100 text-rose-800 dark:bg-rose-900/50 dark:text-rose-300");
+              ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300"
+              : "bg-rose-100 text-rose-800 dark:bg-rose-900/50 dark:text-rose-300");
           return `
           <div class="flex items-center justify-between gap-2 px-2 py-1 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
             <div class="flex items-center gap-1.5 min-w-0">
@@ -1367,9 +1511,7 @@
       document.getElementById("schedTimeOfDay").value = sched.time_of_day || "02:00";
       setSelectedWeekDays(sched.days_of_week || [0]);
       document.getElementById("schedCronExpr").value = sched.cron_expression || "0 2 * * *";
-      if (sched.run_at) {
-        document.getElementById("schedRunAt").value = String(sched.run_at).slice(0, 16);
-      }
+      document.getElementById("schedRunAt").value = sched.run_at ? String(sched.run_at).slice(0, 16) : "";
 
       document.getElementById("schedScannerEngine").value = sched.scanner_engine || "all";
       const schedProv = sched.llm_provider || "ollama";
@@ -1406,10 +1548,34 @@
       document.getElementById("btnSubmitSchedule").textContent = "＋ Create Background Schedule";
       document.getElementById("btnCancelEdit").classList.add("hidden");
       document.getElementById("runImmediatelyRow").classList.remove("hidden");
+
+      // Clear all schedule identity, path, and repository discovery fields
       document.getElementById("schedName").value = "";
+      document.getElementById("schedFolderPath").value = "";
+      document.getElementById("schedRecursive").checked = false;
+      document.getElementById("schedIncludeNonGit").checked = false;
+      discoverReposNow();
+
+      // Reset schedule frequency & timing controls
+      setScheduleType("interval");
+      document.getElementById("schedIntervalValue").value = "60";
+      document.getElementById("schedIntervalUnit").value = "1";
+      document.getElementById("schedTimeOfDay").value = "02:00";
+      setSelectedWeekDays([0]);
+      document.getElementById("schedCronExpr").value = "0 2 * * *";
+      document.getElementById("schedRunAt").value = "";
+
+      // Reset pipeline, branch, AI engine, Git auth, and email options
+      document.getElementById("schedScannerEngine").value = "all";
       document.getElementById("schedLlmProvider").value = "ollama";
       handleSchedLlmChange(true);
+      document.getElementById("schedBaseBranch").value = "auto";
+      document.getElementById("schedFeatureBranch").value = "remediation/airgap-api-compliance";
+      document.getElementById("schedBuildTest").checked = true;
+      document.getElementById("schedAutoCommit").checked = true;
       document.getElementById("schedAutoPush").checked = true;
+      document.getElementById("schedAutoPr").checked = true;
+      document.getElementById("schedTimestampBranch").checked = false;
       document.getElementById("schedGitToken").value = "";
       document.getElementById("schedGitUsername").value = "";
       document.getElementById("schedSendEmail").checked = true;
@@ -1536,9 +1702,9 @@
                 <div class="flex items-center gap-2 flex-wrap">
                   <span class="font-bold text-sm text-slate-900 dark:text-slate-100 font-mono truncate">${escapeHtml(s.name)}</span>
                   ${enabled
-                    ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700">ACTIVE</span>`
-                    : `<span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300">PAUSED</span>`
-                  }
+            ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700">ACTIVE</span>`
+            : `<span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300">PAUSED</span>`
+          }
                   <span class="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200">
                     ${escapeHtml(s.description || s.schedule_type)}
                   </span>
@@ -1568,20 +1734,20 @@
               </div>
             </div>
 
-            <div class="grid grid-cols-1 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-200 dark:border-slate-700/70 text-[10px] font-mono text-slate-600 dark:text-slate-400">
-              <div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 pt-2 border-t border-slate-200 dark:border-slate-700/70 text-[10px] font-mono text-slate-600 dark:text-slate-400">
+              <div class="min-w-0 break-words">
                 <span class="text-slate-400">NEXT RUN:</span>
                 <strong class="text-slate-800 dark:text-slate-200">${enabled && s.next_run_at ? `${formatRelativeTime(s.next_run_at)} (${formatLocalTime(s.next_run_at)})` : "Paused / None"}</strong>
               </div>
-              <div>
+              <div class="min-w-0 break-words">
                 <span class="text-slate-400">LAST RUN:</span>
                 <strong class="text-slate-800 dark:text-slate-200">${s.last_run_at ? `${formatRelativeTime(s.last_run_at)} • ${escapeHtml(s.last_run_status || "")}` : "Never"}</strong>
               </div>
-              <div>
+              <div class="min-w-0 break-words">
                 <span class="text-slate-400">ENGINE:</span>
-                <strong class="text-slate-800 dark:text-slate-200">${escapeHtml(s.scanner_engine || "all")} • ${escapeHtml(s.llm_provider || "ollama")}</strong>
+                <strong class="text-slate-800 dark:text-slate-200">${escapeHtml(s.scanner_engine || "all")} • ${escapeHtml(s.llm_provider || "ollama")}${s.llm_model ? ` (${escapeHtml(s.llm_model)})` : ""}</strong>
               </div>
-              <div class="truncate" title="${escapeHtml(s.email_recipients || "Default Email Settings")}">
+              <div class="min-w-0 break-words" title="${escapeHtml(s.email_recipients || "Default Email Settings")}">
                 <span class="text-slate-400">EMAIL / PUSH:</span>
                 <strong class="text-slate-800 dark:text-slate-200">${s.send_email === false ? "No Email" : (s.email_recipients ? escapeHtml(s.email_recipients) : "Email ✓")} • ${s.auto_push === false ? "Local Only" : (s.has_git_token ? "Push (Auth ✓)" : "Push ✓")}</strong>
               </div>

@@ -30,9 +30,44 @@ Rules:
   "explanation": "Clear explanation of why the original code was vulnerable and how the fix resolves it.",
   "remediation_summary": "One-line summary of the fix applied.",
   "confidence": "HIGH | MEDIUM | LOW",
-  "fixed_file_content": "The complete, full remediated source file content ready to be saved."
+  "original_snippet": "The exact vulnerable code snippet or lines from the original file to be replaced.",
+  "replacement_snippet": "The safe, remediated replacement code to substitute in place of original_snippet.",
+  "fixed_file_content": "Alternatively, the full source file content if replacing the entire file."
 }
 """
+
+
+def _apply_snippet_replacement(
+    original_content: str, original_snippet: str, replacement_snippet: str
+) -> Optional[str]:
+    """Surgically substitutes the vulnerable original snippet with the replacement snippet."""
+    if not original_snippet or replacement_snippet is None:
+        return None
+    orig_clean = original_snippet.strip()
+    repl_clean = replacement_snippet.strip()
+
+    # 1. Exact match
+    if orig_clean in original_content:
+        return original_content.replace(orig_clean, repl_clean, 1)
+
+    # 2. Stripped trailing semicolon or whitespace
+    orig_no_semi = orig_clean.rstrip(";")
+    if orig_no_semi and orig_no_semi in original_content:
+        return original_content.replace(orig_no_semi, repl_clean.rstrip(";"), 1)
+
+    # 3. Line-by-line whitespace-insensitive search preserving indentation
+    orig_lines = [l.strip() for l in orig_clean.splitlines() if l.strip()]
+    if orig_lines:
+        content_lines = original_content.splitlines()
+        for i in range(len(content_lines) - len(orig_lines) + 1):
+            window = [content_lines[i + j].strip() for j in range(len(orig_lines))]
+            if window == orig_lines:
+                leading_ws = len(content_lines[i]) - len(content_lines[i].lstrip())
+                indent = content_lines[i][:leading_ws]
+                repl_lines = [f"{indent}{l}" if l.strip() else l for l in repl_clean.splitlines()]
+                new_lines = content_lines[:i] + repl_lines + content_lines[i + len(orig_lines):]
+                return "\n".join(new_lines)
+    return None
 
 
 class CloudLLMClient:
@@ -48,12 +83,14 @@ class CloudLLMClient:
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         cancel_check: Optional[Callable[[], bool]] = None,
+        timeout: Optional[int] = None,
     ):
         self.provider = (provider or os.getenv("LLM_PROVIDER") or self._detect_provider()).lower()
         self.model = model or os.getenv("LLM_MODEL") or self._default_model(self.provider)
         self.api_key = api_key or self._resolve_api_key(self.provider)
         self.base_url = base_url or os.getenv("LLM_BASE_URL")
         self.cancel_check = cancel_check
+        self.timeout = int(timeout or os.getenv("LLM_TIMEOUT", "180"))
         self._offline_fallback_active = False
 
     @staticmethod
@@ -125,26 +162,67 @@ class CloudLLMClient:
             or "allowed-hosts" in finding.rule_id.lower()
             or "connectionstring" in finding.rule_id.lower()
         ):
-            proposal = self._generate_deterministic_fix(finding, file_content)
-            if proposal and proposal.fixed_file_content.strip() != file_content.strip():
-                return proposal
+            try:
+                proposal = self._generate_deterministic_fix(finding, file_content)
+                if proposal and proposal.fixed_file_content.strip() != file_content.strip():
+                    return proposal
+            except Exception:
+                pass
+
+        # Deterministic fast-path for JavaScript / TypeScript / Node.js security findings
+        if finding.file_path.lower().endswith((".js", ".ts", ".mjs", ".cjs", ".jsx", ".tsx")):
+            try:
+                js_proposal = generate_deterministic_js_fix(finding, file_content)
+                if js_proposal and js_proposal.fixed_file_content.strip() != file_content.strip():
+                    return js_proposal
+            except Exception:
+                pass
 
         # Check if the code was already remediated
         clean_snip = re.sub(r'[\s\'\",;]+', '', snippet_core).lower()
         clean_orig = re.sub(r'[\s\'\",;]+', '', file_content).lower()
 
+        is_literal_present = (
+            snippet_core in file_content
+            or (len(clean_snip) > 6 and clean_snip in clean_orig)
+        )
+
+        is_secret_finding = (
+            "connectionstring" in finding.rule_id.lower()
+            or "cwe-798" in (finding.cwe_id or "").lower()
+            or "secret" in finding.rule_id.lower()
+            or "credential" in finding.rule_id.lower()
+            or "***redacted***" in clean_snip
+        )
         if "allowedhosts" in clean_snip:
             is_vuln_in_orig = bool(re.search(r'\"AllowedHosts\"\s*:\s*\"\*\"', file_content))
-        elif "connectionstring" in finding.rule_id.lower() or ("cwe-798" in (finding.cwe_id or "").lower() and "appsettings" in finding.file_path.lower()) or "***redacted***" in clean_snip:
-            is_vuln_in_orig = bool(re.search(r'(?i)\b(password|pwd)\s*=\s*[^;]+', file_content))
+        elif is_literal_present and not ("***redacted***" in clean_snip):
+            is_vuln_in_orig = True
         elif (finding.cwe_id or "").upper() == "CWE-89" and finding.file_path.lower().endswith((".js", ".ts", ".mjs", ".cjs")):
             is_vuln_in_orig = bool(
                 re.search(r"\brawQuery\s*\(|(?i:SELECT|INSERT|UPDATE|DELETE)\b[^\n`;]*\$\{", file_content)
             )
-        else:
-            is_vuln_in_orig = snippet_core in file_content or (
-                len(clean_snip) > 6 and clean_snip in clean_orig
+        elif is_secret_finding:
+            has_conn_cred = bool(re.search(r'(?i)\b(password|pwd)\s*=\s*[^;]+', file_content))
+            has_code_cred = bool(re.search(
+                r'(?i)\b(?:string|var|const|let)?\s*[a-zA-Z0-9_]*(?:password|pwd|secret|apiKey|api_key|token|privateKey|jwtSecret|bearer)[a-zA-Z0-9_]*\s*[:=]\s*(?:process\.env\.[A-Z0-9_]+\s*\|\|\s*)?["\']([^"\'\r\n]{8,})["\']',
+                file_content,
+            ))
+            snip_var_m = re.search(
+                r'(?i)\b(?:string|var|const|let)\s+(?P<var>[a-zA-Z0-9_]+)\s*[:=]|(?P<var2>[a-zA-Z0-9_]*(?:password|pwd|secret|apiKey|api_key|token|privateKey|jwtSecret|bearer)[a-zA-Z0-9_]*)\s*[:=]',
+                finding.code_snippet or "",
             )
+            has_snip_var = False
+            if snip_var_m:
+                v_name = snip_var_m.group("var") or snip_var_m.group("var2")
+                if v_name and v_name.lower() not in ("string", "var", "const", "let"):
+                    has_snip_var = bool(re.search(
+                        rf'(?i)\b{re.escape(v_name)}\s*[:=]\s*(?:process\.env\.[A-Z0-9_]+\s*\|\|\s*)?["\']([^"\'\r\n]{{8,}})["\']',
+                        file_content,
+                    ))
+            is_vuln_in_orig = has_conn_cred or has_code_cred or has_snip_var
+        else:
+            is_vuln_in_orig = is_literal_present
         if not is_missing_heuristic and (is_comment or not is_vuln_in_orig):
             return FixProposal(
                 explanation=f"Finding '{finding.finding_id}' ({finding.rule_id}) is verified as already remediated in '{finding.file_path}'.",
@@ -162,16 +240,16 @@ class CloudLLMClient:
         try:
             if self.provider in ("ollama", "local"):
                 raw_response = self._call_ollama(user_prompt)
-                return self._parse_response(raw_response)
+                return self._parse_response(raw_response, original_file_content=file_content)
             elif self.provider == "gemini":
                 raw_response = self._call_gemini(user_prompt)
-                return self._parse_response(raw_response)
+                return self._parse_response(raw_response, original_file_content=file_content)
             elif self.provider == "openai":
                 raw_response = self._call_openai(user_prompt)
-                return self._parse_response(raw_response)
+                return self._parse_response(raw_response, original_file_content=file_content)
             elif self.provider == "anthropic":
                 raw_response = self._call_anthropic(user_prompt)
-                return self._parse_response(raw_response)
+                return self._parse_response(raw_response, original_file_content=file_content)
             elif self.provider in ("mock", "offline", "auto-fallback"):
                 return self._generate_deterministic_fix(finding, file_content)
             else:
@@ -186,10 +264,44 @@ class CloudLLMClient:
                 return self._generate_deterministic_fix(finding, file_content)
             raise
 
-    @staticmethod
-    def _build_user_prompt(
-        finding: Finding, file_content: str, numbered_context: str
+    @classmethod
+    def _compress_source_context(
+        cls, file_content: str, target_line: int, head_lines: int = 25, window_lines: int = 35
     ) -> str:
+        """
+        Compresses large source files to minimize LLM reading/prefill time.
+        Preserves the file header (imports, namespaces) and a focused window around the vulnerable line,
+        omitting hundreds of unrelated lines. Returns full content unchanged if <= 80 lines.
+        """
+        lines = file_content.splitlines()
+        total = len(lines)
+        if total <= 80:
+            return file_content
+
+        target_idx = max(1, min(total, target_line))
+        win_start = max(1, target_idx - window_lines)
+        win_end = min(total, target_idx + window_lines)
+
+        output_parts: List[str] = []
+        if win_start > head_lines + 5:
+            output_parts.extend(lines[:head_lines])
+            omitted = win_start - head_lines - 1
+            output_parts.append(f"\n// ... [Omitted {omitted} lines of unrelated methods to compress context] ...\n")
+            output_parts.extend(lines[win_start - 1 : win_end])
+        else:
+            output_parts.extend(lines[:win_end])
+
+        if win_end < total:
+            omitted_tail = total - win_end
+            output_parts.append(f"\n// ... [Omitted {omitted_tail} lines of remaining code to compress context] ...\n")
+
+        return "\n".join(output_parts)
+
+    @classmethod
+    def _build_user_prompt(
+        cls, finding: Finding, file_content: str, numbered_context: str
+    ) -> str:
+        compressed_content = cls._compress_source_context(file_content, finding.line_number)
         return f"""Fix the following security finding in the source file.
 
 ### Finding Metadata
@@ -207,12 +319,14 @@ class CloudLLMClient:
 {numbered_context}
 ```
 
-### Complete Original Source File
+### Relevant Source Code (Compressed Context)
 ```
-{file_content}
+{compressed_content}
 ```
 
-Return the JSON object containing `explanation`, `remediation_summary`, `confidence`, and `fixed_file_content`."""
+Return the JSON object containing `explanation`, `remediation_summary`, `confidence`, and either:
+1. `original_snippet` and `replacement_snippet` (fast surgical patch of the vulnerable lines), OR
+2. `fixed_file_content` (the complete remediated file content)."""
 
     def _call_openai(self, user_prompt: str) -> str:
         if not self.api_key:
@@ -308,15 +422,21 @@ Return the JSON object containing `explanation`, `remediation_summary`, `confide
 
         # Native Ollama /api/chat with format="json"
         url = f"{base}/api/chat"
+        num_ctx = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
+        keep_alive = os.getenv("OLLAMA_KEEP_ALIVE", "30m")
         payload = {
             "model": self.model,
             "stream": False,
             "format": "json",
+            "keep_alive": keep_alive,
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
             ],
-            "options": {"temperature": 0.1},
+            "options": {
+                "temperature": 0.1,
+                "num_ctx": num_ctx,
+            },
         }
         headers = {"Content-Type": "application/json"}
         if self.api_key:
@@ -329,7 +449,7 @@ Return the JSON object containing `explanation`, `remediation_summary`, `confide
     ) -> Dict[str, Any]:
         """Executes _http_post with fast cancellation polling if cancel_check is supplied."""
         if not self.cancel_check:
-            return self._http_post(url, payload, headers)
+            return self._http_post(url, payload, headers, timeout=self.timeout)
 
         result_box: Dict[str, Any] = {}
         error_box: Dict[str, BaseException] = {}
@@ -337,7 +457,7 @@ Return the JSON object containing `explanation`, `remediation_summary`, `confide
 
         def _worker() -> None:
             try:
-                result_box["data"] = self._http_post(url, payload, headers)
+                result_box["data"] = self._http_post(url, payload, headers, timeout=self.timeout)
             except BaseException as exc:
                 error_box["err"] = exc
             finally:
@@ -354,11 +474,11 @@ Return the JSON object containing `explanation`, `remediation_summary`, `confide
 
     @staticmethod
     def _http_post(
-        url: str, payload: Dict[str, Any], headers: Dict[str, str]
+        url: str, payload: Dict[str, Any], headers: Dict[str, str], timeout: Optional[int] = None
     ) -> Dict[str, Any]:
         """POST JSON payload with exponential backoff retry on transient HTTP 429/5xx errors."""
         encoded = json.dumps(payload).encode("utf-8")
-        timeout = int(os.getenv("LLM_TIMEOUT", "12"))
+        eff_timeout = int(timeout or os.getenv("LLM_TIMEOUT", "180"))
         max_retries = max(0, int(os.getenv("LLM_MAX_RETRIES", "2")))
         base_backoff = float(os.getenv("LLM_RETRY_BACKOFF_SEC", "0.5"))
         retryable_codes = {429, 502, 503, 504}
@@ -371,7 +491,7 @@ Return the JSON object containing `explanation`, `remediation_summary`, `confide
                 method="POST",
             )
             try:
-                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                with urllib.request.urlopen(req, timeout=eff_timeout) as resp:
                     return json.loads(resp.read().decode("utf-8"))
             except urllib.error.HTTPError as exc:
                 try:
@@ -393,8 +513,10 @@ Return the JSON object containing `explanation`, `remediation_summary`, `confide
             except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
                 raise RuntimeError(f"Network error calling LLM API: {exc}") from exc
 
-    @staticmethod
-    def _parse_response(raw_text: str) -> FixProposal:
+    @classmethod
+    def _parse_response(
+        cls, raw_text: str, original_file_content: Optional[str] = None
+    ) -> FixProposal:
         cleaned = raw_text.strip()
         # Robust JSON extraction: check for markdown code blocks or outermost braces
         fence_match = re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", cleaned)
@@ -407,17 +529,28 @@ Return the JSON object containing `explanation`, `remediation_summary`, `confide
                 cleaned = cleaned[first_brace : last_brace + 1].strip()
 
         data = json.loads(cleaned)
-        fixed_content = data.get("fixed_file_content", "")
-        # Strip enclosing markdown code fences if LLM wrapped code inside fences
-        clean_fixed = fixed_content.strip()
-        if clean_fixed.startswith("```"):
-            fence_m = re.match(r"^```[a-zA-Z0-9_\-]*\s*\n([\s\S]*?)\n```\s*$", clean_fixed)
-            if fence_m:
-                clean_fixed = fence_m.group(1)
-            else:
-                lines = [l for l in clean_fixed.splitlines() if not l.strip().startswith("```")]
-                clean_fixed = "\n".join(lines)
-            fixed_content = clean_fixed
+
+        # 1. Fast surgical snippet replacement if provided
+        fixed_content = ""
+        orig_snip = data.get("original_snippet")
+        repl_snip = data.get("replacement_snippet")
+        if original_file_content and orig_snip and repl_snip is not None:
+            patched = _apply_snippet_replacement(original_file_content, str(orig_snip), str(repl_snip))
+            if patched:
+                fixed_content = patched
+
+        # 2. Fall back to full fixed_file_content if surgical replacement not provided
+        if not fixed_content:
+            fixed_content = data.get("fixed_file_content", "")
+            clean_fixed = fixed_content.strip()
+            if clean_fixed.startswith("```"):
+                fence_m = re.match(r"^```[a-zA-Z0-9_\-]*\s*\n([\s\S]*?)\n```\s*$", clean_fixed)
+                if fence_m:
+                    clean_fixed = fence_m.group(1)
+                else:
+                    lines = [l for l in clean_fixed.splitlines() if not l.strip().startswith("```")]
+                    clean_fixed = "\n".join(lines)
+                fixed_content = clean_fixed
 
         return FixProposal(
             explanation=data.get("explanation", "Remediated security finding."),
@@ -434,7 +567,7 @@ Return the JSON object containing `explanation`, `remediation_summary`, `confide
     ) -> FixProposal:
         """
         Built-in C# SQL Injection, ASP.NET Core Middleware, and Config remediator
-        used when running in offline/mock mode (or when no Cloud API key is set yet).
+        used when running in offline/mock mode (or when no local AI model is available).
         """
         rule_lower = finding.rule_id.lower()
 
@@ -713,9 +846,10 @@ Return the JSON object containing `explanation`, `remediation_summary`, `confide
                         modified = True
 
                 # 5b. Fix AllowedHosts
-                if cfg_data.get("AllowedHosts") == "*":
-                    cfg_data["AllowedHosts"] = "localhost;*.airgap.internal"
-                    modified = True
+                for ah_key in ("AllowedHosts", "allowedHosts", "ALLOWEDHOSTS"):
+                    if ah_key in cfg_data and isinstance(cfg_data[ah_key], str) and "*" in cfg_data[ah_key]:
+                        cfg_data[ah_key] = "localhost;*.airgap.internal"
+                        modified = True
 
                 # 5c. Fix ConnectionStrings passwords
                 if isinstance(cfg_data.get("ConnectionStrings"), dict):
@@ -767,6 +901,28 @@ Return the JSON object containing `explanation`, `remediation_summary`, `confide
             except Exception as ex:
                 logger.debug("Failed deterministic JSON config fix: %s", ex)
 
+            # Fallback for AllowedHosts wildcard if json.loads failed (e.g. comments in JSON) or format differed
+            if (
+                "allowed-hosts" in rule_lower
+                or "allowedhosts" in rule_lower
+                or "aspnet.config.allowed-hosts" in rule_lower
+            ) and re.search(r'\"(?i:AllowedHosts)\"\s*:\s*\"[^\"]*\*\"', file_content):
+                new_content = re.sub(
+                    r'\"(?i:AllowedHosts)\"\s*:\s*\"[^\"]*\*\"',
+                    '"AllowedHosts": "localhost;*.airgap.internal"',
+                    file_content,
+                )
+                if new_content.strip() != file_content.strip():
+                    return FixProposal(
+                        explanation=(
+                            f"Restricted wildcard AllowedHosts in `{Path(finding.file_path).name}` to approved "
+                            "internal air-gap domains (CWE-16)."
+                        ),
+                        remediation_summary=f"Hardened AllowedHosts from wildcard '*' to approved internal endpoints in {Path(finding.file_path).name}.",
+                        confidence="HIGH",
+                        fixed_file_content=new_content,
+                    )
+
         # 6. Air-Gap External Outbound Network Egress (CWE-918 / airgap-external-egress)
         if (
             "airgap" in rule_lower
@@ -817,9 +973,108 @@ Return the JSON object containing `explanation`, `remediation_summary`, `confide
                     fixed_file_content=new_content,
                 )
 
+        # 7. Hardcoded Secrets and Credentials in Source Code (CWE-798 / csharp.secret.hardcoded-credential / airgap.generic.secrets.hardcoded-credentials)
+        if (
+            "secret" in rule_lower
+            or "credential" in rule_lower
+            or getattr(finding, "cwe_id", None) == "CWE-798"
+            or "***redacted***" in (finding.code_snippet or "").lower()
+        ):
+            new_content = file_content
+            replaced = False
+
+            # Extract variable name from snippet if available
+            snip_clean = (finding.code_snippet or "").strip()
+            target_var = None
+            snip_m = re.search(
+                r'(?i)\b(?:string|var|const|let)\s+(?P<var>[a-zA-Z0-9_]+)\s*[:=]|(?P<var2>[a-zA-Z0-9_]*(?:password|pwd|secret|apiKey|api_key|token|privateKey|jwtSecret|bearer)[a-zA-Z0-9_]*)\s*[:=]',
+                snip_clean,
+            )
+            if snip_m:
+                cand = snip_m.group("var") or snip_m.group("var2")
+                if cand and cand.lower() not in ("string", "var", "const", "let"):
+                    target_var = cand
+
+            # 7a. C# const / static readonly / field declaration
+            p1 = re.compile(
+                r'(?P<indent>[ \t]*)(?P<mods>(?:(?:public|private|internal|protected|static|readonly)\s+)*)(?P<const>const\s+)?(?P<type>string|var)\s+(?P<var>[a-zA-Z0-9_]+)\s*=\s*["\'](?P<val>[^"\'\r\n]{8,})["\'](?P<semi>;)',
+                re.IGNORECASE,
+            )
+            def _repl_field(m: re.Match) -> str:
+                nonlocal replaced
+                v = m.group("var")
+                is_secret_name = any(k in v.lower() for k in ("secret", "password", "pwd", "token", "key", "credential", "apikey", "jwt"))
+                if target_var:
+                    if v.lower() != target_var.lower():
+                        return m.group(0)
+                elif not is_secret_name:
+                    return m.group(0)
+
+                indent = m.group("indent")
+                mods = m.group("mods") or "public "
+                if m.group("const"):
+                    mods = mods.replace("const", "").strip()
+                    if "static" not in mods:
+                        mods = f"{mods} static".strip()
+                    if "readonly" not in mods:
+                        mods = f"{mods} readonly".strip()
+                    mods = f"{mods} "
+                env_name = re.sub(r'[^a-zA-Z0-9_]', '_', v).upper()
+                replaced = True
+                return f'{indent}{mods}string {v} = Environment.GetEnvironmentVariable("{env_name}") ?? "placeholder-{v.lower()}-token";'
+
+            new_content = p1.sub(_repl_field, new_content)
+
+            # 7b. Object initializer or property assignment (e.g. ApiKey = "xoxb-...")
+            p2 = re.compile(
+                r'(?P<indent>[ \t]*)(?P<prop>[a-zA-Z0-9_]+)\s*=\s*["\'](?P<val>[^"\'\r\n]{8,})["\'](?P<comma>[,;])',
+                re.IGNORECASE,
+            )
+            def _repl_prop(m: re.Match) -> str:
+                nonlocal replaced
+                prop = m.group("prop")
+                is_secret_name = any(k in prop.lower() for k in ("secret", "password", "pwd", "token", "key", "credential", "apikey", "jwt"))
+                if target_var:
+                    if prop.lower() != target_var.lower():
+                        return m.group(0)
+                elif not is_secret_name:
+                    return m.group(0)
+
+                indent = m.group("indent")
+                comma = m.group("comma")
+                env_name = re.sub(r'[^a-zA-Z0-9_]', '_', prop).upper()
+                replaced = True
+                return f'{indent}{prop} = Environment.GetEnvironmentVariable("{env_name}") ?? "placeholder-{prop.lower()}-token"{comma}'
+
+            new_content = p2.sub(_repl_prop, new_content)
+
+            # 7c. Python secret assignment (e.g. API_KEY = "...")
+            if finding.file_path.lower().endswith(".py"):
+                p3 = re.compile(
+                    r'(?P<indent>[ \t]*)(?P<var>[a-zA-Z0-9_]*(?:PASSWORD|PWD|SECRET|API_KEY|TOKEN|KEY|CREDENTIAL)[a-zA-Z0-9_]*)\s*=\s*["\'](?P<val>[^"\'\r\n]{8,})["\']',
+                    re.IGNORECASE,
+                )
+                def _repl_py(m: re.Match) -> str:
+                    nonlocal replaced
+                    v = m.group("var")
+                    indent = m.group("indent")
+                    replaced = True
+                    return f'{indent}{v} = os.getenv("{v.upper()}", "placeholder-{v.lower()}-token")'
+                new_content = p3.sub(_repl_py, new_content)
+
+            if replaced and new_content.strip() != file_content.strip():
+                return FixProposal(
+                    explanation=(
+                        f"Remediated hardcoded credential in `{finding.file_path}` (CWE-798). "
+                        "Replaced plaintext secret with environment variable lookup and secure fallback."
+                    ),
+                    remediation_summary=f"Replaced hardcoded credential with environment variable lookup in {finding.file_path}.",
+                    confidence="HIGH",
+                    fixed_file_content=new_content,
+                )
+
         raise RuntimeError(
-            "No Cloud API key configured (set GEMINI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY) "
-            f"and rule '{finding.rule_id}' has no offline fallback."
+            f"No local AI model available (ensure Ollama is running) and rule '{finding.rule_id}' has no offline fallback."
         )
 
 
@@ -1084,3 +1339,177 @@ def discover_local_llm_models(
         "default_model": default_model,
         "error": error_msg,
     }
+
+
+_PRELOAD_LOCK = threading.Lock()
+_INFLIGHT_PRELOADS: set = set()
+
+
+def preload_local_llm_model(
+    provider: Optional[str] = "ollama",
+    model: Optional[str] = None,
+    base_url: Optional[str] = None,
+    keep_alive: Optional[str] = None,
+    timeout: float = 120.0,
+) -> Dict[str, Any]:
+    """
+    Loads the selected local LLM model into memory (RAM/VRAM) immediately so it is hot
+    when remediation begins.
+
+    - Native Ollama: POST {base_url}/api/generate with an empty prompt and keep_alive
+      (official Ollama warm-load API that loads weights + KV-cache without generating tokens).
+    - OpenAI-compatible local server (/v1): minimal max_tokens=1 chat completion warm-up.
+    """
+    prov = (provider or os.getenv("LLM_PROVIDER") or "ollama").strip().lower()
+    if prov not in ("ollama", "local"):
+        return {
+            "loaded": False,
+            "skipped": True,
+            "provider": prov,
+            "model": model or "",
+            "reason": f"Provider '{prov}' does not require local memory preloading.",
+        }
+
+    eff_model = (
+        (model or "").strip()
+        or os.getenv("LLM_MODEL")
+        or CloudLLMClient._default_model(prov)
+    )
+    eff_keep_alive = keep_alive or os.getenv("OLLAMA_KEEP_ALIVE", "30m")
+    num_ctx = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
+
+    if prov == "local" or (base_url and base_url.strip().rstrip("/").endswith("/v1")):
+        eff_base = (
+            (base_url or "").strip()
+            or os.getenv("LOCAL_LLM_URL")
+            or ("http://localhost:1234/v1" if prov == "local" else "http://127.0.0.1:11434/v1")
+        ).rstrip("/")
+        url = f"{eff_base}/chat/completions"
+        payload: Dict[str, Any] = {
+            "model": eff_model,
+            "messages": [{"role": "user", "content": "ready"}],
+            "max_tokens": 1,
+            "temperature": 0.0,
+        }
+    else:
+        eff_base = _normalize_ollama_root(base_url)
+        url = f"{eff_base}/api/generate"
+        payload = {
+            "model": eff_model,
+            "prompt": "",
+            "stream": False,
+            "keep_alive": eff_keep_alive,
+            "options": {
+                "num_ctx": num_ctx,
+            },
+        }
+
+    headers = {"Content-Type": "application/json"}
+    api_key = os.getenv("OLLAMA_API_KEY") or os.getenv("LLM_API_KEY")
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    started = time.monotonic()
+    try:
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            resp.read()
+        elapsed_ms = round((time.monotonic() - started) * 1000.0, 1)
+        logger.info(
+            "Preloaded local LLM model '%s' into memory via %s in %.1fms (keep_alive=%s, num_ctx=%d)",
+            eff_model,
+            eff_base,
+            elapsed_ms,
+            eff_keep_alive,
+            num_ctx,
+        )
+        return {
+            "loaded": True,
+            "provider": prov,
+            "model": eff_model,
+            "base_url": eff_base,
+            "keep_alive": eff_keep_alive,
+            "num_ctx": num_ctx,
+            "elapsed_ms": elapsed_ms,
+            "error": None,
+        }
+    except Exception as exc:
+        elapsed_ms = round((time.monotonic() - started) * 1000.0, 1)
+        logger.warning(
+            "Could not preload local LLM model '%s' via %s (%s)",
+            eff_model,
+            eff_base,
+            exc,
+        )
+        return {
+            "loaded": False,
+            "provider": prov,
+            "model": eff_model,
+            "base_url": eff_base,
+            "keep_alive": eff_keep_alive,
+            "num_ctx": num_ctx,
+            "elapsed_ms": elapsed_ms,
+            "error": str(exc),
+        }
+
+
+def preload_local_llm_model_async(
+    provider: Optional[str] = "ollama",
+    model: Optional[str] = None,
+    base_url: Optional[str] = None,
+    keep_alive: Optional[str] = None,
+    timeout: float = 120.0,
+    on_complete: Optional[Callable[[Dict[str, Any]], None]] = None,
+) -> Optional[threading.Thread]:
+    """
+    Starts loading the selected local LLM model into memory on a background daemon thread
+    so process startup (git prepare, build, scan) proceeds in parallel while weights load.
+    Deduplicates concurrent in-flight preload requests for the exact same target model.
+    """
+    prov = (provider or os.getenv("LLM_PROVIDER") or "ollama").strip().lower()
+    if prov not in ("ollama", "local"):
+        return None
+
+    eff_model = (
+        (model or "").strip()
+        or os.getenv("LLM_MODEL")
+        or CloudLLMClient._default_model(prov)
+    )
+    eff_base = (base_url or "").strip().rstrip("/")
+    key = (prov, eff_model, eff_base)
+
+    with _PRELOAD_LOCK:
+        if key in _INFLIGHT_PRELOADS:
+            return None
+        _INFLIGHT_PRELOADS.add(key)
+
+    def _worker() -> None:
+        try:
+            result = preload_local_llm_model(
+                provider=prov,
+                model=eff_model,
+                base_url=eff_base or None,
+                keep_alive=keep_alive,
+                timeout=timeout,
+            )
+            if on_complete:
+                try:
+                    on_complete(result)
+                except Exception:
+                    pass
+        finally:
+            with _PRELOAD_LOCK:
+                _INFLIGHT_PRELOADS.discard(key)
+
+    t = threading.Thread(
+        target=_worker,
+        name=f"llm-preload-{eff_model}",
+        daemon=True,
+    )
+    t.start()
+    return t

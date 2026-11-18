@@ -21,6 +21,7 @@ from .inspectors import (
     ProjectInspector,
 )
 from .external_scanners import SemgrepScanner, TrivyScanner
+from .deduplicator import is_duplicate_finding, severity_rank, deduplicate_findings
 from .models import (
     RawSecurityFinding,
     ScannerExecutionStatus,
@@ -46,19 +47,20 @@ class SecureScanPipeline:
     def _merge_findings(
         existing: List[RawSecurityFinding], incoming: List[RawSecurityFinding]
     ) -> List[RawSecurityFinding]:
-        """Merges findings from multiple engines without creating overlapping duplicate CWE reports."""
+        """Merges findings from multiple engines without creating overlapping duplicate reports."""
+        import dataclasses
         merged = list(existing)
         for inc in incoming:
-            inc_file = (inc.file_path or "").replace("\\", "/").lstrip("./")
-            inc_cwe = (inc.cwe_id or "").strip().upper()
             is_dup = False
-            for cur in merged:
-                cur_file = (cur.file_path or "").replace("\\", "/").lstrip("./")
-                cur_cwe = (cur.cwe_id or "").strip().upper()
-                if cur_file == inc_file and cur_cwe and inc_cwe and cur_cwe == inc_cwe:
-                    if inc.line_start <= (cur.line_end + 2) and inc.line_end >= (cur.line_start - 2):
-                        is_dup = True
-                        break
+            for idx, cur in enumerate(merged):
+                if is_duplicate_finding(cur, inc):
+                    is_dup = True
+                    if severity_rank(inc.severity) > severity_rank(cur.severity):
+                        try:
+                            merged[idx] = dataclasses.replace(cur, severity=inc.severity)
+                        except Exception:
+                            pass
+                    break
             if not is_dup:
                 merged.append(inc)
         return merged

@@ -219,6 +219,7 @@ def _handle_fix(handler: Any, payload: Dict[str, Any], ws: Any) -> None:
     result["iterations_run"] = iteration
     result["max_iterations"] = max_iterations
     result["resolved_all"] = resolved_all
+    result["progress"] = remediator.get_progress()
 
     try:
         html_rep = remediator.render_html_report(workspace_path=str(ws_path))

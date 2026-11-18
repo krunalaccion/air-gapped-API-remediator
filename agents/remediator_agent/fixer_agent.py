@@ -75,8 +75,32 @@ class BugFixerAgent:
             clean_orig = re.sub(r'[\s\'\",;]+', '', original_content).lower()
 
             already_done = False
-            if "connectionstring" in finding.rule_id.lower() or ("cwe-798" in (finding.cwe_id or "").lower() and "appsettings" in finding.file_path.lower()) or "***redacted***" in clean_snip:
-                is_vuln_still_present = bool(re.search(r'(?i)\b(password|pwd)\s*=\s*[^;]+', original_content))
+            is_secret_finding = (
+                "connectionstring" in finding.rule_id.lower()
+                or "cwe-798" in (finding.cwe_id or "").lower()
+                or "secret" in finding.rule_id.lower()
+                or "credential" in finding.rule_id.lower()
+                or "***redacted***" in clean_snip
+            )
+            if is_secret_finding:
+                has_conn_cred = bool(re.search(r'(?i)\b(password|pwd)\s*=\s*[^;]+', original_content))
+                has_code_cred = bool(re.search(
+                    r'(?i)\b(?:string|var|const|let)?\s*[a-zA-Z0-9_]*(?:password|pwd|secret|apiKey|api_key|token|privateKey|jwtSecret|bearer)[a-zA-Z0-9_]*\s*[:=]\s*(?:process\.env\.[A-Z0-9_]+\s*\|\|\s*)?["\']([^"\'\r\n]{8,})["\']',
+                    original_content,
+                ))
+                snip_var_m = re.search(
+                    r'(?i)\b(?:string|var|const|let)\s+(?P<var>[a-zA-Z0-9_]+)\s*[:=]|(?P<var2>[a-zA-Z0-9_]*(?:password|pwd|secret|apiKey|api_key|token|privateKey|jwtSecret|bearer)[a-zA-Z0-9_]*)\s*[:=]',
+                    finding.code_snippet or "",
+                )
+                has_snip_var = False
+                if snip_var_m:
+                    v_name = snip_var_m.group("var") or snip_var_m.group("var2")
+                    if v_name and v_name.lower() not in ("string", "var", "const", "let"):
+                        has_snip_var = bool(re.search(
+                            rf'(?i)\b{re.escape(v_name)}\s*[:=]\s*(?:process\.env\.[A-Z0-9_]+\s*\|\|\s*)?["\']([^"\'\r\n]{{8,}})["\']',
+                            original_content,
+                        ))
+                is_vuln_still_present = has_conn_cred or has_code_cred or has_snip_var
                 already_done = not is_vuln_still_present
             elif is_missing_heuristic:
                 if "hsts" in finding.rule_id.lower() or "hsts" in finding.finding_id.lower():
